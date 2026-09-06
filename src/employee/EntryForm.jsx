@@ -68,17 +68,22 @@ export default function EntryForm({ employee }) {
     if (validLines.length === 0) { setError('Add at least one job (0 hours is fine if you did no work)'); return }
     if (validLines.some(l => !l.description.trim())) { setError('Add a note describing what was done for each job'); return }
 
-    // This screen always inserts a brand-new sms_submissions row, but a day can
-    // already have one — texted in via SMS (even just "in 7" / photos with no
-    // job entries yet) or drafted from the day-card. Blindly inserting produces
-    // a second, disconnected row for the same day in SMS Review (seen in
-    // production 2026-09-06: an empty SMS-texted row sat alongside a real
-    // mobile-app one for the same date). Block instead of silently duplicating —
-    // the day-card panel is where an existing day's entries get edited.
+    // This screen always inserted a brand-new sms_submissions row, but a day can
+    // already have one — most commonly a texted-in day that never got past
+    // "in 7" / lunch / job photos, with no actual job entries yet (seen in
+    // production 2026-09-06: Jim's SMS conversation for a day sat with
+    // entries:[] while this form created a second, disconnected row with his
+    // real hours). When that's the situation, there's nothing to lose by
+    // taking the existing row over outright. Only block when the existing row
+    // already has real entries in it — merging job hours automatically risks
+    // double-counting, so that case needs a human to edit the existing entry
+    // instead of this screen guessing how to combine them.
     const { data: existingSubs } = await supabase.schema('Cores').from('sms_submissions')
-      .select('id').eq('employee_id', employee.id).eq('work_date', workDate).neq('status', 'rejected').limit(1)
-    if (existingSubs && existingSubs.length > 0) {
-      setError(`${workDate} already has a submission (from a text or the home screen) — edit it there instead of logging it again here.`)
+      .select('*').eq('employee_id', employee.id).eq('work_date', workDate).neq('status', 'rejected')
+      .order('created_at', { ascending: false }).limit(1)
+    const existingSub = existingSubs?.[0] || null
+    if (existingSub && ((existingSub.entries || []).length > 0 || existingSub.is_day_off)) {
+      setError(`${workDate} already has a submission with entries (from a text or the home screen) — edit it there instead of logging it again here.`)
       return
     }
 
@@ -110,24 +115,33 @@ export default function EntryForm({ employee }) {
     const { calculated_time_out, delta_minutes } = computeSubmissionTiming(timeIn, timeOut, lunchMinutes, totalHours)
 
     // A texted-in day keeps its full back-and-forth in raw_messages, rendered
-    // as "Conversation" in SMS Review — an app-logged day had nothing there
-    // at all. One snapshot line at creation time here, since this is a
-    // single create (not an autosave loop needing the session-close
-    // handling EmployeeHome.jsx's equivalent uses).
+    // as "Conversation" in SMS Review. This form only ever appends one snapshot
+    // line (not an autosave loop needing the session-close handling
+    // EmployeeHome.jsx's equivalent uses) — onto the existing conversation when
+    // taking over a texted-in row, or as the whole history for a fresh one.
     const summaryParts = [`In ${timeIn || '—'}`, `Out ${timeOut || '—'}`, `Lunch ${lunchMinutes === '' ? 0 : lunchMinutes}min`]
     if (perDiemLocation.trim()) summaryParts.push(`PD: ${perDiemLocation.trim()}`)
     for (const e of entries) summaryParts.push(`Job# ${e.job_number}: ${e.hours}hrs${e.description ? ' — ' + e.description : ''}`)
-    const raw_messages = [{ ts: new Date().toISOString(), text: `Logged via app: ${summaryParts.join(' · ')}`, direction: 'in' }]
+    const newMessage = { ts: new Date().toISOString(), text: `Logged via app: ${summaryParts.join(' · ')}`, direction: 'in' }
 
-    const { error: insertError } = await supabase.schema('Cores').from('sms_submissions').insert({
-      from_phone: 'mobile-app', employee_id: employee.id, work_date: workDate,
+    const record = {
       time_in: timeIn || null, stated_time_out: timeOut || null,
       lunch_minutes: lunchMinutes === '' ? null : Number(lunchMinutes),
       per_diem_location: perDiemLocation.trim() || 'none',
       entries, supplies, status: 'submitted',
-      calculated_time_out, delta_minutes, raw_messages,
-    })
-    if (insertError) { setError(insertError.message); setSaving(false); return }
+      calculated_time_out, delta_minutes,
+    }
+
+    // An existing empty (entries:[]) row for the day already has its own texted
+    // conversation — keep it instead of overwriting, so the office still sees
+    // what was texted in alongside the app-entered hours.
+    const { error: saveError } = existingSub
+      ? await supabase.schema('Cores').from('sms_submissions')
+          .update({ ...record, raw_messages: [...(existingSub.raw_messages || []), newMessage] })
+          .eq('id', existingSub.id)
+      : await supabase.schema('Cores').from('sms_submissions')
+          .insert({ ...record, from_phone: 'mobile-app', employee_id: employee.id, work_date: workDate, raw_messages: [newMessage] })
+    if (saveError) { setError(saveError.message); setSaving(false); return }
 
     setSaving(false)
     navigate('..')
