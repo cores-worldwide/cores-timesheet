@@ -67,6 +67,21 @@ export default function EntryForm({ employee }) {
     const validLines = jobLines.filter(l => l.job_id && l.hours !== '' && Number(l.hours) >= 0)
     if (validLines.length === 0) { setError('Add at least one job (0 hours is fine if you did no work)'); return }
     if (validLines.some(l => !l.description.trim())) { setError('Add a note describing what was done for each job'); return }
+
+    // This screen always inserts a brand-new sms_submissions row, but a day can
+    // already have one — texted in via SMS (even just "in 7" / photos with no
+    // job entries yet) or drafted from the day-card. Blindly inserting produces
+    // a second, disconnected row for the same day in SMS Review (seen in
+    // production 2026-09-06: an empty SMS-texted row sat alongside a real
+    // mobile-app one for the same date). Block instead of silently duplicating —
+    // the day-card panel is where an existing day's entries get edited.
+    const { data: existingSubs } = await supabase.schema('Cores').from('sms_submissions')
+      .select('id').eq('employee_id', employee.id).eq('work_date', workDate).neq('status', 'rejected').limit(1)
+    if (existingSubs && existingSubs.length > 0) {
+      setError(`${workDate} already has a submission (from a text or the home screen) — edit it there instead of logging it again here.`)
+      return
+    }
+
     setSaving(true); setError('')
 
     const jobNumberFor = (jobId) => jobs.find(j => j.id === jobId)?.job_number || ''
