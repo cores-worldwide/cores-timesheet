@@ -709,6 +709,29 @@ export default function EmployeeHome({ employee }) {
                     Supplies: {daySub.supplies.map(s => `${s.supply_name} ×${s.quantity}`).join(', ')}
                   </div>
                 )}
+                {daySub.from_phone !== 'mobile-app' && (daySub.raw_messages || []).length > 0 && (
+                  // Everything a guy texts in should stay visible to him, even when it
+                  // didn't turn into a job entry or note (skipped/garbled parses, a
+                  // "no job entries" save, etc.) — same conversation Niki sees in SMS
+                  // Review, so nothing he sent looks like it just vanished.
+                  <details style={{ marginTop: '0.4rem' }}>
+                    <summary style={{ cursor: 'pointer', color: '#888', fontSize: '0.82rem' }}>
+                      What I texted ({daySub.raw_messages.length})
+                    </summary>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', marginTop: '0.4rem' }}>
+                      {daySub.raw_messages.map((m, i) => (
+                        <div key={i} style={{
+                          alignSelf: m.direction === 'in' ? 'flex-start' : 'flex-end',
+                          background: m.direction === 'in' ? '#f0f0f0' : '#ddeeff',
+                          borderRadius: 8, padding: '0.35rem 0.65rem',
+                          maxWidth: '90%', fontSize: '0.8rem', whiteSpace: 'pre-wrap',
+                        }}>
+                          {m.text}
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                )}
                 {daySub.admin_note && (
                   <div className="emp-hint" style={{ whiteSpace: 'pre-line' }}>
                     Note: {daySub.admin_note}
