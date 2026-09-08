@@ -432,7 +432,7 @@ export default function AdminPanel() {
             📖 Tech Manual
           </button>
           <a href="https://claude.ai/code/artifact/bcefda60-a4b4-42b8-ad13-fe72a9c853f5" target="_blank" rel="noopener noreferrer" style={{ fontSize: '0.85rem', color: '#0066cc', textDecoration: 'none' }}>
-            📋 Cheat Sheet
+            📋 Text Timesheets Instructions
           </a>
         </div>
       </div>
