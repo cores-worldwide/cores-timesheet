@@ -431,9 +431,9 @@ export default function AdminPanel() {
           <button onClick={() => openDoc('Tech Manual', `${import.meta.env.BASE_URL}SMS_USER_MANUAL.md`)} style={{ fontSize: '0.9rem', color: '#0066cc', fontWeight: 600, cursor: 'pointer', background: 'none', border: 'none', padding: 0 }}>
             📖 Tech Manual
           </button>
-          <button onClick={() => openDoc('Cheat Sheet', `${import.meta.env.BASE_URL}SMS_CHEAT_SHEET.md`)} style={{ fontSize: '0.85rem', color: '#0066cc', cursor: 'pointer', background: 'none', border: 'none', padding: 0 }}>
+          <a href="https://claude.ai/code/artifact/bcefda60-a4b4-42b8-ad13-fe72a9c853f5" target="_blank" rel="noopener noreferrer" style={{ fontSize: '0.85rem', color: '#0066cc', textDecoration: 'none' }}>
             📋 Cheat Sheet
-          </button>
+          </a>
         </div>
       </div>
 
