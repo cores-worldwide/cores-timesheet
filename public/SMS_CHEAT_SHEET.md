@@ -44,7 +44,7 @@ Text **DAY OFF** — marks today as off so it doesn't show up as a missed report
 
 ## Want to check your week on your phone?
 
-Text **MOBILE** for the link to your mobile timesheet, or go straight there and log in with your phone number.
+Text **APP** for the link to your mobile timesheet, or go straight there and log in with your phone number.
 
 ## Full details
 

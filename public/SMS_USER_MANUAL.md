@@ -121,7 +121,7 @@ Add a day to check another one:
 
 ## Want to check your week on your phone?
 
-Text **MOBILE** any time for the link to your mobile timesheet — log in with your phone number to see your hours, fix anything you added yourself, or add a job you forgot to mention. First time in, you'll set a 4-digit PIN after a one-time code gets texted to you.
+Text **APP** any time for the link to your mobile timesheet — log in with your phone number to see your hours, fix anything you added yourself, or add a job you forgot to mention. First time in, you'll set a 4-digit PIN after a one-time code gets texted to you.
 
 ## Need someone's number?
 
