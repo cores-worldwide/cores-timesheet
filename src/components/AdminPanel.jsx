@@ -94,6 +94,7 @@ export default function AdminPanel() {
   const [engineSearch, setEngineSearch] = useState('')
   const [customerSearch, setCustomerSearch] = useState('')
   const [vesselSearch, setVesselSearch] = useState('')
+  const [empSearch, setEmpSearch] = useState('')
   const [sortCol, setSortCol] = useState('job_number')
   const [sortDir, setSortDir] = useState('asc')
   const [expandedId, setExpandedId] = useState(null)
@@ -1014,7 +1015,18 @@ export default function AdminPanel() {
       {/* ── Employees ── */}
       {section === 'employees' && (
         <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1.25rem' }}>
+            <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+              <input
+                value={empSearch} onChange={e => setEmpSearch(e.target.value)}
+                placeholder="Search name, cell, email…"
+                style={{ ...inputStyle, flex: 1, maxWidth: '380px' }}
+              />
+              {empSearch && (
+                <button onClick={() => setEmpSearch('')} style={{ ...btnSecondary, fontSize: '0.82rem', padding: '0.35rem 0.7rem' }}>Clear</button>
+              )}
+              <button style={{ ...btnPrimary, marginLeft: 'auto' }} onClick={() => openModal('employee')}>+ New Employee</button>
+            </div>
             <div style={{ display: 'flex', gap: '0.4rem' }}>
               {['technician', 'office', 'all'].map(r => (
                 <button key={r} style={pill(empRoleFilter === r)} onClick={() => setEmpRoleFilter(r)}>
@@ -1028,7 +1040,6 @@ export default function AdminPanel() {
                 </button>
               ))}
             </div>
-            <button style={btnPrimary} onClick={() => openModal('employee')}>+ New Employee</button>
           </div>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
@@ -1046,6 +1057,11 @@ export default function AdminPanel() {
             <tbody>
               {employees
                 .filter(e => (empStatusFilter === 'all' || e.active) && (empRoleFilter === 'all' || e.role === empRoleFilter))
+                .filter(e => {
+                  const q = empSearch.trim().toLowerCase()
+                  if (!q) return true
+                  return [e.name, e.phone, e.whatsapp_phone, e.email].some(v => (v || '').toLowerCase().includes(q))
+                })
                 .map(e => {
                   const phone = e.phone ? e.phone.replace(/^(\d{3})(\d{3})(\d{4})$/, '($1) $2-$3') : null
                   const whatsapp = e.whatsapp_phone ? e.whatsapp_phone.replace(/^(\d{3})(\d{3})(\d{4})$/, '($1) $2-$3') : null

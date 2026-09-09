@@ -31,6 +31,11 @@ export default function SmsReview({ onApproved } = {}) {
   const [gearPhotos, setGearPhotos]   = useState([])
   const [filter, setFilter]           = useState('submitted')
   const [filterEmployeeIds, setFilterEmployeeIds] = useState([])
+  // Date range filter — leaving one side blank is the common case (Niki's
+  // usually just looking for one day): if only one of the two is set, it
+  // acts as a single-day filter rather than an open-ended range.
+  const [dateFrom, setDateFrom]       = useState('')
+  const [dateTo, setDateTo]           = useState('')
   const [sortBy, setSortBy]           = useState('recent')
   const [loading, setLoading]         = useState(true)
   const [expanded, setExpanded]       = useState({})
@@ -121,6 +126,12 @@ export default function SmsReview({ onApproved } = {}) {
   // entirely, since it never reaches 'submitted' on its own.
   const visible = submissions.filter(s => {
     if (filterEmployeeIds.length > 0 && !filterEmployeeIds.includes(s.employee_id)) return false
+    if (dateFrom || dateTo) {
+      // Only one side filled in means "that one day", not an open-ended range.
+      const from = dateFrom || dateTo
+      const to   = dateTo || dateFrom
+      if ((s.work_date || '') < from || (s.work_date || '') > to) return false
+    }
     if (filter === 'all') return true
     if (filter === 'submitted') return s.status === 'submitted' || s.status === 'collecting'
     return s.status === filter
@@ -746,6 +757,19 @@ export default function SmsReview({ onApproved } = {}) {
             selectedIds={filterEmployeeIds}
             onChange={setFilterEmployeeIds}
             placeholder="All employees" allLabel="All employees" minWidth={160} />
+          <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
+            title="Date (fill in just this one for a single day)"
+            style={{ padding: '0.3rem 0.5rem', border: '1px solid #ccc', borderRadius: 4, background: '#fff', fontSize: '0.85rem', marginLeft: '0.4rem' }} />
+          <span style={{ color: '#999', fontSize: '0.85rem' }}>–</span>
+          <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
+            title="Through (leave blank for a single day)"
+            style={{ padding: '0.3rem 0.5rem', border: '1px solid #ccc', borderRadius: 4, background: '#fff', fontSize: '0.85rem' }} />
+          {(dateFrom || dateTo) && (
+            <button onClick={() => { setDateFrom(''); setDateTo('') }}
+              style={{ padding: '0.3rem 0.6rem', border: '1px solid #ccc', borderRadius: 4, background: 'transparent', cursor: 'pointer', fontSize: '0.85rem' }}>
+              Clear
+            </button>
+          )}
           <select value={sortBy} onChange={e => setSortBy(e.target.value)}
             style={{ padding: '0.3rem 0.6rem', border: '1px solid #ccc', borderRadius: 4, background: '#fff', cursor: 'pointer', fontSize: '0.85rem', marginLeft: '0.4rem' }}>
             <option value="recent">Sort: Most recent</option>
