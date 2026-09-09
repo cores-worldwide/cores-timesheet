@@ -30,12 +30,12 @@ Reply HELP + a word above for details (e.g. "HELP jobs").
 // The tech-facing mobile self-service site — check your week, fix a self-added
 // entry, or add a job you forgot to mention. Kept as one constant since it's
 // sent back verbatim by both the APP command and HELP_TOPICS.app.
-const MOBILE_URL = 'https://jimjardine.github.io/cores-timesheet/#/my'
+const MOBILE_URL = 'https://cores-worldwide.github.io/cores-timesheet/#/my'
 
 // The main site (Job Reports / Admin dashboard) — password-gated, mostly
 // office use, but the phone number is shared by techs and office staff alike
 // so it gets a command too, same as APP.
-const MAIN_URL = 'https://jimjardine.github.io/cores-timesheet/'
+const MAIN_URL = 'https://cores-worldwide.github.io/cores-timesheet/'
 
 // Sent back verbatim when a tech texts TEMPLATE — kept in sync with the
 // "Copy-paste template" section of public/SMS_CHEAT_SHEET.md.
