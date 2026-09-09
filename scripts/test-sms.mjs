@@ -227,10 +227,10 @@ await scenario('non-numeric jobs phrasing not hijacked either', phone(46), [
 
 // 2b. MOBILE and APP both return the mobile site link
 await scenario('mobile link', phone(39), [
-  ['mobile', ['jimjardine.github.io/cores-timesheet']],
+  ['mobile', ['cores-worldwide.github.io/cores-timesheet']],
 ])
 await scenario('app link alias', phone(40), [
-  ['app', ['jimjardine.github.io/cores-timesheet']],
+  ['app', ['cores-worldwide.github.io/cores-timesheet']],
 ])
 
 // 3. All-in-one: jobs + times + lunch + PD in one message, one quiet ack back
