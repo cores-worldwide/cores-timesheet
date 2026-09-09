@@ -11,6 +11,7 @@ import MediaViewer from '../components/MediaViewer'
 import './employee.css'
 
 const blankDraftLine = () => ({ job_id: '', hours: '', description: '' })
+const blankSupplyLine = () => ({ job_number: '', supply_name: '', quantity: '1' })
 
 const toYMD = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 const todayYMD = () => toYMD(new Date())
@@ -51,6 +52,7 @@ export default function EmployeeHome({ employee }) {
   const [logFor, setLogFor] = useState(null)
   const [draftShift, setDraftShift] = useState({ time_in: '', time_out: '', lunch_minutes: '', per_diem_location: '' })
   const [draftLines, setDraftLines] = useState([blankDraftLine()])
+  const [supplyLines, setSupplyLines] = useState([blankSupplyLine()])
   const [savingLog, setSavingLog] = useState(false)
   // Keyed by work_date so an in-flight autosave for a day that's no longer
   // open (the tech already swiped to another day) can't get corrupted by
@@ -161,6 +163,9 @@ export default function EmployeeHome({ employee }) {
       per_diem_location: daySub?.per_diem_location && daySub.per_diem_location !== 'none' ? daySub.per_diem_location : '',
     })
     setDraftLines([blankDraftLine()])
+    setSupplyLines((daySub?.supplies || []).length > 0 ? daySub.supplies.map(s => ({
+      job_number: s.job_number || '', supply_name: s.supply_name || '', quantity: s.quantity != null ? String(s.quantity) : '1',
+    })) : [blankSupplyLine()])
     daySubIdsRef.current[ymd] = daySub?.id || null
     insertLocksRef.current[ymd] = null
     baseEntriesRef.current[ymd] = daySub?.entries || []
@@ -208,7 +213,7 @@ export default function EmployeeHome({ employee }) {
     const id = daySubIdsRef.current[ymd]
     if (!id) return
     const { data: sub } = await supabase.schema('Cores').from('sms_submissions')
-      .select('time_in, stated_time_out, lunch_minutes, per_diem_location, entries, raw_messages, status')
+      .select('time_in, stated_time_out, lunch_minutes, per_diem_location, entries, supplies, raw_messages, status')
       .eq('id', id).single()
     if (!sub) return
 
@@ -218,6 +223,7 @@ export default function EmployeeHome({ employee }) {
     if (sub.lunch_minutes != null) parts.push(`Lunch ${sub.lunch_minutes}min`)
     if (sub.per_diem_location && sub.per_diem_location !== 'none') parts.push(`PD: ${sub.per_diem_location}`)
     for (const e of sub.entries || []) parts.push(`Job# ${e.job_number}: ${e.hours}hrs${e.description ? ' — ' + e.description : ''}`)
+    for (const s of sub.supplies || []) parts.push(`Supply: ${s.supply_name} ×${s.quantity}${s.job_number ? ' (Job# ' + s.job_number + ')' : ''}`)
     if (parts.length === 0) return // nothing worth a snapshot
 
     const label = sub.status === 'submitted' ? 'Submitted via app' : 'Saved via app'
@@ -234,6 +240,7 @@ export default function EmployeeHome({ employee }) {
     if (logFor) logActivitySnapshot(logFor)
     setLogFor(null)
     setDraftLines([blankDraftLine()])
+    setSupplyLines([blankSupplyLine()])
     setPhotoFor(null)
     setPhotoJobId('')
   }
@@ -263,10 +270,18 @@ export default function EmployeeHome({ employee }) {
   // another day or leave the page mid-entry. linesOverride lets a handler
   // that just changed draftLines pass the freshly-computed array straight
   // through instead of reading back the (still-stale, pre-render) state.
-  async function autosaveLog(ymd, linesOverride) {
+  async function autosaveLog(ymd, linesOverride, suppliesOverride) {
     const lines = linesOverride ?? draftLines
     const validLines = lines.filter(l => l.job_id)
     const jobNumberFor = (jobId) => jobs.find(j => j.id === jobId)?.job_number || ''
+    const rawSupplies = suppliesOverride ?? supplyLines
+    const cleanedSupplies = rawSupplies
+      .filter(s => s.supply_name.trim())
+      .map(s => ({
+        job_number: s.job_number.trim(),
+        supply_name: s.supply_name.trim(),
+        quantity: Number(s.quantity) > 0 ? Number(s.quantity) : 1,
+      }))
 
     setSavingLog(true); setError('')
     try {
@@ -293,8 +308,8 @@ export default function EmployeeHome({ employee }) {
       const per_diem_location = draftShift.per_diem_location.trim() || 'none'
       const { calculated_time_out, delta_minutes } = computeSubmissionTiming(time_in, stated_time_out, lunch_minutes, totalHours)
 
-      // Nothing worth persisting yet — no shift time set, no per diem note, no job picked
-      if (!time_in && !stated_time_out && lunch_minutes == null && per_diem_location === 'none' && entries.length === 0) {
+      // Nothing worth persisting yet — no shift time set, no per diem note, no job picked, no supply logged
+      if (!time_in && !stated_time_out && lunch_minutes == null && per_diem_location === 'none' && entries.length === 0 && cleanedSupplies.length === 0) {
         setSavingLog(false)
         return
       }
@@ -308,7 +323,7 @@ export default function EmployeeHome({ employee }) {
       // too, on purpose — Niki shouldn't see a mid-edit day as ready to review
       // until the tech re-submits it.
       const { error: err } = await supabase.schema('Cores').from('sms_submissions')
-        .update({ time_in, stated_time_out, lunch_minutes, per_diem_location, entries, calculated_time_out, delta_minutes, status: 'draft', updated_at: new Date().toISOString() })
+        .update({ time_in, stated_time_out, lunch_minutes, per_diem_location, entries, supplies: cleanedSupplies, calculated_time_out, delta_minutes, status: 'draft', updated_at: new Date().toISOString() })
         .eq('id', id)
       if (err) { setError(err.message); setSavingLog(false); return }
       await load({ silent: true })
@@ -543,6 +558,48 @@ export default function EmployeeHome({ employee }) {
                       onClick={() => { setPhotoFor(ymd); setPhotoJobId(''); setError('') }}>+ Photo</button>
                   )}
                 </div>
+
+                {(() => {
+                  const jobNumberFor = (jobId) => jobs.find(j => j.id === jobId)?.job_number || ''
+                  const entryJobNumbers = [...new Set([
+                    ...(baseEntriesRef.current[ymd] || []).map(e => e.job_number),
+                    ...draftLines.filter(l => l.job_id).map(l => jobNumberFor(l.job_id)),
+                  ].filter(Boolean))]
+                  return (
+                    <div style={{ marginTop: '0.9rem' }}>
+                      <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#444' }}>Supplies used (optional)</label>
+                      {supplyLines.map((line, i) => (
+                        <div key={i} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginTop: '0.4rem' }}>
+                          <div className="emp-row-2" style={{ flex: 1 }}>
+                            <select value={line.job_number} onChange={e => setSupplyLines(rows => {
+                              const next = rows.map((r, idx) => idx === i ? { ...r, job_number: e.target.value } : r)
+                              autosaveLog(ymd, undefined, next)
+                              return next
+                            })}>
+                              <option value="">Job…</option>
+                              {entryJobNumbers.map(jn => <option key={jn} value={jn}>{jn}</option>)}
+                            </select>
+                            <div style={{ display: 'flex', gap: '0.4rem' }}>
+                              <input type="text" placeholder="Fill in supply name" value={line.supply_name}
+                                onChange={e => setSupplyLines(rows => rows.map((r, idx) => idx === i ? { ...r, supply_name: e.target.value } : r))}
+                                onBlur={() => autosaveLog(ymd)} style={{ flex: 1 }} />
+                              <input type="number" min="0" step="0.5" value={line.quantity}
+                                onChange={e => setSupplyLines(rows => rows.map((r, idx) => idx === i ? { ...r, quantity: e.target.value } : r))}
+                                onBlur={() => autosaveLog(ymd)} style={{ width: '4.5rem' }} />
+                            </div>
+                          </div>
+                          <button className="emp-remove-line" style={{ position: 'static' }} onClick={() => setSupplyLines(rows => {
+                            const next = rows.filter((_, idx) => idx !== i)
+                            autosaveLog(ymd, undefined, next)
+                            return next
+                          })}>Remove</button>
+                        </div>
+                      ))}
+                      <button className="emp-btn emp-btn-secondary emp-btn-small" style={{ marginTop: '0.5rem' }}
+                        onClick={() => setSupplyLines(rows => [...rows, blankSupplyLine()])}>+ Add supply</button>
+                    </div>
+                  )
+                })()}
 
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '0.6rem', marginTop: '0.9rem' }}>
                   <button className="emp-btn emp-btn-secondary" disabled={savingLog} onClick={closeLog}>Save Entry</button>
