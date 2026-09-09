@@ -1088,7 +1088,10 @@ export default function AdminDashboard() {
     const totalHours = dayEntries.reduce((s, e) => s + Number(e.hours), 0)
 
     // Most recent non-rejected submission — maybeSingle() errors if the employee
-    // has more than one row for the date (e.g. a rejected attempt plus the real one)
+    // has more than one row for the date (e.g. a rejected attempt plus the real one).
+    // is_stat_grant excluded: it never carries real shift times, and being
+    // system-generated it can out-date the real submission's updated_at,
+    // which would otherwise blank out the printed shift times for no reason.
     const [{ data: subRows }, { data: daySupplies }] = await Promise.all([
       supabase
         .schema('Cores').from('sms_submissions')
@@ -1096,6 +1099,7 @@ export default function AdminDashboard() {
         .eq('employee_id', emp.id)
         .eq('work_date', workDate)
         .neq('status', 'rejected')
+        .eq('is_stat_grant', false)
         .order('updated_at', { ascending: false })
         .limit(1),
       supabase

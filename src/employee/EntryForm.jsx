@@ -78,8 +78,12 @@ export default function EntryForm({ employee }) {
     // already has real entries in it — merging job hours automatically risks
     // double-counting, so that case needs a human to edit the existing entry
     // instead of this screen guessing how to combine them.
+    // is_stat_grant excluded — that's the office's separate auto stat-pay
+    // request for the day, not something to merge this real entry into (and
+    // its lone hours-only "entry" would otherwise look like a real submission
+    // already sitting there and block this save outright).
     const { data: existingSubs } = await supabase.schema('Cores').from('sms_submissions')
-      .select('*').eq('employee_id', employee.id).eq('work_date', workDate).neq('status', 'rejected')
+      .select('*').eq('employee_id', employee.id).eq('work_date', workDate).neq('status', 'rejected').eq('is_stat_grant', false)
       .order('created_at', { ascending: false }).limit(1)
     const existingSub = existingSubs?.[0] || null
     if (existingSub && ((existingSub.entries || []).length > 0 || existingSub.is_day_off)) {

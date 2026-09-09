@@ -1,0 +1,15 @@
+-- ensureStatPay() used to insert the auto-granted 8-hr stat-pay entry
+-- directly into timesheet_entries, bypassing Niki's SMS Review entirely.
+-- Because that insert never set entry_source, it defaulted to 'sms' (see
+-- 20260709000000_add_entry_confirmation.sql), which makes the Timesheets tab
+-- treat it as an approved SMS-sourced entry and route its only edit path
+-- through "Revert to Pending" — but with no source_submission_id to revert
+-- to, that's a dead end. Confirmed in production: all 11 auto stat-pay
+-- grants for the 2026-09-07 Labour Day pay week were stuck this way, not
+-- editable or deletable from the Timesheets tab.
+--
+-- Same fix already applied to day-off requests (20260903100000): represent
+-- the grant as a pending sms_submissions row instead, with approve() (in
+-- SmsReview.jsx) creating the real is_stat_pay timesheet_entries row —
+-- linked back via source_submission_id — only once Niki reviews it.
+ALTER TABLE "Cores".sms_submissions ADD COLUMN is_stat_grant boolean NOT NULL DEFAULT false;
