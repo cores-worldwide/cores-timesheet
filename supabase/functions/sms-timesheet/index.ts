@@ -1233,10 +1233,12 @@ Deno.serve(async (req: Request) => {
         .eq('from_phone', fromPhone).eq('work_date', tsDate).neq('status', 'rejected')
         .order('updated_at', { ascending: false }).limit(1)
       if (byPhone?.length) tsSub = byPhone[0]
+      // is_stat_grant excluded — "TS" is asking about what the tech submitted,
+      // not the office's separate stat-pay grant for the day.
       else if (employeeId) {
         const { data: byEmp } = await supabase
           .from('sms_submissions').select('*')
-          .eq('employee_id', employeeId).eq('work_date', tsDate).neq('status', 'rejected')
+          .eq('employee_id', employeeId).eq('work_date', tsDate).neq('status', 'rejected').eq('is_stat_grant', false)
           .order('updated_at', { ascending: false }).limit(1)
         if (byEmp?.length) tsSub = byEmp[0]
       }
@@ -1375,10 +1377,13 @@ Deno.serve(async (req: Request) => {
         .eq('from_phone', fromPhone).eq('work_date', rejectDate)
         .order('updated_at', { ascending: false }).limit(1)
       if (byPhone?.length) target = byPhone[0]
+      // is_stat_grant excluded — a tech didn't submit that placeholder and
+      // shouldn't be able to self-delete Niki's pending stat-pay grant with
+      // a generic "reject" text.
       else if (employeeId) {
         const { data: byEmp } = await supabase
           .from('sms_submissions').select('*')
-          .eq('employee_id', employeeId).eq('work_date', rejectDate)
+          .eq('employee_id', employeeId).eq('work_date', rejectDate).eq('is_stat_grant', false)
           .order('updated_at', { ascending: false }).limit(1)
         if (byEmp?.length) target = byEmp[0]
       }
@@ -1790,10 +1795,16 @@ Deno.serve(async (req: Request) => {
     // The employee-id fallback (different phone, same person — e.g. borrowed someone else's
     // phone) stays scoped to work_date: without that, two genuinely unrelated conversations that
     // happen to share the same "This is X" name on different days/phones would incorrectly merge.
+    // Excludes is_stat_grant rows — those are a system-generated placeholder
+    // (from_phone 'system-stat-grant', not the employee's real phone) waiting
+    // on Niki's approval, not an actual conversation to fold texted hours
+    // into. Without this, an employee with no other 'collecting'/'submitted'
+    // row for the day would have their real texted-in work silently merged
+    // into the stat-pay placeholder via this employee_id fallback.
     if (!submission && employeeId) {
       const { data: byEmp } = await supabase
         .from('sms_submissions').select('*')
-        .eq('employee_id', employeeId).eq('work_date', workDate).eq('status', 'collecting')
+        .eq('employee_id', employeeId).eq('work_date', workDate).eq('status', 'collecting').eq('is_stat_grant', false)
         .order('created_at', { ascending: false }).limit(1)
       if (byEmp?.length) submission = byEmp[0]
     }
@@ -1817,9 +1828,10 @@ Deno.serve(async (req: Request) => {
       if (byPhone?.length && (!employeeId || !byPhone[0].employee_id || byPhone[0].employee_id === employeeId)) {
         submission = byPhone[0]
       } else if (employeeId) {
+        // is_stat_grant excluded — same reasoning as the 'collecting' lookup above.
         const { data: byEmp } = await supabase
           .from('sms_submissions').select('*')
-          .eq('employee_id', employeeId).eq('work_date', workDate).eq('status', 'submitted')
+          .eq('employee_id', employeeId).eq('work_date', workDate).eq('status', 'submitted').eq('is_stat_grant', false)
           .order('created_at', { ascending: false }).limit(1)
         if (byEmp?.length) submission = byEmp[0]
       }

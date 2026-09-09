@@ -94,11 +94,13 @@ export default function EmployeeHome({ employee }) {
     setSupplies(sup || [])
     // Texted-in days not yet approved by the office — shown so a tech can see
     // and fix a text before Niki reviews it. Approved ones already show up
-    // above via timesheet_entries, so they're excluded here.
+    // above via timesheet_entries, so they're excluded here. is_stat_grant is
+    // also excluded — that's the office's own auto stat-pay request, not
+    // something the tech texted in or should see/edit as their own day.
     const { data: subs } = await supabase.schema('Cores').from('sms_submissions')
       .select('*').eq('employee_id', employee.id)
       .gte('work_date', weekStart).lte('work_date', weekEnd)
-      .neq('status', 'approved')
+      .neq('status', 'approved').eq('is_stat_grant', false)
       .order('updated_at', { ascending: false })
     setSubmissions(subs || [])
     const { data: gp } = await supabase.schema('Cores').from('gear_photos')

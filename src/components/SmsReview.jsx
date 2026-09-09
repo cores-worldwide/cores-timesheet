@@ -31,11 +31,17 @@ export default function SmsReview({ onApproved } = {}) {
   const [gearPhotos, setGearPhotos]   = useState([])
   const [filter, setFilter]           = useState('submitted')
   const [filterEmployeeIds, setFilterEmployeeIds] = useState([])
+  // Date range filter — leaving one side blank is the common case (Niki's
+  // usually just looking for one day): if only one of the two is set, it
+  // acts as a single-day filter rather than an open-ended range.
+  const [dateFrom, setDateFrom]       = useState('')
+  const [dateTo, setDateTo]           = useState('')
   const [sortBy, setSortBy]           = useState('recent')
   const [loading, setLoading]         = useState(true)
   const [expanded, setExpanded]       = useState({})
   const [acting, setActing]           = useState(null)
   const [noteDrafts, setNoteDrafts]   = useState({})
+  const [statHoursDrafts, setStatHoursDrafts] = useState({})
   // Reject ("Delete") now requires a reason so the tech isn't just left with a
   // bare "declined" chip — open/draft state per submission, same shape as the
   // admin-note compose box below.
@@ -120,6 +126,12 @@ export default function SmsReview({ onApproved } = {}) {
   // entirely, since it never reaches 'submitted' on its own.
   const visible = submissions.filter(s => {
     if (filterEmployeeIds.length > 0 && !filterEmployeeIds.includes(s.employee_id)) return false
+    if (dateFrom || dateTo) {
+      // Only one side filled in means "that one day", not an open-ended range.
+      const from = dateFrom || dateTo
+      const to   = dateTo || dateFrom
+      if ((s.work_date || '') < from || (s.work_date || '') > to) return false
+    }
     if (filter === 'all') return true
     if (filter === 'submitted') return s.status === 'submitted' || s.status === 'collecting'
     return s.status === filter
@@ -214,9 +226,10 @@ export default function SmsReview({ onApproved } = {}) {
   // ── Approve ───────────────────────────────────────────────────────────────
   async function approve(sub) {
     const entries = sub.entries || []
-    // Day-off requests have no job/hours/time to validate — none of this
-    // block applies (see the day-off branch right after the atomic claim).
-    if (!sub.is_day_off) {
+    // Day-off requests and auto stat-pay grants have no job/hours/time to
+    // validate against a job list — neither of this block applies (see their
+    // dedicated branches right after the atomic claim).
+    if (!sub.is_day_off && !sub.is_stat_grant) {
       if (entries.some(e => !e.description?.trim())) {
         alert('Every job needs a note describing what was done — click Edit to add one before approving.')
         return
@@ -302,6 +315,37 @@ export default function SmsReview({ onApproved } = {}) {
         } else {
           await supabase.schema('Cores').from('sms_submissions').update({ status: sub.status, updated_at: new Date().toISOString() }).eq('id', sub.id)
           alert('Error creating the day-off entry — submission was reverted, try again: ' + error.message)
+          setActing(null); return
+        }
+      }
+      await load()
+      onApproved?.()
+      setActing(null)
+      return
+    }
+
+    // Auto stat-pay grant: one fixed row (job_id null, is_stat_pay true),
+    // hours taken from whatever's in entries[0] — she can adjust that number
+    // on the card before approving (see the hours editor below).
+    if (sub.is_stat_grant) {
+      const hours = Number(entries[0]?.hours) || 0
+      if (!(hours > 0)) {
+        alert('Enter hours greater than 0 before approving.')
+        setActing(null); return
+      }
+      const { error } = await supabase.schema('Cores').from('timesheet_entries').insert({
+        employee_id: sub.employee_id, work_date: sub.work_date, job_id: null,
+        hours, ot_hours: 0, description: entries[0]?.description || 'Stat pay', per_diem: 0,
+        sort_order: 0, is_stat_pay: true, entry_source: 'sms', source_submission_id: sub.id,
+        approved_by_name: getAdminName(), approved_at: new Date().toISOString(),
+      })
+      if (error) {
+        if (error.message?.includes('duplicate key')) {
+          // Already has a stat-pay entry for this date some other way — the
+          // grant is satisfied either way, nothing more to do.
+        } else {
+          await supabase.schema('Cores').from('sms_submissions').update({ status: sub.status, updated_at: new Date().toISOString() }).eq('id', sub.id)
+          alert('Error creating the stat-pay entry — submission was reverted, try again: ' + error.message)
           setActing(null); return
         }
       }
@@ -416,6 +460,25 @@ export default function SmsReview({ onApproved } = {}) {
     else {
       setSubmissions(p => p.map(x => x.id === sub.id ? { ...x, admin_note: value || null } : x))
       setNoteDrafts(d => { const n = { ...d }; delete n[sub.id]; return n })
+    }
+    setActing(null)
+  }
+
+  // ── Stat-pay grant hours ─────────────────────────────────────────────────
+  // Lets Niki adjust the auto-granted 8hrs before approving it (e.g. someone
+  // eligible only for part of the week) — the one thing there is to modify
+  // on one of these requests.
+  async function saveStatHours(sub) {
+    const hours = Number(statHoursDrafts[sub.id])
+    if (!(hours > 0)) { alert('Enter hours greater than 0'); return }
+    setActing(sub.id)
+    const entries = [{ ...(sub.entries?.[0] || {}), hours }]
+    const { error } = await supabase.schema('Cores').from('sms_submissions')
+      .update({ entries }).eq('id', sub.id)
+    if (error) alert('Error saving hours: ' + error.message)
+    else {
+      setSubmissions(p => p.map(x => x.id === sub.id ? { ...x, entries } : x))
+      setStatHoursDrafts(d => { const n = { ...d }; delete n[sub.id]; return n })
     }
     setActing(null)
   }
@@ -694,6 +757,19 @@ export default function SmsReview({ onApproved } = {}) {
             selectedIds={filterEmployeeIds}
             onChange={setFilterEmployeeIds}
             placeholder="All employees" allLabel="All employees" minWidth={160} />
+          <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
+            title="Date (fill in just this one for a single day)"
+            style={{ padding: '0.3rem 0.5rem', border: '1px solid #ccc', borderRadius: 4, background: '#fff', fontSize: '0.85rem', marginLeft: '0.4rem' }} />
+          <span style={{ color: '#999', fontSize: '0.85rem' }}>–</span>
+          <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
+            title="Through (leave blank for a single day)"
+            style={{ padding: '0.3rem 0.5rem', border: '1px solid #ccc', borderRadius: 4, background: '#fff', fontSize: '0.85rem' }} />
+          {(dateFrom || dateTo) && (
+            <button onClick={() => { setDateFrom(''); setDateTo('') }}
+              style={{ padding: '0.3rem 0.6rem', border: '1px solid #ccc', borderRadius: 4, background: 'transparent', cursor: 'pointer', fontSize: '0.85rem' }}>
+              Clear
+            </button>
+          )}
           <select value={sortBy} onChange={e => setSortBy(e.target.value)}
             style={{ padding: '0.3rem 0.6rem', border: '1px solid #ccc', borderRadius: 4, background: '#fff', cursor: 'pointer', fontSize: '0.85rem', marginLeft: '0.4rem' }}>
             <option value="recent">Sort: Most recent</option>
@@ -714,11 +790,11 @@ export default function SmsReview({ onApproved } = {}) {
       )}
 
       {sortedVisible.map(sub => {
-        // Day-off requests have no time/hours/lunch by design — none of the
-        // usual "missing info" flags apply to them.
+        // Day-off requests and auto stat-pay grants have no time/hours/lunch
+        // by design — none of the usual "missing info" flags apply to them.
         const flags = []
         if (!sub.employee_id)                          flags.push('employee unknown')
-        if (!sub.is_day_off) {
+        if (!sub.is_day_off && !sub.is_stat_grant) {
           if (!sub.time_in)                              flags.push('start time missing')
           if (!sub.entries || sub.entries.length === 0)  flags.push('no job entries')
           if (sub.lunch_minutes == null)                 flags.push('lunch unknown')
@@ -769,6 +845,11 @@ export default function SmsReview({ onApproved } = {}) {
                     🏖️ Day off
                   </span>
                 )}
+                {sub.is_stat_grant && (
+                  <span style={{ fontSize: '0.75rem', padding: '0.15rem 0.5rem', borderRadius: 10, background: '#e6f0ff', color: '#1a4d8f', fontWeight: 600, border: '1px solid #a9c6f0' }}>
+                    🎉 Stat pay
+                  </span>
+                )}
                 {flags.map(f => (
                   <span key={f} style={{ fontSize: '0.75rem', padding: '0.15rem 0.5rem', borderRadius: 10, background: '#ffe0e0', color: '#c00', border: '1px solid #ffaaaa' }}>
                     ⚠ {f}
@@ -791,8 +872,8 @@ export default function SmsReview({ onApproved } = {}) {
             {isExpanded && (
               <div style={{ padding: '1rem' }}>
 
-                {/* Time row — day-off requests have none of this */}
-                {!sub.is_day_off && (
+                {/* Time row — day-off requests and stat-pay grants have none of this */}
+                {!sub.is_day_off && !sub.is_stat_grant && (
                   <div style={{ display: 'flex', gap: '1.5rem', marginBottom: '0.75rem', fontSize: '0.9rem', flexWrap: 'wrap' }}>
                     <span><strong>In:</strong> {fmt12(sub.time_in)}</span>
                     <span><strong>Out:</strong> {fmt12(sub.stated_time_out || sub.calculated_time_out)}</span>
@@ -810,7 +891,27 @@ export default function SmsReview({ onApproved } = {}) {
                 {/* Entries table */}
                 {sub.is_day_off ? (
                   <div style={{ color: '#8a6100', marginBottom: '0.75rem', fontSize: '0.875rem' }}>🏖️ Requesting this day off — no hours, no job.</div>
-                ) : sub.entries && sub.entries.length > 0 ? (
+                ) : sub.is_stat_grant ? (() => {
+                  const draft = statHoursDrafts[sub.id] ?? String(sub.entries?.[0]?.hours ?? 8)
+                  const dirty = draft !== String(sub.entries?.[0]?.hours ?? 8)
+                  return (
+                    <div style={{ marginBottom: '0.75rem', fontSize: '0.875rem' }}>
+                      <div style={{ color: '#1a4d8f', marginBottom: '0.4rem' }}>🎉 {sub.entries?.[0]?.description || 'Stat pay'} — automatically granted because {employeeName(sub.employee_id)} worked this pay week.</div>
+                      <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+                        <label style={{ color: '#555' }}>Hours:</label>
+                        <input type="number" step="0.5" min="0" value={draft}
+                          onChange={e => setStatHoursDrafts(d => ({ ...d, [sub.id]: e.target.value }))}
+                          style={{ width: 70, padding: '0.3rem 0.5rem', border: '1px solid #ccc', borderRadius: 4, fontSize: '0.85rem' }} />
+                        {dirty && (
+                          <button onClick={() => saveStatHours(sub)} disabled={acting === sub.id}
+                            style={{ padding: '0.3rem 0.7rem', background: '#0066cc', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem' }}>
+                            Save
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })() : sub.entries && sub.entries.length > 0 ? (
                   <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '0.75rem', fontSize: '0.875rem' }}>
                     <thead>
                       <tr style={{ background: '#f0f0f0' }}>
@@ -1046,13 +1147,15 @@ export default function SmsReview({ onApproved } = {}) {
                   <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                     <button
                       onClick={() => approve(sub)}
-                      disabled={!!acting || !sub.employee_id || (!sub.is_day_off && !sub.entries?.length)}
+                      disabled={!!acting || !sub.employee_id || (!sub.is_day_off && !sub.is_stat_grant && !sub.entries?.length)}
                       style={{ padding: '0.4rem 1rem', background: '#2a7a2a', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 600 }}
                     >
-                      {acting === sub.id ? 'Approving…' : sub.is_day_off ? 'Approve Day Off' : 'Approve → Timesheet'}
+                      {acting === sub.id ? 'Approving…' : sub.is_day_off ? 'Approve Day Off' : sub.is_stat_grant ? 'Approve Stat Pay' : 'Approve → Timesheet'}
                     </button>
-                    {/* Nothing to edit on a day-off request — no time, job, or hours */}
-                    {!sub.is_day_off && (
+                    {/* Nothing to edit here through the normal job/hours Edit modal —
+                        day-off has no time/job/hours, and a stat grant's only editable
+                        field (hours) has its own inline editor above */}
+                    {!sub.is_day_off && !sub.is_stat_grant && (
                       <button
                         onClick={() => openEdit(sub)}
                         style={{ padding: '0.4rem 1rem', background: '#eee', border: '1px solid #ccc', borderRadius: 4, cursor: 'pointer' }}
