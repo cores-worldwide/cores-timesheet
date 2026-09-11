@@ -1241,7 +1241,12 @@ export default function AdminPanel() {
       {modal?.type === 'job' && (
         <Modal title={modal.record ? 'Edit Job' : 'New Job'} onClose={() => { setModal(null); setQuickAdd(null) }}>
           <Field label="Job # Prefix (Sage)">
-            <input style={{ ...inputStyle, maxWidth: '6rem' }} maxLength={4} placeholder="2026" {...f('jobnum_pref')} />
+            {/* No numeric placeholder — a hint like "2026" sitting in an
+                empty field is easy to mistake for a real saved value.
+                autoComplete off since Chrome will otherwise offer to
+                autofill this from a previously-typed value in an
+                unrelated job's field. */}
+            <input style={{ ...inputStyle, maxWidth: '6rem' }} maxLength={4} autoComplete="off" {...f('jobnum_pref')} />
           </Field>
           <Field label="Job Number"><input style={inputStyle} {...f('job_number')} /></Field>
           <Field label="Work Order # (Sage)"><input style={inputStyle} {...f('work_order_number')} /></Field>
