@@ -155,9 +155,11 @@ export default function MediaViewer({ src, alt = '', style }) {
   }, [isVideo])
 
   if (isVideo) {
+    // Bounded in viewport units, not percentages — see the img case below
+    // for why a percentage here has nothing definite to resolve against.
     return (
-      <div style={{ position: 'relative', display: 'inline-block', maxWidth: '100%', maxHeight: '100%' }}>
-        <video src={src} controls autoPlay style={style} />
+      <div style={{ position: 'relative', display: 'inline-block', maxWidth: 'calc(100vw - 3rem)', maxHeight: 'calc(100vh - 3rem)' }}>
+        <video src={src} controls autoPlay style={{ ...style, maxWidth: 'calc(100vw - 3rem)', maxHeight: 'calc(100vh - 3rem)' }} />
         <DownloadButton src={src} />
       </div>
     )
@@ -197,7 +199,15 @@ export default function MediaViewer({ src, alt = '', style }) {
       <img
         src={src} alt={alt} draggable={false}
         style={{
-          width: '100%', height: '100%', objectFit: 'contain', userSelect: 'none',
+          // Bounded in viewport units, not percentages: the containers this
+          // sits in (see callers) only ever set max-width/max-height, never
+          // an actual width/height, so a percentage here has nothing
+          // definite to resolve against and the browser falls back to the
+          // image's native pixel size — a full-resolution phone photo blown
+          // up far past the screen, which reads as "the photo won't open."
+          width: 'auto', height: 'auto',
+          maxWidth: 'calc(100vw - 3rem)', maxHeight: 'calc(100vh - 3rem)',
+          objectFit: 'contain', userSelect: 'none',
           transform: `translate(${pos.x}px, ${pos.y}px) scale(${scale})`,
           transition: dragging || pinchRef.current ? 'none' : 'transform 0.15s ease-out',
         }}
