@@ -174,7 +174,7 @@ export default function AdminPanel() {
       setVesselPhotoFile(null)
       setRemoveVesselPhoto(false)
     } else if (type === 'job') {
-      setFields({ job_number: record?.job_number || '', customer_id: record?.customer_id || '', vessel_id: record?.vessel_id || '', description: record?.description || '', status: record?.status || 'open', work_order_number: record?.work_order_number || '', work_order_link: record?.work_order_link || '' })
+      setFields({ jobnum_pref: record?.jobnum_pref || '', job_number: record?.job_number || '', customer_id: record?.customer_id || '', vessel_id: record?.vessel_id || '', description: record?.description || '', status: record?.status || 'open', work_order_number: record?.work_order_number || '', work_order_link: record?.work_order_link || '' })
       setWorkOrderFile(null)
       setRemoveWorkOrderFile(false)
     } else if (type === 'employee') {
@@ -267,6 +267,16 @@ export default function AdminPanel() {
       if (type === 'job') {
         if (!payload.vessel_id) payload.vessel_id = null
         if (!payload.customer_id) payload.customer_id = null
+        // Blank is the normal state until Niki gets to it — the DB only
+        // rejects a non-blank value that isn't exactly 4 digits.
+        if (!payload.jobnum_pref?.trim()) payload.jobnum_pref = null
+        else if (!/^\d{4}$/.test(payload.jobnum_pref.trim())) {
+          alert('Job Number Prefix must be exactly 4 digits (e.g. 2026), or left blank.')
+          setSaving(false)
+          return
+        } else {
+          payload.jobnum_pref = payload.jobnum_pref.trim()
+        }
         if (payload.status === 'closed' && record?.status !== 'closed') payload.closed_at = new Date().toISOString()
         if (payload.status === 'open') payload.closed_at = null
       }
@@ -391,7 +401,8 @@ export default function AdminPanel() {
     })
     return [...filtered].sort((a, b) => {
       let av, bv
-      if (sortCol === 'job_number') { av = a.job_number; bv = b.job_number }
+      if (sortCol === 'jobnum_pref') { av = a.jobnum_pref || ''; bv = b.jobnum_pref || '' }
+      else if (sortCol === 'job_number') { av = a.job_number; bv = b.job_number }
       else if (sortCol === 'customer') { av = a.customers?.name || ''; bv = b.customers?.name || '' }
       else if (sortCol === 'vessel') { av = a.vessels?.name || ''; bv = b.vessels?.name || '' }
       else if (sortCol === 'work_order_number') { av = a.work_order_number || ''; bv = b.work_order_number || '' }
@@ -531,7 +542,7 @@ export default function AdminPanel() {
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr>
-                  {[['customer','Customer'],['vessel','Vessel'],['job_number','Job #'],['work_order_number','WO #'],['description','Description']].map(([col, label]) => (
+                  {[['customer','Customer'],['vessel','Vessel'],['jobnum_pref','Year'],['job_number','Job #'],['work_order_number','WO #'],['description','Description']].map(([col, label]) => (
                     <th key={col} style={{ ...thStyle, cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }} onClick={() => toggleSort(col)}>
                       {label} {sortCol === col ? (sortDir === 'asc' ? '↑' : '↓') : <span style={{ color: '#ccc' }}>↕</span>}
                     </th>
@@ -557,6 +568,7 @@ export default function AdminPanel() {
                         <td style={{ ...tdStyle, color: '#555' }}>
                           {job.vessels?.name || <span style={{ padding: '0.15rem 0.5rem', background: '#f0f0f0', borderRadius: '10px', fontSize: '0.78rem', color: '#888', fontWeight: 600 }}>Shop</span>}
                         </td>
+                        <td style={{ ...tdStyle, color: '#888' }}>{job.jobnum_pref || '—'}</td>
                         <td style={{ ...tdStyle, fontWeight: 600, color: '#0066cc', cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); openModal('job', job) }}>{job.job_number}</td>
                         <td style={{ ...tdStyle, color: '#555' }}>{job.work_order_number || '—'}</td>
                         <td style={{ ...tdStyle, color: '#555', maxWidth: '260px' }}>{job.description || '—'}</td>
@@ -1228,6 +1240,9 @@ export default function AdminPanel() {
 
       {modal?.type === 'job' && (
         <Modal title={modal.record ? 'Edit Job' : 'New Job'} onClose={() => { setModal(null); setQuickAdd(null) }}>
+          <Field label="Job # Prefix (Sage)">
+            <input style={{ ...inputStyle, maxWidth: '6rem' }} maxLength={4} placeholder="2026" {...f('jobnum_pref')} />
+          </Field>
           <Field label="Job Number"><input style={inputStyle} {...f('job_number')} /></Field>
           <Field label="Work Order # (Sage)"><input style={inputStyle} {...f('work_order_number')} /></Field>
           <Field label="Customer">
