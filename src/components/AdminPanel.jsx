@@ -447,7 +447,11 @@ export default function AdminPanel() {
           <button onClick={() => openDoc('Tech Manual', `${import.meta.env.BASE_URL}SMS_USER_MANUAL.md`)} style={{ fontSize: '0.9rem', color: '#0066cc', fontWeight: 600, cursor: 'pointer', background: 'none', border: 'none', padding: 0 }}>
             📖 Tech Manual
           </button>
-          <a href="https://claude.ai/code/artifact/bcefda60-a4b4-42b8-ad13-fe72a9c853f5" target="_blank" rel="noopener noreferrer" style={{ fontSize: '0.85rem', color: '#0066cc', textDecoration: 'none' }}>
+          {/* A plain static PDF, not a Claude artifact link — techs and other
+              non-Jim staff who click this don't have a Claude account, and
+              the artifact URL was prompting them to log in instead of just
+              showing the cheat sheet. Reported by Jim, 2026-09-11. */}
+          <a href={`${import.meta.env.BASE_URL}cheat-sheets/Text-In-Ticket.pdf`} target="_blank" rel="noopener noreferrer" style={{ fontSize: '0.85rem', color: '#0066cc', textDecoration: 'none' }}>
             📋 Text Timesheets Instructions
           </a>
         </div>
