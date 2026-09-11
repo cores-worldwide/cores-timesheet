@@ -15,6 +15,7 @@ import MediaViewer from './MediaViewer'
 import { computeOTMap } from '../utils/otCalc'
 import { fmtHours } from '../utils/format'
 import { generateWeeklyCompilationPDF, fmtShortDate, fmtHeaderDate, dayName, isWeekend } from '../utils/weeklyCompilationPdf'
+import { generateSageSyncPDF } from '../utils/sageSyncPdf'
 
 const gearPhotoUrl = (path) => supabase.storage.from('gear-photos').getPublicUrl(path).data.publicUrl
 // Tracy gets a confetti celebration when her own timesheet is saved here —
@@ -72,6 +73,15 @@ export default function AdminDashboard() {
   const [datePreset, setDatePreset] = useState('this-week')
   const [dateFrom, setDateFrom] = useState(() => toYMD(getPayWeekStart(new Date())))
   const [dateTo, setDateTo] = useState(() => {
+    const s = getPayWeekStart(new Date())
+    const e = new Date(s); e.setDate(e.getDate() + 6)
+    return toYMD(e)
+  })
+  // Sage Sync Report tab — separate range from the Timesheets tab's
+  // dateFrom/dateTo so picking a range here doesn't silently change what
+  // that tab shows, and vice versa.
+  const [sageFrom, setSageFrom] = useState(() => toYMD(getPayWeekStart(new Date())))
+  const [sageTo, setSageTo] = useState(() => {
     const s = getPayWeekStart(new Date())
     const e = new Date(s); e.setDate(e.getDate() + 6)
     return toYMD(e)
@@ -208,7 +218,7 @@ export default function AdminDashboard() {
     if (!silent) setLoadingEntries(true)
     const { data, error } = await supabase
       .schema('Cores').from('timesheet_entries')
-      .select('*, employees(id, name), jobs(id, job_number, description, customers(name), vessels(name))')
+      .select('*, employees(id, name), jobs(id, job_number, jobnum_pref, description, customers(name), vessels(name))')
       .order('work_date', { ascending: false })
     if (error) {
       if (!silent) alert(`Failed to load timesheets: ${error.message}`)
@@ -1608,6 +1618,7 @@ export default function AdminDashboard() {
         <button style={tabStyle('sms')} onClick={() => setActiveTab('sms')}>SMS Review</button>
         <button style={tabStyle('photos')} onClick={() => setActiveTab('photos')}>Gear Photos</button>
         <button style={tabStyle('submission')} onClick={() => setActiveTab('submission')}>Submission Status</button>
+        <button style={tabStyle('sage-report')} onClick={() => setActiveTab('sage-report')}>Sage Report</button>
       </div>
 
       {/* ── Timesheets tab ── */}
@@ -2460,6 +2471,119 @@ export default function AdminDashboard() {
       {/* ── SMS Review tab ── */}
       {activeTab === 'sms' && <SmsReview onApproved={loadTimesheets} />}
       {activeTab === 'photos' && <GearPhotos />}
+
+      {/* ── Sage Report tab ── First draft (2026-09-11, Jim): reconciliation
+          report against Sage 50's own Time Slips Journal — Reg maps to
+          Sage item Z200, OT to Z202, PD to Z205; Shop work is also Z200 but
+          Non Billable there, so it's split into its own column instead of
+          blending into Reg. Only (employee, work_date) pairs already
+          stamped "Posted to Sage" belong here. OT is computed from the
+          FULL entries history (computeOTMap groups by employee+pay-week
+          internally), then narrowed to the posted rows in range — doing it
+          the other way around would silently miscompute weekly OT for any
+          range that doesn't happen to align with a full pay week. */}
+      {activeTab === 'sage-report' && (() => {
+        const otMap = computeEntryOT(entries)
+        const rows = entries
+          .filter(e => e.work_date >= sageFrom && e.work_date <= sageTo)
+          .filter(e => !!postedDays[postedKey(e.employee_id, e.work_date)])
+          .filter(e => Number(e.hours) > 0 || Number(e.per_diem) > 0)
+          .map(e => {
+            const isShop = (e.jobs?.job_number || '').toUpperCase() === 'SHOP'
+            const reg = otMap[e.id]?.reg || 0
+            const ot = otMap[e.id]?.ot || 0
+            return {
+              id: e.id,
+              jobLabel: e.jobs ? `${e.jobs.jobnum_pref || ''}${e.jobs.job_number}` : '',
+              hasJob: !!e.jobs,
+              hasPrefix: !!e.jobs?.jobnum_pref,
+              isShop,
+              employeeName: e.employees?.name || '',
+              date: e.work_date,
+              reg: isShop ? 0 : reg,
+              ot,
+              pd: Number(e.per_diem || 0),
+              shop: isShop ? reg : 0,
+            }
+          })
+          .sort((a, b) => a.employeeName.localeCompare(b.employeeName) || a.date.localeCompare(b.date) || a.jobLabel.localeCompare(b.jobLabel))
+
+        const totalReg = rows.reduce((s, r) => s + r.reg, 0)
+        const totalOT = rows.reduce((s, r) => s + r.ot, 0)
+        const totalPD = rows.reduce((s, r) => s + r.pd, 0)
+        const totalShop = rows.reduce((s, r) => s + r.shop, 0)
+        const missingPrefixCount = rows.filter(r => !r.isShop && r.hasJob && !r.hasPrefix).length
+
+        return (
+          <div>
+            <div style={{ ...card, marginBottom: '1.5rem' }}>
+              <div style={{ display: 'flex', alignItems: 'flex-end', gap: '1rem', flexWrap: 'wrap' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.78rem', color: '#888', marginBottom: '0.25rem' }}>From</label>
+                  <input type="date" value={sageFrom} onChange={e => setSageFrom(e.target.value)}
+                    style={{ padding: '0.4rem 0.6rem', border: '1px solid #ccc', borderRadius: '4px' }} />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.78rem', color: '#888', marginBottom: '0.25rem' }}>To</label>
+                  <input type="date" value={sageTo} onChange={e => setSageTo(e.target.value)}
+                    style={{ padding: '0.4rem 0.6rem', border: '1px solid #ccc', borderRadius: '4px' }} />
+                </div>
+                <button
+                  onClick={() => generateSageSyncPDF({ dateFrom: sageFrom, dateTo: sageTo, rows })}
+                  disabled={rows.length === 0}
+                  style={{ padding: '0.5rem 1.2rem', background: rows.length ? '#0066cc' : '#ccc', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 600, cursor: rows.length ? 'pointer' : 'not-allowed' }}
+                >Generate PDF</button>
+                <span style={{ color: '#888', fontSize: '0.85rem' }}>{rows.length} posted row{rows.length === 1 ? '' : 's'}</span>
+              </div>
+              {missingPrefixCount > 0 && (
+                <div style={{ marginTop: '0.75rem', fontSize: '0.82rem', color: '#a05a00', background: '#fff6e8', border: '1px solid #f0d9a8', borderRadius: '4px', padding: '0.5rem 0.75rem' }}>
+                  {missingPrefixCount} row{missingPrefixCount === 1 ? '' : 's'} in range {missingPrefixCount === 1 ? 'has' : 'have'} no Job # Prefix set yet (Admin → Jobs) — the Job # column will show just the bare job number for those.
+                </div>
+              )}
+            </div>
+
+            {rows.length === 0 ? (
+              <div style={{ padding: '3rem', textAlign: 'center', color: '#aaa', border: '1px solid #eee', borderRadius: '6px' }}>
+                No posted entries in this range.
+              </div>
+            ) : (
+              <div style={card}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                  <thead>
+                    <tr>
+                      {['Job #', 'Employee', 'Date', 'Reg', 'OT', 'PD', 'Shop'].map(h => (
+                        <th key={h} style={{ textAlign: 'left', padding: '0.5rem 0.6rem', borderBottom: '2px solid #ddd', color: '#888', fontSize: '0.78rem', textTransform: 'uppercase' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map(r => (
+                      <tr key={r.id}>
+                        <td style={{ padding: '0.4rem 0.6rem', borderBottom: '1px solid #f0f0f0' }}>{r.jobLabel || '—'}</td>
+                        <td style={{ padding: '0.4rem 0.6rem', borderBottom: '1px solid #f0f0f0' }}>{r.employeeName}</td>
+                        <td style={{ padding: '0.4rem 0.6rem', borderBottom: '1px solid #f0f0f0', color: '#666' }}>{fmtPayDate(r.date)}</td>
+                        <td style={{ padding: '0.4rem 0.6rem', borderBottom: '1px solid #f0f0f0' }}>{r.reg ? fmtHours(r.reg) : ''}</td>
+                        <td style={{ padding: '0.4rem 0.6rem', borderBottom: '1px solid #f0f0f0' }}>{r.ot ? fmtHours(r.ot) : ''}</td>
+                        <td style={{ padding: '0.4rem 0.6rem', borderBottom: '1px solid #f0f0f0' }}>{r.pd || ''}</td>
+                        <td style={{ padding: '0.4rem 0.6rem', borderBottom: '1px solid #f0f0f0' }}>{r.shop ? fmtHours(r.shop) : ''}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr style={{ fontWeight: 700 }}>
+                      <td style={{ padding: '0.5rem 0.6rem' }} colSpan={3}>Total</td>
+                      <td style={{ padding: '0.5rem 0.6rem' }}>{fmtHours(totalReg)}</td>
+                      <td style={{ padding: '0.5rem 0.6rem' }}>{fmtHours(totalOT)}</td>
+                      <td style={{ padding: '0.5rem 0.6rem' }}>{totalPD || ''}</td>
+                      <td style={{ padding: '0.5rem 0.6rem' }}>{fmtHours(totalShop)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
+          </div>
+        )
+      })()}
 
       {photoGroup && (() => {
         const groupPhotos = photoGroup.photos
