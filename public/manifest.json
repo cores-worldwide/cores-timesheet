@@ -1,8 +1,8 @@
 {
   "name": "Cores Worldwide Timesheet",
   "short_name": "Cores Timesheet",
-  "start_url": "/cores-timesheet/#/my",
-  "scope": "/cores-timesheet/",
+  "start_url": "./#/my",
+  "scope": "./",
   "display": "standalone",
   "background_color": "#1a1a2e",
   "theme_color": "#1a1a2e",

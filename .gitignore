@@ -9,3 +9,6 @@ RESUME_TOMORROW.md
 .claude/settings.local.json
 cores_backup_*.sql
 supabase/.temp/
+
+# Local Netlify folder
+.netlify
