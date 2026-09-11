@@ -5,7 +5,7 @@ import MultiSelectDropdown from './MultiSelectDropdown'
 import { computeOTMap } from '../utils/otCalc'
 import { fmtHours } from '../utils/format'
 import MediaThumb from './MediaThumb'
-import MediaViewer from './MediaViewer'
+import MediaViewer, { DownloadButton } from './MediaViewer'
 import { getAdminName } from './PasswordGate'
 
 const card = { padding: '1.25rem', background: '#fff', borderRadius: '6px', border: '1px solid #e0e0e0', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }
@@ -1311,9 +1311,10 @@ export default function Reports() {
                   <div key={p.id} style={{ borderRadius: 6, overflow: 'hidden', border: '1px solid #eee' }}>
                     <div
                       onClick={() => setPhotoLightbox(p)}
-                      style={{ aspectRatio: '4 / 3', background: '#f0f0f0', cursor: 'pointer', overflow: 'hidden' }}
+                      style={{ aspectRatio: '4 / 3', background: '#f0f0f0', cursor: 'pointer', overflow: 'hidden', position: 'relative' }}
                     >
                       <MediaThumb src={gearPhotoUrl(p.storage_path)} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                      <DownloadButton src={gearPhotoUrl(p.storage_path)} />
                     </div>
                     <div style={{ padding: '0.35rem 0.5rem', fontSize: '0.75rem', color: '#888' }}>
                       {jobsById[p.job_id]?.job_number ? `${jobsById[p.job_id].job_number} · ` : ''}{employees.find(e => e.id === p.employee_id)?.name || 'Unknown'} · {new Date(p.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}

@@ -209,8 +209,10 @@ export default function MediaViewer({ src, alt = '', style }) {
 
 // Small circular overlay button, top-right of the lightbox media. Stops
 // propagation so it doesn't trigger the container's own click-to-zoom /
-// drag-to-pan handlers, or the backdrop's click-to-close behind it.
-function DownloadButton({ src }) {
+// drag-to-pan handlers, or the backdrop's click-to-close behind it. Exported
+// so a grid of thumbnails (e.g. Reports' photo-group modal) can offer the
+// same one-click download without making the tech open the lightbox first.
+export function DownloadButton({ src }) {
   const [busy, setBusy] = useState(false)
 
   async function handleClick(e) {
