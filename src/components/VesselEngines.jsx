@@ -35,7 +35,7 @@ const blankServiceEntry = () => ({ service_date: '', description: '', hours_at_s
 // path anywhere near this: it's a record the office maintains, not something
 // SMS/mobile touches. Inline-editable cards, not nested modals — matches how
 // GearPhotos.jsx already handles this shape of per-item CRUD elsewhere.
-export default function VesselEngines({ vessel, jobs, onClose }) {
+export default function VesselEngines({ vessel, jobs, onFindVessels, onClose }) {
   const [engines, setEngines] = useState([])
   const [engineTypes, setEngineTypes] = useState([])
   const [componentTypes, setComponentTypes] = useState([])
@@ -318,8 +318,31 @@ export default function VesselEngines({ vessel, jobs, onClose }) {
                           )}
                         </div>
                         <div style={{ fontSize: '0.82rem', color: '#666', marginTop: '0.2rem' }}>
-                          {[engine.manufacturer, engine.model, engine.serial_number && `S/N ${engine.serial_number}`, engine.arrangement_number && `Arr# ${engine.arrangement_number}`, engine.kw && `${engine.kw} kW`, engine.cylinder_count && `${engine.cylinder_count} cyl`]
-                            .filter(Boolean).join(' · ') || 'No details yet'}
+                          {(() => {
+                            // Manufacturer/model link out to "every vessel with this engine"
+                            // (AdminPanel's Engines tab, pre-searched) instead of being plain
+                            // text — see Jim's "click on CAT" request. stopPropagation so the
+                            // click doesn't also toggle this row's expand/collapse.
+                            const clickable = (value, label) => (
+                              <span
+                                onClick={e => { e.stopPropagation(); onFindVessels?.(value) }}
+                                title={`Find all vessels with ${label}`}
+                                style={{ color: '#0066cc', cursor: 'pointer', textDecoration: 'underline' }}
+                              >{value}</span>
+                            )
+                            const parts = [
+                              engine.manufacturer && clickable(engine.manufacturer, `${engine.manufacturer} engines`),
+                              engine.model && clickable(engine.model, `model ${engine.model}`),
+                              engine.serial_number && `S/N ${engine.serial_number}`,
+                              engine.arrangement_number && `Arr# ${engine.arrangement_number}`,
+                              engine.kw && `${engine.kw} kW`,
+                              engine.cylinder_count && `${engine.cylinder_count} cyl`,
+                            ].filter(Boolean)
+                            if (parts.length === 0) return 'No details yet'
+                            return parts.map((part, i) => (
+                              <React.Fragment key={i}>{i > 0 && ' · '}{part}</React.Fragment>
+                            ))
+                          })()}
                         </div>
                       </div>
                     )}

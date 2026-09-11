@@ -411,6 +411,21 @@ export default function AdminPanel() {
     return [v.name, v.vessel_type, v.customers?.name].some(val => (val || '').toLowerCase().includes(q))
   })
 
+  // Jumps to the Engines tab pre-searched for a manufacturer or model —
+  // reuses the same free-text search visibleEngines already does, so
+  // clicking "CAT" or "3412" (from this table or from inside a vessel's
+  // own engine list) surfaces every matching engine, each row showing
+  // which vessel it's on. Jim: "if I click on CAT, I want to see all
+  // vessels with CATs in them."
+  function findVesselsByEngine(value) {
+    if (!value) return
+    setEngineModal(null)
+    setCustomerFilter('')
+    setVesselFilter('')
+    setEngineSearch(value)
+    setSection('engines')
+  }
+
   const visibleEngines = (() => {
     const q = engineSearch.trim().toLowerCase()
     return engines.filter(e => {
@@ -996,8 +1011,18 @@ export default function AdminPanel() {
                       {e.engine_types?.name || <span style={{ fontStyle: 'italic', color: '#bbb' }}>Unspecified</span>}
                     </td>
                     <td style={{ ...tdStyle, color: '#555' }}>{e.side ? (e.side === 'port' ? 'Port' : 'Starboard') : '—'}</td>
-                    <td style={{ ...tdStyle, color: '#555' }}>{e.manufacturer || '—'}</td>
-                    <td style={{ ...tdStyle, color: '#555' }}>{e.model || '—'}</td>
+                    <td style={{ ...tdStyle, color: '#555' }}>
+                      {e.manufacturer
+                        ? <span onClick={() => findVesselsByEngine(e.manufacturer)} title={`Find all vessels with ${e.manufacturer} engines`}
+                            style={{ color: '#0066cc', cursor: 'pointer', textDecoration: 'underline' }}>{e.manufacturer}</span>
+                        : '—'}
+                    </td>
+                    <td style={{ ...tdStyle, color: '#555' }}>
+                      {e.model
+                        ? <span onClick={() => findVesselsByEngine(e.model)} title={`Find all vessels with model ${e.model}`}
+                            style={{ color: '#0066cc', cursor: 'pointer', textDecoration: 'underline' }}>{e.model}</span>
+                        : '—'}
+                    </td>
                     <td style={{ ...tdStyle, color: '#555' }}>{e.serial_number || '—'}</td>
                     <td style={{ ...tdStyle, color: '#555' }}>{e.arrangement_number || '—'}</td>
                     <td style={{ ...tdStyle, textAlign: 'right', whiteSpace: 'nowrap' }}>
@@ -1385,7 +1410,7 @@ export default function AdminPanel() {
       )}
 
       {engineModal && (
-        <VesselEngines vessel={engineModal} jobs={jobs} onClose={() => { setEngineModal(null); loadAll() }} />
+        <VesselEngines vessel={engineModal} jobs={jobs} onFindVessels={findVesselsByEngine} onClose={() => { setEngineModal(null); loadAll() }} />
       )}
     </div>
   )
