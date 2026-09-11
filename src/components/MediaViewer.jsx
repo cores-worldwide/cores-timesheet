@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react'
-import { isVideoPath } from '../utils/media'
+import { isVideoPath, downloadMedia, mediaFilename } from '../utils/media'
 
 const MIN_SCALE = 1
 const MAX_SCALE = 4
@@ -155,7 +155,12 @@ export default function MediaViewer({ src, alt = '', style }) {
   }, [isVideo])
 
   if (isVideo) {
-    return <video src={src} controls autoPlay style={style} />
+    return (
+      <div style={{ position: 'relative', display: 'inline-block', maxWidth: '100%', maxHeight: '100%' }}>
+        <video src={src} controls autoPlay style={style} />
+        <DownloadButton src={src} />
+      </div>
+    )
   }
 
   function handleDoubleClick(e) {
@@ -187,7 +192,7 @@ export default function MediaViewer({ src, alt = '', style }) {
       onMouseUp={endDrag}
       onMouseLeave={endDrag}
       title={scale > 1 ? 'Drag to pan, double-click to reset' : 'Scroll or pinch to zoom, double-click to zoom in'}
-      style={{ ...style, overflow: 'hidden', touchAction: 'none', cursor: scale > 1 ? (dragging ? 'grabbing' : 'grab') : 'zoom-in' }}
+      style={{ ...style, position: 'relative', overflow: 'hidden', touchAction: 'none', cursor: scale > 1 ? (dragging ? 'grabbing' : 'grab') : 'zoom-in' }}
     >
       <img
         src={src} alt={alt} draggable={false}
@@ -197,6 +202,51 @@ export default function MediaViewer({ src, alt = '', style }) {
           transition: dragging || pinchRef.current ? 'none' : 'transform 0.15s ease-out',
         }}
       />
+      <DownloadButton src={src} />
     </div>
+  )
+}
+
+// Small circular overlay button, top-right of the lightbox media. Stops
+// propagation so it doesn't trigger the container's own click-to-zoom /
+// drag-to-pan handlers, or the backdrop's click-to-close behind it.
+function DownloadButton({ src }) {
+  const [busy, setBusy] = useState(false)
+
+  async function handleClick(e) {
+    e.preventDefault()
+    e.stopPropagation()
+    if (busy) return
+    setBusy(true)
+    try {
+      await downloadMedia(src, mediaFilename(src))
+    } catch (err) {
+      alert('Download failed: ' + err.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleClick}
+      onMouseDown={e => e.stopPropagation()}
+      onDoubleClick={e => e.stopPropagation()}
+      title="Download"
+      disabled={busy}
+      style={{
+        position: 'absolute', top: '0.6rem', right: '0.6rem', zIndex: 1,
+        width: '2.4rem', height: '2.4rem', borderRadius: '50%', border: 'none',
+        background: 'rgba(0,0,0,0.55)', color: '#fff', cursor: busy ? 'default' : 'pointer',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: busy ? 0.6 : 1,
+      }}
+    >
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 3v12" />
+        <path d="M7 10l5 5 5-5" />
+        <path d="M5 21h14" />
+      </svg>
+    </button>
   )
 }
