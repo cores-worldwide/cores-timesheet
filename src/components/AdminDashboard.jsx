@@ -2521,7 +2521,12 @@ export default function AdminDashboard() {
             const customer = isShop ? '_Shop' : (e.jobs?.customers?.name || '')
             const base = { id: e.id, jobLabel, hasJob, hasPrefix, isShop, employeeId: e.employee_id, employeeName: e.employees?.name || '', date: e.work_date, customer }
             const billingStatus = isShop ? 'Non Billable ' : 'Billable '
-            if (reg > 0) rows.push({ ...base, id: `${e.id}-reg`, item: 'Z 200', description: isShop ? '' : 'Service Hours', billingStatus, actualTime: reg, billableAmount: isShop ? 0 : reg, payrollTime: reg })
+            // Description is "Service Hours" for every Z 200 line, shop
+            // included — the reference file happened to have it blank on
+            // its one shop example, but Jim confirmed that's not the rule
+            // (2026-09-12): "non billable's Description is missing. it
+            // should be Service hours."
+            if (reg > 0) rows.push({ ...base, id: `${e.id}-reg`, item: 'Z 200', description: 'Service Hours', billingStatus, actualTime: reg, billableAmount: isShop ? 0 : reg, payrollTime: reg })
             if (ot > 0) rows.push({ ...base, id: `${e.id}-ot`, item: 'Z 202', description: 'Service Hours Overtime', billingStatus, actualTime: ot, billableAmount: isShop ? 0 : ot, payrollTime: ot })
             if (pd > 0) rows.push({ ...base, id: `${e.id}-pd`, item: 'Z 205', description: 'Per Diem', billingStatus: isShop ? 'Non Billable ' : 'Billable (Flat Fee)', actualTime: pd, billableAmount: isShop ? 0 : pd, payrollTime: pd })
           })
