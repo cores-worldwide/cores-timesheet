@@ -2472,46 +2472,58 @@ export default function AdminDashboard() {
       {activeTab === 'sms' && <SmsReview onApproved={loadTimesheets} />}
       {activeTab === 'photos' && <GearPhotos />}
 
-      {/* ── Sage Report tab ── First draft (2026-09-11, Jim): reconciliation
-          report against Sage 50's own Time Slips Journal — Reg maps to
-          Sage item Z200, OT to Z202, PD to Z205; Shop work is also Z200 but
-          Non Billable there, so it's split into its own column instead of
-          blending into Reg. Only (employee, work_date) pairs already
-          stamped "Posted to Sage" belong here. OT is computed from the
-          FULL entries history (computeOTMap groups by employee+pay-week
-          internally), then narrowed to the posted rows in range — doing it
-          the other way around would silently miscompute weekly OT for any
-          range that doesn't happen to align with a full pay week. */}
+      {/* ── Sage Report tab ── Reconciliation report against Sage 50's own
+          Time Slips Journal / journal import shape — Jim confirmed the
+          exact target columns 2026-09-12 against a real Sage export
+          (payroll.xlsx): Customer, Item, Description, Billing Status,
+          Actual Time, Billable Amount, Payroll Time. Customer comes from
+          the job's customer (or the literal "_Shop" pseudo-customer for
+          shop work, matching Sage's own naming); Item is Z 200 (regular —
+          shared by real jobs AND shop), Z 202 (overtime), or Z 205 (per
+          diem); Billing Status is "Billable "/"Billable (Flat Fee)" for
+          everything except shop work, which is always "Non Billable "
+          regardless of item — "_shop is the only one that isn't billable"
+          per Jim. Billable Amount mirrors the hours (or 0 when non-
+          billable) since this app has no billing-rate table to compute a
+          real dollar figure — matches the reference file's own values.
+          One ROW PER ITEM LINE now, not per job entry: a job entry with
+          both Reg and OT hours produces two separate rows (Z 200 and
+          Z 202), same as Sage's own journal does. Job # (jobnum_pref +
+          job_number) stays as our own leftmost reference column, not part
+          of Sage's own shape, for tying a row back to a specific job.
+          Only (employee, work_date) pairs already stamped "Posted to
+          Sage" belong here. OT is computed from the FULL entries history
+          (computeOTMap groups by employee+pay-week internally), then
+          narrowed to the posted rows in range — doing it the other way
+          around would silently miscompute weekly OT for any range that
+          doesn't happen to align with a full pay week. */}
       {activeTab === 'sage-report' && (() => {
         const otMap = computeEntryOT(entries)
-        const rows = entries
+        const rows = []
+        entries
           .filter(e => e.work_date >= sageFrom && e.work_date <= sageTo)
           .filter(e => !!postedDays[postedKey(e.employee_id, e.work_date)])
           .filter(e => Number(e.hours) > 0 || Number(e.per_diem) > 0)
-          .map(e => {
+          .forEach(e => {
             const isShop = (e.jobs?.job_number || '').toUpperCase() === 'SHOP'
             const reg = otMap[e.id]?.reg || 0
             const ot = otMap[e.id]?.ot || 0
-            return {
-              id: e.id,
-              jobLabel: e.jobs ? `${e.jobs.jobnum_pref || ''}${e.jobs.job_number}` : '',
-              hasJob: !!e.jobs,
-              hasPrefix: !!e.jobs?.jobnum_pref,
-              isShop,
-              employeeName: e.employees?.name || '',
-              date: e.work_date,
-              reg: isShop ? 0 : reg,
-              ot,
-              pd: Number(e.per_diem || 0),
-              shop: isShop ? reg : 0,
-            }
+            const pd = Number(e.per_diem || 0)
+            const jobLabel = e.jobs ? `${e.jobs.jobnum_pref || ''}${e.jobs.job_number}` : ''
+            const hasJob = !!e.jobs
+            const hasPrefix = !!e.jobs?.jobnum_pref
+            const customer = isShop ? '_Shop' : (e.jobs?.customers?.name || '')
+            const base = { id: e.id, jobLabel, hasJob, hasPrefix, isShop, employeeName: e.employees?.name || '', date: e.work_date, customer }
+            const billingStatus = isShop ? 'Non Billable ' : 'Billable '
+            if (reg > 0) rows.push({ ...base, id: `${e.id}-reg`, item: 'Z 200', description: isShop ? '' : 'Service Hours', billingStatus, actualTime: reg, billableAmount: isShop ? 0 : reg, payrollTime: reg })
+            if (ot > 0) rows.push({ ...base, id: `${e.id}-ot`, item: 'Z 202', description: 'Service Hours Overtime', billingStatus, actualTime: ot, billableAmount: isShop ? 0 : ot, payrollTime: ot })
+            if (pd > 0) rows.push({ ...base, id: `${e.id}-pd`, item: 'Z 205', description: 'Per Diem', billingStatus: isShop ? 'Non Billable ' : 'Billable (Flat Fee)', actualTime: pd, billableAmount: isShop ? 0 : pd, payrollTime: pd })
           })
-          .sort((a, b) => a.employeeName.localeCompare(b.employeeName) || a.date.localeCompare(b.date) || a.jobLabel.localeCompare(b.jobLabel))
+        rows.sort((a, b) => a.employeeName.localeCompare(b.employeeName) || a.date.localeCompare(b.date) || a.jobLabel.localeCompare(b.jobLabel) || a.item.localeCompare(b.item))
 
-        const totalReg = rows.reduce((s, r) => s + r.reg, 0)
-        const totalOT = rows.reduce((s, r) => s + r.ot, 0)
-        const totalPD = rows.reduce((s, r) => s + r.pd, 0)
-        const totalShop = rows.reduce((s, r) => s + r.shop, 0)
+        const totalActual = rows.reduce((s, r) => s + r.actualTime, 0)
+        const totalBillable = rows.reduce((s, r) => s + r.billableAmount, 0)
+        const totalPayroll = rows.reduce((s, r) => s + r.payrollTime, 0)
         const missingPrefixCount = rows.filter(r => !r.isShop && r.hasJob && !r.hasPrefix).length
 
         return (
@@ -2533,11 +2545,11 @@ export default function AdminDashboard() {
                   disabled={rows.length === 0}
                   style={{ padding: '0.5rem 1.2rem', background: rows.length ? '#0066cc' : '#ccc', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 600, cursor: rows.length ? 'pointer' : 'not-allowed' }}
                 >Generate PDF</button>
-                <span style={{ color: '#888', fontSize: '0.85rem' }}>{rows.length} posted row{rows.length === 1 ? '' : 's'}</span>
+                <span style={{ color: '#888', fontSize: '0.85rem' }}>{rows.length} line{rows.length === 1 ? '' : 's'}</span>
               </div>
               {missingPrefixCount > 0 && (
                 <div style={{ marginTop: '0.75rem', fontSize: '0.82rem', color: '#a05a00', background: '#fff6e8', border: '1px solid #f0d9a8', borderRadius: '4px', padding: '0.5rem 0.75rem' }}>
-                  {missingPrefixCount} row{missingPrefixCount === 1 ? '' : 's'} in range {missingPrefixCount === 1 ? 'has' : 'have'} no Job # Prefix set yet (Admin → Jobs) — the Job # column will show just the bare job number for those.
+                  {missingPrefixCount} line{missingPrefixCount === 1 ? '' : 's'} in range {missingPrefixCount === 1 ? 'has' : 'have'} no Job # Prefix set yet (Admin → Jobs) — the Job # column will show just the bare job number for those.
                 </div>
               )}
             </div>
@@ -2547,12 +2559,12 @@ export default function AdminDashboard() {
                 No posted entries in this range.
               </div>
             ) : (
-              <div style={card}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+              <div style={{ ...card, overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem', whiteSpace: 'nowrap' }}>
                   <thead>
                     <tr>
-                      {['Job #', 'Employee', 'Date', 'Reg', 'OT', 'PD', 'Shop'].map(h => (
-                        <th key={h} style={{ textAlign: 'left', padding: '0.5rem 0.6rem', borderBottom: '2px solid #ddd', color: '#888', fontSize: '0.78rem', textTransform: 'uppercase' }}>{h}</th>
+                      {['Job #', 'Employee', 'Date', 'Customer', 'Item', 'Description', 'Billing Status', 'Actual', 'Billable Amt', 'Payroll'].map(h => (
+                        <th key={h} style={{ textAlign: 'left', padding: '0.5rem 0.6rem', borderBottom: '2px solid #ddd', color: '#888', fontSize: '0.75rem', textTransform: 'uppercase' }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
@@ -2562,20 +2574,22 @@ export default function AdminDashboard() {
                         <td style={{ padding: '0.4rem 0.6rem', borderBottom: '1px solid #f0f0f0' }}>{r.jobLabel || '—'}</td>
                         <td style={{ padding: '0.4rem 0.6rem', borderBottom: '1px solid #f0f0f0' }}>{r.employeeName}</td>
                         <td style={{ padding: '0.4rem 0.6rem', borderBottom: '1px solid #f0f0f0', color: '#666' }}>{fmtPayDate(r.date)}</td>
-                        <td style={{ padding: '0.4rem 0.6rem', borderBottom: '1px solid #f0f0f0' }}>{r.reg ? fmtHours(r.reg) : ''}</td>
-                        <td style={{ padding: '0.4rem 0.6rem', borderBottom: '1px solid #f0f0f0' }}>{r.ot ? fmtHours(r.ot) : ''}</td>
-                        <td style={{ padding: '0.4rem 0.6rem', borderBottom: '1px solid #f0f0f0' }}>{r.pd || ''}</td>
-                        <td style={{ padding: '0.4rem 0.6rem', borderBottom: '1px solid #f0f0f0' }}>{r.shop ? fmtHours(r.shop) : ''}</td>
+                        <td style={{ padding: '0.4rem 0.6rem', borderBottom: '1px solid #f0f0f0' }}>{r.customer || '—'}</td>
+                        <td style={{ padding: '0.4rem 0.6rem', borderBottom: '1px solid #f0f0f0' }}>{r.item}</td>
+                        <td style={{ padding: '0.4rem 0.6rem', borderBottom: '1px solid #f0f0f0', color: '#666' }}>{r.description || '—'}</td>
+                        <td style={{ padding: '0.4rem 0.6rem', borderBottom: '1px solid #f0f0f0', color: r.billingStatus.trim() === 'Non Billable' ? '#a05a00' : '#2d6a38' }}>{r.billingStatus}</td>
+                        <td style={{ padding: '0.4rem 0.6rem', borderBottom: '1px solid #f0f0f0' }}>{fmtHours(r.actualTime)}</td>
+                        <td style={{ padding: '0.4rem 0.6rem', borderBottom: '1px solid #f0f0f0' }}>{fmtHours(r.billableAmount)}</td>
+                        <td style={{ padding: '0.4rem 0.6rem', borderBottom: '1px solid #f0f0f0' }}>{fmtHours(r.payrollTime)}</td>
                       </tr>
                     ))}
                   </tbody>
                   <tfoot>
                     <tr style={{ fontWeight: 700 }}>
-                      <td style={{ padding: '0.5rem 0.6rem' }} colSpan={3}>Total</td>
-                      <td style={{ padding: '0.5rem 0.6rem' }}>{fmtHours(totalReg)}</td>
-                      <td style={{ padding: '0.5rem 0.6rem' }}>{fmtHours(totalOT)}</td>
-                      <td style={{ padding: '0.5rem 0.6rem' }}>{totalPD || ''}</td>
-                      <td style={{ padding: '0.5rem 0.6rem' }}>{fmtHours(totalShop)}</td>
+                      <td style={{ padding: '0.5rem 0.6rem' }} colSpan={7}>Total</td>
+                      <td style={{ padding: '0.5rem 0.6rem' }}>{fmtHours(totalActual)}</td>
+                      <td style={{ padding: '0.5rem 0.6rem' }}>{fmtHours(totalBillable)}</td>
+                      <td style={{ padding: '0.5rem 0.6rem' }}>{fmtHours(totalPayroll)}</td>
                     </tr>
                   </tfoot>
                 </table>
