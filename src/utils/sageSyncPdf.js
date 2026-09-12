@@ -1,23 +1,31 @@
 import { jsPDF } from 'jspdf'
 import { fmtHours } from './format'
 
-// First-draft reconciliation report against Sage 50's own Time Slips Journal
-// (see the reference screenshot Jim sent 2026-09-11) — Reg Hours maps to
-// Sage item Z200, OT to Z202, Per Diem to Z205; Shop work is also Z200 but
-// billed Non Billable there, so it gets its own column here rather than
-// blending into Reg. Only entries for a (employee, work_date) already
-// stamped "Posted to Sage" (daily_summary_posted) belong in this report —
-// anything not posted yet hasn't reached Sage to reconcile against.
+// Reconciliation report against Sage 50's own Time Slips Journal / journal
+// import shape. Columns confirmed 2026-09-12 (Jim) against a real Sage
+// export (payroll.xlsx): Customer, Item, Description, Billing Status,
+// Actual Time, Billable Amount, Payroll Time — Job # is added as our own
+// leftmost reference column (not part of Sage's own shape) so a row can be
+// tied back to a specific job; that's what jobnum_pref exists for.
 //
-// One row per job entry (not per employee/day) so Job # — the whole reason
-// jobnum_pref exists — can sit on the left and be checked line-by-line
-// against Sage's own per-job time slips. "Give it a shot, we'll play with
-// it later" — Jim, 2026-09-11: expect this shape to change.
+// One row per ITEM LINE, not per job entry: a job entry with both Reg and
+// OT hours produces two rows (Z 200 and Z 202), same as Sage's own journal
+// does. Customer is the job's real customer, or the literal "_Shop"
+// pseudo-customer for shop work (matching Sage's own naming) — "_shop is
+// the only one that isn't billable" (Jim), so Billing Status is always
+// "Non Billable " there regardless of item, and Billable Amount is 0.
+// Everywhere else Billable Amount just mirrors the hours — there's no
+// billing-rate table in this app to compute a real dollar figure, and the
+// reference file's own values do the same (8 hours -> 8, not a $ amount).
+//
+// Only entries for a (employee, work_date) already stamped "Posted to
+// Sage" belong in this report — anything not posted yet hasn't reached
+// Sage to reconcile against.
 //
 // Styled to match the on-screen preview table in AdminDashboard.jsx's Sage
 // Report tab (plain rows, thin light-grey dividers, grey uppercase header,
-// no cell shading/grid) rather than the boxed/shaded look this started
-// with — Jim: "try to make it look like the data on the screen", 2026-09-11.
+// no cell shading/grid). Landscape orientation — 10 columns don't fit a
+// portrait letter page at a legible size.
 const fmtHrs = (n) => (n ? fmtHours(n) : '')
 // Same shape as the web table's fmtPayDate (day + short month, no year) —
 // the report is always scoped to one narrow range, so the year is implied.
@@ -31,12 +39,12 @@ const fmtHeaderDate = (ymd) => {
   return d.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
-// rows: [{ jobLabel, employeeName, date, reg, ot, pd, shop }]
+// rows: [{ jobLabel, employeeName, date, customer, item, description, billingStatus, actualTime, billableAmount, payrollTime }]
 export function generateSageSyncPDF({ dateFrom, dateTo, rows }) {
-  const doc = new jsPDF({ unit: 'pt', format: 'letter' })
+  const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'landscape' })
   const pageW = doc.internal.pageSize.getWidth()
   const pageH = doc.internal.pageSize.getHeight()
-  const margin = 40
+  const margin = 36
   const contentW = pageW - margin * 2
   let y = margin
 
@@ -52,23 +60,29 @@ export function generateSageSyncPDF({ dateFrom, dateTo, rows }) {
   y += 30
 
   const colW = {
-    job: contentW * 0.20,
-    emp: contentW * 0.26,
-    date: contentW * 0.16,
-    reg: contentW * 0.095,
-    ot: contentW * 0.095,
-    pd: contentW * 0.095,
-    shop: contentW * 0.095,
+    job: contentW * 0.075,
+    emp: contentW * 0.12,
+    date: contentW * 0.07,
+    customer: contentW * 0.13,
+    item: contentW * 0.06,
+    description: contentW * 0.15,
+    billing: contentW * 0.14,
+    actual: contentW * 0.085,
+    billable: contentW * 0.09,
+    payroll: contentW * 0.08,
   }
   const colX = {}
   let cx = margin
   Object.entries(colW).forEach(([k, w]) => { colX[k] = cx; cx += w })
   const tableRight = margin + contentW
-  const rowH = 20
-  const headers = [['job', 'JOB #'], ['emp', 'EMPLOYEE'], ['date', 'DATE'], ['reg', 'REG'], ['ot', 'OT'], ['pd', 'PD'], ['shop', 'SHOP']]
+  const rowH = 18
+  const headers = [
+    ['job', 'JOB #'], ['emp', 'EMPLOYEE'], ['date', 'DATE'], ['customer', 'CUSTOMER'], ['item', 'ITEM'],
+    ['description', 'DESCRIPTION'], ['billing', 'BILLING STATUS'], ['actual', 'ACTUAL'], ['billable', 'BILLABLE AMT'], ['payroll', 'PAYROLL'],
+  ]
 
   function drawHeaderRow() {
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(8)
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5)
     doc.setTextColor(136, 136, 136)
     headers.forEach(([key, label]) => doc.text(label, colX[key] + 4, y + rowH - 7))
     y += rowH
@@ -88,30 +102,33 @@ export function generateSageSyncPDF({ dateFrom, dateTo, rows }) {
 
   drawHeaderRow()
 
-  let totalReg = 0, totalOT = 0, totalPD = 0, totalShop = 0
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(9)
-  doc.setTextColor(20, 20, 20)
+  let totalActual = 0, totalBillable = 0, totalPayroll = 0
   rows.forEach(r => {
     ensureSpace()
     // ensureSpace may have just redrawn the page header, which leaves the
     // pen on its own grey — reset before every row rather than relying on
     // the previous row's last color, or the first row of every page after
-    // page 1 renders JOB #/EMPLOYEE in the header's grey instead of black.
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(9)
+    // page 1 renders in the header's grey instead of black.
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5)
     doc.setTextColor(20, 20, 20)
-    totalReg += Number(r.reg || 0)
-    totalOT += Number(r.ot || 0)
-    totalPD += Number(r.pd || 0)
-    totalShop += Number(r.shop || 0)
+    totalActual += Number(r.actualTime || 0)
+    totalBillable += Number(r.billableAmount || 0)
+    totalPayroll += Number(r.payrollTime || 0)
     doc.text(String(r.jobLabel || '—'), colX.job + 4, y + rowH - 7)
     doc.text(String(r.employeeName || ''), colX.emp + 4, y + rowH - 7)
     doc.setTextColor(102, 102, 102)
     doc.text(fmtDate(r.date), colX.date + 4, y + rowH - 7)
     doc.setTextColor(20, 20, 20)
-    doc.text(fmtHrs(r.reg), colX.reg + 4, y + rowH - 7)
-    doc.text(fmtHrs(r.ot), colX.ot + 4, y + rowH - 7)
-    doc.text(r.pd ? String(r.pd) : '', colX.pd + 4, y + rowH - 7)
-    doc.text(fmtHrs(r.shop), colX.shop + 4, y + rowH - 7)
+    doc.text(String(r.customer || '—'), colX.customer + 4, y + rowH - 7)
+    doc.text(String(r.item || ''), colX.item + 4, y + rowH - 7)
+    doc.setTextColor(102, 102, 102)
+    doc.text(String(r.description || '—'), colX.description + 4, y + rowH - 7)
+    doc.setTextColor(...(r.billingStatus?.trim() === 'Non Billable' ? [160, 90, 0] : [45, 106, 56]))
+    doc.text(String(r.billingStatus || ''), colX.billing + 4, y + rowH - 7)
+    doc.setTextColor(20, 20, 20)
+    doc.text(fmtHrs(r.actualTime), colX.actual + 4, y + rowH - 7)
+    doc.text(fmtHrs(r.billableAmount), colX.billable + 4, y + rowH - 7)
+    doc.text(fmtHrs(r.payrollTime), colX.payroll + 4, y + rowH - 7)
     y += rowH
     doc.setDrawColor(240, 240, 240); doc.setLineWidth(0.75)
     doc.line(margin, y, tableRight, y)
@@ -122,18 +139,17 @@ export function generateSageSyncPDF({ dateFrom, dateTo, rows }) {
   doc.setDrawColor(20, 20, 20); doc.setLineWidth(1)
   doc.line(margin, y, tableRight, y)
   y += rowH - 5
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(9)
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5)
   doc.setTextColor(20, 20, 20)
   doc.text('TOTAL', colX.job + 4, y)
-  doc.text(fmtHrs(totalReg), colX.reg + 4, y)
-  doc.text(fmtHrs(totalOT), colX.ot + 4, y)
-  doc.text(totalPD ? String(totalPD) : '', colX.pd + 4, y)
-  doc.text(fmtHrs(totalShop), colX.shop + 4, y)
+  doc.text(fmtHrs(totalActual), colX.actual + 4, y)
+  doc.text(fmtHrs(totalBillable), colX.billable + 4, y)
+  doc.text(fmtHrs(totalPayroll), colX.payroll + 4, y)
   y += 22
 
   doc.setFont('helvetica', 'italic'); doc.setFontSize(8)
   doc.setTextColor(136, 136, 136)
-  doc.text('Shop hours are non-billable (Z200, Non Billable) — not included in Reg.', margin, y)
+  doc.text('Shop work (_Shop) is always Non Billable, regardless of item — Billable Amt is 0 there.', margin, y)
   doc.setTextColor(0, 0, 0)
 
   doc.save(`sage-sync_${dateFrom}_to_${dateTo}.pdf`)
