@@ -86,6 +86,10 @@ export default function AdminDashboard() {
     const e = new Date(s); e.setDate(e.getDate() + 6)
     return toYMD(e)
   })
+  // Empty = everyone, same "no selection means no filter" convention as
+  // the Timesheets tab's filterEmployeeIds (kept separate so picking
+  // employees here doesn't affect that tab, and vice versa).
+  const [sageEmployeeIds, setSageEmployeeIds] = useState([])
   const [selectedEmp, setSelectedEmp] = useState(null)
   const [selectedDate, setSelectedDate] = useState(null)
   const [payrollConfig, setPayrollConfig] = useState({})
@@ -2502,6 +2506,7 @@ export default function AdminDashboard() {
         const rows = []
         entries
           .filter(e => e.work_date >= sageFrom && e.work_date <= sageTo)
+          .filter(e => sageEmployeeIds.length === 0 || sageEmployeeIds.includes(e.employee_id))
           .filter(e => !!postedDays[postedKey(e.employee_id, e.work_date)])
           .filter(e => Number(e.hours) > 0 || Number(e.per_diem) > 0)
           .forEach(e => {
@@ -2539,6 +2544,15 @@ export default function AdminDashboard() {
                   <label style={{ display: 'block', fontSize: '0.78rem', color: '#888', marginBottom: '0.25rem' }}>To</label>
                   <input type="date" value={sageTo} onChange={e => setSageTo(e.target.value)}
                     style={{ padding: '0.4rem 0.6rem', border: '1px solid #ccc', borderRadius: '4px' }} />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.78rem', color: '#888', marginBottom: '0.25rem' }}>Employee</label>
+                  <MultiSelectDropdown
+                    options={employees.filter(e => e.active || sageEmployeeIds.includes(e.id)).sort((a, b) =>
+                      (a.name || '').split(' ').pop().localeCompare((b.name || '').split(' ').pop(), undefined, { sensitivity: 'base' }))}
+                    selectedIds={sageEmployeeIds}
+                    onChange={setSageEmployeeIds}
+                    placeholder="All employees" allLabel="All employees" />
                 </div>
                 <button
                   onClick={() => generateSageSyncPDF({ dateFrom: sageFrom, dateTo: sageTo, rows })}
