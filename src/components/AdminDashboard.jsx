@@ -16,6 +16,7 @@ import { computeOTMap } from '../utils/otCalc'
 import { fmtHours } from '../utils/format'
 import { generateWeeklyCompilationPDF, fmtShortDate, fmtHeaderDate, dayName, isWeekend } from '../utils/weeklyCompilationPdf'
 import { generateSageSyncPDF } from '../utils/sageSyncPdf'
+import { generateSageSyncIMP } from '../utils/sageSyncImp'
 
 const gearPhotoUrl = (path) => supabase.storage.from('gear-photos').getPublicUrl(path).data.publicUrl
 // Tracy gets a confetti celebration when her own timesheet is saved here —
@@ -2518,7 +2519,7 @@ export default function AdminDashboard() {
             const hasJob = !!e.jobs
             const hasPrefix = !!e.jobs?.jobnum_pref
             const customer = isShop ? '_Shop' : (e.jobs?.customers?.name || '')
-            const base = { id: e.id, jobLabel, hasJob, hasPrefix, isShop, employeeName: e.employees?.name || '', date: e.work_date, customer }
+            const base = { id: e.id, jobLabel, hasJob, hasPrefix, isShop, employeeId: e.employee_id, employeeName: e.employees?.name || '', date: e.work_date, customer }
             const billingStatus = isShop ? 'Non Billable ' : 'Billable '
             if (reg > 0) rows.push({ ...base, id: `${e.id}-reg`, item: 'Z 200', description: isShop ? '' : 'Service Hours', billingStatus, actualTime: reg, billableAmount: isShop ? 0 : reg, payrollTime: reg })
             if (ot > 0) rows.push({ ...base, id: `${e.id}-ot`, item: 'Z 202', description: 'Service Hours Overtime', billingStatus, actualTime: ot, billableAmount: isShop ? 0 : ot, payrollTime: ot })
@@ -2559,6 +2560,12 @@ export default function AdminDashboard() {
                   disabled={rows.length === 0}
                   style={{ padding: '0.5rem 1.2rem', background: rows.length ? '#0066cc' : '#ccc', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 600, cursor: rows.length ? 'pointer' : 'not-allowed' }}
                 >Generate PDF</button>
+                <button
+                  onClick={() => generateSageSyncIMP({ dateFrom: sageFrom, dateTo: sageTo, rows })}
+                  disabled={rows.length === 0}
+                  title="First draft — unverified against a real Sage import. See src/utils/sageSyncImp.js for what's confirmed vs guessed."
+                  style={{ padding: '0.5rem 1.2rem', background: '#fff', color: rows.length ? '#0066cc' : '#ccc', border: `1px solid ${rows.length ? '#0066cc' : '#ccc'}`, borderRadius: '4px', fontWeight: 600, cursor: rows.length ? 'pointer' : 'not-allowed' }}
+                >Export .IMP (draft)</button>
                 <span style={{ color: '#888', fontSize: '0.85rem' }}>{rows.length} line{rows.length === 1 ? '' : 's'}</span>
               </div>
               {missingPrefixCount > 0 && (
@@ -2566,6 +2573,9 @@ export default function AdminDashboard() {
                   {missingPrefixCount} line{missingPrefixCount === 1 ? '' : 's'} in range {missingPrefixCount === 1 ? 'has' : 'have'} no Job # Prefix set yet (Admin → Jobs) — the Job # column will show just the bare job number for those.
                 </div>
               )}
+              <div style={{ marginTop: '0.5rem', fontSize: '0.78rem', color: '#999' }}>
+                The .IMP export is an unverified first draft — Sage's own docs don't publish the full field list, so this needs a real test import before trusting it. See Condon.
+              </div>
             </div>
 
             {rows.length === 0 ? (
