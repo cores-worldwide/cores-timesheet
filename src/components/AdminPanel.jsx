@@ -1386,7 +1386,9 @@ export default function AdminPanel() {
           <Field label="Per Diem">
             <select style={inputStyle} {...f('per_diem')}>
               <option value="0">None</option>
+              <option value="0.25">×0.25 Quarter</option>
               <option value="0.5">×0.5 Half</option>
+              <option value="0.75">×0.75 Three-Quarter</option>
               <option value="1">×1 Standard</option>
             </select>
           </Field>
