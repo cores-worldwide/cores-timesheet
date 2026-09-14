@@ -362,6 +362,15 @@ export default function SmsReview({ onApproved } = {}) {
     // and Finn Jones's submissions (2026-08-27).
     const hasPD = sub.per_diem_location && sub.per_diem_location.trim().toLowerCase() !== 'none'
 
+    // The multiplier Niki picked in the Edit modal wins. Falls back to the
+    // original "a location means x1" rule when she hasn't set one, so every
+    // submission from before per_diem existed approves exactly as it used to.
+    // Before this, approval hardcoded 1 whenever a location was present —
+    // typing ".5" into the location box set the multiplier to 1 anyway
+    // (reported via Niki, 2026-09-14: "if she puts in .5 on sms then on the
+    // timesheet it switched to a 1").
+    const pdMultiplier = sub.per_diem != null ? Number(sub.per_diem) : (hasPD ? 1 : 0)
+
     // Map job numbers to IDs — case-insensitive so "shop"/"Shop"/"SHOP" all match
     const jobMap = {}
     jobs.forEach(j => { jobMap[j.job_number.toUpperCase()] = j.id })
@@ -384,8 +393,10 @@ export default function SmsReview({ onApproved } = {}) {
       // own Edit modal for an already-approved entry.
       ot_hours:    e.ot_override ? Number(e.ot_hours) : null,
       description: e.description || null,
-      // per_diem is a multiplier (×1 standard, ×2 double), not a dollar amount
-      per_diem:    i === 0 && hasPD ? 1 : 0,
+      // per_diem is a multiplier (×0.5 half, ×1 standard, ×2 double), not a
+      // dollar amount. Only the day's first entry carries it — it's per day,
+      // not per job.
+      per_diem:    i === 0 ? pdMultiplier : 0,
       sort_order:  i + 1,
       // Carry the day's shift times onto the entries so the Edit modal and PDF
       // work even if the sms_submission is later cleaned up
@@ -521,6 +532,9 @@ export default function SmsReview({ onApproved } = {}) {
       stated_time_out:   sub.stated_time_out ? sub.stated_time_out.substring(0, 5) : '',
       lunch_minutes:     sub.lunch_minutes != null ? String(sub.lunch_minutes) : '',
       per_diem_location: sub.per_diem_location || '',
+      // '' = not explicitly set, so approve() keeps the legacy "a location
+      // means x1" fallback instead of forcing a number she never picked.
+      per_diem:          sub.per_diem != null ? String(sub.per_diem) : '',
       // Reg/OT are typed directly here, pre-filled from whatever's currently
       // shown in the list (the same reg_hours/ot_hours preview) so she's
       // adjusting real numbers she already saw, not blanks. No more "leave
@@ -614,6 +628,7 @@ export default function SmsReview({ onApproved } = {}) {
       stated_time_out:   editFields.stated_time_out || null,
       lunch_minutes:     editFields.lunch_minutes !== '' ? Number(editFields.lunch_minutes) : null,
       per_diem_location: editFields.per_diem_location || null,
+      per_diem:          editFields.per_diem === '' ? null : Number(editFields.per_diem),
       entries,
       supplies,
       calculated_time_out: null,
@@ -1330,8 +1345,26 @@ export default function SmsReview({ onApproved } = {}) {
             <label style={lbl}>Lunch (minutes)</label>
             <input type="number" value={editFields.lunch_minutes} onChange={e => setEditFields(p => ({ ...p, lunch_minutes: e.target.value }))} placeholder="0 = no lunch" style={inp} />
 
-            <label style={lbl}>Per Diem Location</label>
-            <input value={editFields.per_diem_location} onChange={e => setEditFields(p => ({ ...p, per_diem_location: e.target.value }))} placeholder='"none" or hotel name' style={inp} />
+            <div style={{ display: 'flex', gap: '0.75rem' }}>
+              <div style={{ flex: 2 }}>
+                <label style={lbl}>Per Diem Location</label>
+                <input value={editFields.per_diem_location} onChange={e => setEditFields(p => ({ ...p, per_diem_location: e.target.value }))} placeholder='"none" or hotel name' style={inp} />
+              </div>
+              <div style={{ flex: 1 }}>
+                {/* The amount lives here, not in the location box — typing a
+                    number into Location just names the place ".5" and still
+                    approved as x1 (Niki, 2026-09-14). */}
+                <label style={lbl}>Per Diem Amount</label>
+                <select value={editFields.per_diem} onChange={e => setEditFields(p => ({ ...p, per_diem: e.target.value }))} style={inp}>
+                  <option value="">Auto (from location)</option>
+                  <option value="0">None</option>
+                  <option value="0.5">×0.5 Half</option>
+                  <option value="1">×1 Standard</option>
+                  <option value="1.5">×1.5</option>
+                  <option value="2">×2 Double</option>
+                </select>
+              </div>
+            </div>
 
             <label style={lbl}>Job Entries</label>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>

@@ -111,7 +111,7 @@ export function computeSubmissionTiming(timeIn, statedTimeOut, lunchMinutes, tot
 // reviewed it. Used for both a brand-new day (AdminDashboard's Add Entry
 // form) and adding one more job to an existing day.
 export async function submitManualEntry(supabase, {
-  employeeId, workDate, timeIn, statedTimeOut, lunchMinutes, hasPerDiem,
+  employeeId, workDate, timeIn, statedTimeOut, lunchMinutes, perDiem = 0,
   entries, supplies = [], adminName,
 }) {
   const totalHours = entries.reduce((s, e) => s + e.hours, 0)
@@ -123,7 +123,10 @@ export async function submitManualEntry(supabase, {
     time_in:            timeIn || null,
     stated_time_out:    statedTimeOut || null,
     lunch_minutes:      lunchMinutes === '' || lunchMinutes == null ? null : Number(lunchMinutes),
-    per_diem_location:  hasPerDiem ? 'Office entry' : 'none',
+    per_diem_location:  perDiem > 0 ? 'Office entry' : 'none',
+    // Explicit multiplier so a half per diem typed here survives approval,
+    // rather than the location alone implying a flat x1.
+    per_diem:           perDiem,
     entries, supplies,
     status:             'submitted',
     calculated_time_out, delta_minutes,
