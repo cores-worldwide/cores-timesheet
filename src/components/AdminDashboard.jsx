@@ -590,7 +590,7 @@ export default function AdminDashboard() {
       const { error } = await submitManualEntry(supabase, {
         employeeId: manualFields.employee_id, workDate: manualFields.work_date,
         timeIn: manualFields.time_in, statedTimeOut: manualFields.stated_time_out,
-        lunchMinutes: manualFields.lunch_minutes, hasPerDiem: Number(manualFields.per_diem) > 0,
+        lunchMinutes: manualFields.lunch_minutes, perDiem: Number(manualFields.per_diem) || 0,
         entries, supplies, adminName: getAdminName(),
       })
       if (error) {
@@ -1540,7 +1540,10 @@ export default function AdminDashboard() {
                 <label style={{ display: 'block', fontSize: '0.85rem', color: '#555', marginBottom: '0.3rem' }}>Per Diem</label>
                 <select style={inputStyle} value={manualFields.per_diem || 0} onChange={e => setManualFields(f => ({ ...f, per_diem: Number(e.target.value) }))}>
                   <option value={0}>None</option>
-                  <option value={1}>Yes</option>
+                  <option value={0.5}>×0.5 Half</option>
+                  <option value={1}>×1 Standard</option>
+                  <option value={1.5}>×1.5</option>
+                  <option value={2}>×2 Double</option>
                 </select>
               </div>
             </div>
