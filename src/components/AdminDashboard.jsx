@@ -1449,10 +1449,10 @@ export default function AdminDashboard() {
                 <label style={{ display: 'block', fontSize: '0.85rem', color: '#555', marginBottom: '0.3rem' }}>Per Diem</label>
                 <select style={inputStyle} value={editFields.per_diem ?? 0} onChange={e => setEditFields(f => ({ ...f, per_diem: e.target.value }))}>
                   <option value={0}>None</option>
+                  <option value={0.25}>×0.25 Quarter</option>
                   <option value={0.5}>×0.5 Half</option>
+                  <option value={0.75}>×0.75 Three-Quarter</option>
                   <option value={1}>×1 Standard</option>
-                  <option value={1.5}>×1.5</option>
-                  <option value={2}>×2 Double</option>
                 </select>
               </div>
             </div>
@@ -1540,10 +1540,10 @@ export default function AdminDashboard() {
                 <label style={{ display: 'block', fontSize: '0.85rem', color: '#555', marginBottom: '0.3rem' }}>Per Diem</label>
                 <select style={inputStyle} value={manualFields.per_diem || 0} onChange={e => setManualFields(f => ({ ...f, per_diem: Number(e.target.value) }))}>
                   <option value={0}>None</option>
+                  <option value={0.25}>×0.25 Quarter</option>
                   <option value={0.5}>×0.5 Half</option>
+                  <option value={0.75}>×0.75 Three-Quarter</option>
                   <option value={1}>×1 Standard</option>
-                  <option value={1.5}>×1.5</option>
-                  <option value={2}>×2 Double</option>
                 </select>
               </div>
             </div>

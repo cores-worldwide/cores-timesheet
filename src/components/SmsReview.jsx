@@ -1353,15 +1353,19 @@ export default function SmsReview({ onApproved } = {}) {
               <div style={{ flex: 1 }}>
                 {/* The amount lives here, not in the location box — typing a
                     number into Location just names the place ".5" and still
-                    approved as x1 (Niki, 2026-09-14). */}
+                    approved as x1 (Niki, 2026-09-14). Only five real values
+                    ever reach the timesheet/PDF (Jim, 2026-09-14): a location
+                    or "yes" auto-converts to x1, "none"/"no" to 0 — Niki's
+                    overrides are x0.25/x0.5/x0.75. None/x1 stay selectable
+                    here too, to let her correct a bad auto-read. */}
                 <label style={lbl}>Per Diem Amount</label>
                 <select value={editFields.per_diem} onChange={e => setEditFields(p => ({ ...p, per_diem: e.target.value }))} style={inp}>
                   <option value="">Auto (from location)</option>
                   <option value="0">None</option>
+                  <option value="0.25">×0.25 Quarter</option>
                   <option value="0.5">×0.5 Half</option>
+                  <option value="0.75">×0.75 Three-Quarter</option>
                   <option value="1">×1 Standard</option>
-                  <option value="1.5">×1.5</option>
-                  <option value="2">×2 Double</option>
                 </select>
               </div>
             </div>
