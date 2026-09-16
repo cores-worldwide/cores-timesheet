@@ -105,6 +105,13 @@ export default function AdminDashboard() {
   // in SMS Review still counts as "not logged yet" as far as those pages are
   // concerned, which reads as missing data unless flagged.
   const [pendingSubmissionCount, setPendingSubmissionCount] = useState(0)
+  // Mobile autosave writes every change as 'draft'; only an explicit "Submit
+  // day" tap moves it into the approval queue. A day the employee never came
+  // back to finish just sits at 'draft' forever, invisible everywhere (Jim,
+  // 2026-09-16: "I can see the boys doing this all the time"). work_date < today
+  // only — today's draft may just be a shift still in progress.
+  const [staleDraftCount, setStaleDraftCount] = useState(0)
+  const [smsReviewInitialFilter, setSmsReviewInitialFilter] = useState('submitted')
   const [sortCol, setSortCol] = useState('date')
   const [sortDir, setSortDir] = useState('desc')
 
@@ -246,6 +253,14 @@ export default function AdminDashboard() {
     }
     setPendingSubmissionCount(pending?.length || 0)
     setPendingSubs(pending || [])
+
+    const { data: staleDrafts, error: draftError } = await supabase.schema('Cores').from('sms_submissions')
+      .select('id').eq('status', 'draft').lt('work_date', new Date().toISOString().slice(0, 10))
+    if (draftError) {
+      console.error('Background refresh failed (stale drafts):', draftError.message)
+    } else {
+      setStaleDraftCount(staleDrafts?.length || 0)
+    }
   }
 
   async function openEdit(e, computedReg, computedOT) {
@@ -1635,7 +1650,13 @@ export default function AdminDashboard() {
           {pendingSubmissionCount > 0 && (
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', marginBottom: '1rem', padding: '0.65rem 1rem', background: '#eaf2fc', border: '1px solid #b8d4f5', borderRadius: '6px', color: '#0a4a8a', fontSize: '0.9rem' }}>
               <span>Only approved entries show up here — {pendingSubmissionCount} submission{pendingSubmissionCount === 1 ? ' is' : 's are'} still waiting in SMS Review.</span>
-              <button onClick={() => setActiveTab('sms')} style={{ padding: '0.3rem 0.8rem', border: '1px solid #0066cc', background: '#fff', color: '#0066cc', borderRadius: '4px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600, whiteSpace: 'nowrap' }}>Review now →</button>
+              <button onClick={() => { setSmsReviewInitialFilter('submitted'); setActiveTab('sms') }} style={{ padding: '0.3rem 0.8rem', border: '1px solid #0066cc', background: '#fff', color: '#0066cc', borderRadius: '4px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600, whiteSpace: 'nowrap' }}>Review now →</button>
+            </div>
+          )}
+          {staleDraftCount > 0 && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', marginBottom: '1rem', padding: '0.65rem 1rem', background: '#f5f5f0', border: '1px solid #ddd6b8', borderRadius: '6px', color: '#7a6a1a', fontSize: '0.9rem' }}>
+              <span>📝 {staleDraftCount} mobile entr{staleDraftCount === 1 ? 'y was' : 'ies were'} started but never submitted for approval — the boys autosave as they go, but a day only counts once "Submit day" is tapped.</span>
+              <button onClick={() => { setSmsReviewInitialFilter('draft'); setActiveTab('sms') }} style={{ padding: '0.3rem 0.8rem', border: '1px solid #8a7a1a', background: '#fff', color: '#8a7a1a', borderRadius: '4px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600, whiteSpace: 'nowrap' }}>Review drafts →</button>
             </div>
           )}
           {/* Filters — always visible */}
@@ -2477,7 +2498,7 @@ export default function AdminDashboard() {
       })()}
 
       {/* ── SMS Review tab ── */}
-      {activeTab === 'sms' && <SmsReview onApproved={loadTimesheets} />}
+      {activeTab === 'sms' && <SmsReview onApproved={loadTimesheets} initialFilter={smsReviewInitialFilter} />}
       {activeTab === 'photos' && <GearPhotos />}
 
       {/* ── Sage Report tab ── Reconciliation report against Sage 50's own
