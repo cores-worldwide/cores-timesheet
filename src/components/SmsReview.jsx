@@ -362,6 +362,19 @@ export default function SmsReview({ onApproved } = {}) {
     // and Finn Jones's submissions (2026-08-27).
     const hasPD = sub.per_diem_location && sub.per_diem_location.trim().toLowerCase() !== 'none'
 
+    // per_diem_location is free text and doubles as the answer to "how much
+    // per diem" — sometimes it's a real place ("Halifax", meaning a full
+    // day), sometimes the employee texts the fraction straight into it
+    // (".5"). If it parses as one of the actual allowed multipliers, treat
+    // it as the stated amount rather than "a location is present ⇒ x1" —
+    // otherwise quick-approving straight from the pending list (without
+    // opening the Edit modal, which is the only place #124/#125 protected)
+    // silently rounds a texted ".5" up to a full 1 (Jim, 2026-09-16, same
+    // complaint as Niki's original 2026-09-14 report — this reproduced it
+    // again live via SMS Review's one-click Approve).
+    const PER_DIEM_VALUES = new Set([0, 0.25, 0.5, 0.75, 1])
+    const locationAsAmount = hasPD ? Number(sub.per_diem_location.trim()) : NaN
+
     // The multiplier Niki picked in the Edit modal wins. Falls back to the
     // original "a location means x1" rule when she hasn't set one, so every
     // submission from before per_diem existed approves exactly as it used to.
@@ -369,7 +382,9 @@ export default function SmsReview({ onApproved } = {}) {
     // typing ".5" into the location box set the multiplier to 1 anyway
     // (reported via Niki, 2026-09-14: "if she puts in .5 on sms then on the
     // timesheet it switched to a 1").
-    const pdMultiplier = sub.per_diem != null ? Number(sub.per_diem) : (hasPD ? 1 : 0)
+    const pdMultiplier = sub.per_diem != null
+      ? Number(sub.per_diem)
+      : (PER_DIEM_VALUES.has(locationAsAmount) ? locationAsAmount : (hasPD ? 1 : 0))
 
     // Map job numbers to IDs — case-insensitive so "shop"/"Shop"/"SHOP" all match
     const jobMap = {}
