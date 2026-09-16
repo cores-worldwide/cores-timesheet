@@ -41,6 +41,7 @@ export default function EmployeeHome({ employee }) {
   const [entries, setEntries] = useState([])
   const [supplies, setSupplies] = useState([])
   const [submissions, setSubmissions] = useState([])
+  const [staleDrafts, setStaleDrafts] = useState([])
   const [jobs, setJobs] = useState([])
   const [payrollConfig, setPayrollConfig] = useState({})
   const [statHolidays, setStatHolidays] = useState(new Set())
@@ -108,6 +109,17 @@ export default function EmployeeHome({ employee }) {
       .gte('work_date', weekStart).lte('work_date', weekEnd)
       .order('created_at', { ascending: false })
     setPhotos(gp || [])
+    // Not week-scoped like everything above — a day left at 'draft' (autosaved
+    // but never "Submit day"-ed) is otherwise invisible unless the tech happens
+    // to page back to that exact week. work_date < today only: today's draft
+    // may just be a shift still in progress. Refreshes on the same cadence as
+    // the rest of this page (every autosave/submit calls load()), so submitting
+    // one of these clears it from the banner right away.
+    const { data: stale } = await supabase.schema('Cores').from('sms_submissions')
+      .select('id, work_date, updated_at').eq('employee_id', employee.id)
+      .eq('status', 'draft').lt('work_date', todayYMD())
+      .order('work_date')
+    setStaleDrafts(stale || [])
     if (!silent) setLoading(false)
   }, [employee.id, weekStart, weekEnd])
 
@@ -126,6 +138,23 @@ export default function EmployeeHome({ employee }) {
     const top = el.getBoundingClientRect().top + window.scrollY - headerH - 12
     window.scrollTo({ top: Math.max(0, top) })
   }, [loading])
+
+  // "Finish this day" banner jump target — switches to the pay week
+  // containing a stale draft, then scrolls to it once that week's data lands.
+  const [pendingScrollTo, setPendingScrollTo] = useState(null)
+  function jumpToDraft(ymd) {
+    setWeekStart(payWeekRange(ymd)[0])
+    setPendingScrollTo(ymd)
+  }
+  useEffect(() => {
+    if (loading || !pendingScrollTo) return
+    const el = document.getElementById(`day-${pendingScrollTo}`)
+    setPendingScrollTo(null)
+    if (!el) return
+    const headerH = document.querySelector('.emp-header')?.offsetHeight || 0
+    const top = el.getBoundingClientRect().top + window.scrollY - headerH - 12
+    window.scrollTo({ top: Math.max(0, top) })
+  }, [loading, pendingScrollTo])
 
   useEffect(() => {
     supabase.schema('Cores').from('jobs').select('id, job_number, description, vessels(name)').order('job_number').then(({ data }) => setJobs(data || []))
@@ -450,6 +479,25 @@ export default function EmployeeHome({ employee }) {
       </div>
 
       {error && <div className="emp-error">{error}</div>}
+
+      {/* Autosave writes every change as you go, but a day only actually
+          reaches the office once you tap "Submit day" — this catches days
+          you started and never finished, even outside the week you're
+          currently looking at. */}
+      {staleDrafts.length > 0 && (
+        <div style={{ marginBottom: '1rem', padding: '0.65rem 0.85rem', background: '#f5f5f0', border: '1px solid #ddd6b8', borderRadius: 6, color: '#7a6a1a', fontSize: '0.85rem' }}>
+          <div style={{ fontWeight: 600, marginBottom: '0.35rem' }}>
+            📝 {staleDrafts.length} unfinished day{staleDrafts.length === 1 ? '' : 's'} — started but never submitted
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+            {staleDrafts.map(d => (
+              <button key={d.id} onClick={() => jumpToDraft(d.work_date)} style={{ padding: '0.25rem 0.6rem', background: '#fff', border: '1px solid #ddd6b8', borderRadius: 4, cursor: 'pointer', fontSize: '0.8rem', color: '#7a6a1a', fontWeight: 600 }}>
+                {shortDate(d.work_date)} — finish it →
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {loading ? (
         <div className="emp-empty">Loading…</div>
