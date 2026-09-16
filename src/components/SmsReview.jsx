@@ -776,7 +776,7 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
         <h2 style={{ margin: 0, fontSize: '1.1rem' }}>SMS Submissions</h2>
         <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
-          {['submitted', 'draft', 'approved', 'rejected', 'all'].map(f => (
+          {['draft', 'submitted', 'approved', 'rejected', 'all'].map(f => (
             <button key={f} onClick={() => setFilter(f)} style={{
               padding: '0.3rem 0.8rem', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: '0.85rem', fontWeight: filter === f ? 700 : 400,
               background: filter === f ? '#0066cc' : '#eee', color: filter === f ? '#fff' : '#333',
