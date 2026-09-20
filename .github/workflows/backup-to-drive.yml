@@ -4,9 +4,11 @@ name: Backup to Google Drive
 # and outside GitHub's 90-day artifact window:
 #   Cores Backups/db/daily/    nightly pg_dump of Cores + BLD_Inventory, last 30 kept
 #   Cores Backups/db/monthly/  the 1st-of-month dump, kept forever
-#   Cores Backups/gear-photos/ every file in the gear-photos bucket (originals
-#                              may be evidence years later) — copy-only, never
-#                              deleted here even if deleted in the app
+#   Cores Backups/gear-photos/ every original in the gear-photos bucket (they
+#                              may be evidence years later), laid out by job
+#                              for humans with a photo-index.csv — copy/move
+#                              only, never deleted here even if deleted in
+#                              the app (see scripts/backup-gear-photos.mjs)
 #
 # Google Drive access is an rclone OAuth token with the drive.file scope, so it
 # can only see files it created itself. Made once with `rclone authorize
@@ -97,18 +99,23 @@ jobs:
           fi
 
       # ── Photos ──────────────────────────────────────────────────────────
-      - name: Copy new gear-photos files
+      - name: Copy new gear-photos files (laid out by job)
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
         run: |
-          # What's already in Drive (empty on the very first run).
-          rclone lsf -R --files-only "$DRIVE_ROOT/gear-photos" > already-backed-up.txt 2>/dev/null || true
-          node scripts/backup-gear-photos.mjs already-backed-up.txt out/gear-photos
-          if [ -d out/gear-photos ]; then
-            # copy, never sync — sync would mirror deletions into the backup.
-            rclone copy out/gear-photos "$DRIVE_ROOT/gear-photos" --no-traverse
-          fi
+          # What's in Drive now, and last night's index (both empty on the first run).
+          rclone lsf -R --files-only "$DRIVE_ROOT/gear-photos" > drive-listing.txt 2>/dev/null || true
+          rclone cat "$DRIVE_ROOT/gear-photos/photo-index.csv" > prev-index.csv 2>/dev/null || true
+          node scripts/backup-gear-photos.mjs drive-listing.txt prev-index.csv out/gear-photos moves.tsv
+          # Server-side moves for photos already in Drive under an old path
+          # (the original date layout, or a job they were since re-tagged away
+          # from). Nothing is ever deleted from Drive.
+          while IFS=$'\t' read -r from to; do
+            [ -n "$from" ] && rclone moveto "$DRIVE_ROOT/gear-photos/$from" "$DRIVE_ROOT/gear-photos/$to"
+          done < moves.tsv
+          # copy, never sync — sync would mirror deletions into the backup.
+          rclone copy out/gear-photos "$DRIVE_ROOT/gear-photos" --no-traverse
 
       - name: Record outcome (measured from Drive)
         env:
