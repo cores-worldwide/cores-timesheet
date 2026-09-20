@@ -92,7 +92,7 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
       supabase.schema('Cores').from('sms_submissions').select('*').order('updated_at', { ascending: false }),
       supabase.schema('Cores').from('jobs').select('id, job_number, description').eq('status', 'open'),
       supabase.schema('Cores').from('employees').select('id, name, active'),
-      supabase.schema('Cores').from('gear_photos').select('id, job_id, storage_path, employee_id, work_date, created_at').not('job_id', 'is', null),
+      supabase.schema('Cores').from('gear_photos').select('id, job_id, storage_path, thumb_path, employee_id, work_date, created_at').not('job_id', 'is', null),
       supabase.schema('Cores').from('timesheet_entries').select('employee_id, work_date').gte('work_date', ninetyDaysAgo.toISOString().slice(0, 10)),
       supabase.schema('Cores').from('job_supplies').select('id, employee_id, work_date, supply_name, quantity, job_id, billed_at, source_photo_id, jobs(job_number)').not('applied_at', 'is', null).is('sms_submission_id', null).gte('work_date', ninetyDaysAgo.toISOString().slice(0, 10)),
     ])
@@ -1372,7 +1372,7 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
                       onClick={() => setPhotoLightbox(p)}
                       style={{ aspectRatio: '4 / 3', background: '#f0f0f0', cursor: 'pointer', overflow: 'hidden' }}
                     >
-                      <MediaThumb src={gearPhotoUrl(p.storage_path)} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                      <MediaThumb src={gearPhotoUrl(p.thumb_path || p.storage_path)} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
                     </div>
                     <div style={{ padding: '0.35rem 0.5rem', fontSize: '0.75rem', color: '#888' }}>
                       {employeeName(p.employee_id)} · {new Date(p.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}

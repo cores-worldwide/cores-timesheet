@@ -2671,7 +2671,7 @@ export default function AdminDashboard() {
                       onClick={() => setPhotoLightbox(p)}
                       style={{ aspectRatio: '4 / 3', background: '#f0f0f0', cursor: 'pointer', overflow: 'hidden' }}
                     >
-                      <MediaThumb src={gearPhotoUrl(p.storage_path)} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                      <MediaThumb src={gearPhotoUrl(p.thumb_path || p.storage_path)} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
                     </div>
                     <div style={{ padding: '0.35rem 0.5rem', fontSize: '0.75rem', color: '#888' }}>
                       {jobs.find(j => j.id === p.job_id)?.job_number ? `${jobs.find(j => j.id === p.job_id).job_number} · ` : ''}

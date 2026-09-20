@@ -7,49 +7,70 @@ export function isVideoPath(path) {
   return VIDEO_EXT_RE.test(path || '')
 }
 
-// Caps outgoing photo bytes at the source — a phone camera photo can be
-// several MB despite only ever being displayed as a small grid thumbnail or
-// a contained lightbox image, and every one of those bytes gets re-paid in
-// full on every view since gear-photos has no server-side resizing (Sept
-// 2026 Supabase Fair Use warning — a single unpaginated gallery load was
-// transferring tens of MB of full-resolution originals for thumbnail-sized
-// display). Video isn't touched here — client-side video transcoding isn't
-// practical in-browser; that's handled by the bucket's own size cap instead.
-const MAX_DIMENSION = 1600
-const JPEG_QUALITY = 0.82
+// Originals are evidence — a reference photo may be produced in a dispute
+// years after upload (Jim, 2026-09-20) — so the uploaded file is stored
+// byte-for-byte as captured: never resized or re-encoded, EXIF intact. Egress
+// (the real constraint, per the Sept 2026 Supabase Fair Use warning) is
+// handled by a small separate derivative at THUMB path that grids display; the
+// lightbox still opens the original. Grid tiles are ~240px wide, so 480px
+// covers a 2x display.
+const THUMB_MAX_DIMENSION = 480
+const THUMB_JPEG_QUALITY = 0.8
 
-export async function compressImage(file) {
-  if (!file || !file.type?.startsWith('image/') || file.type === 'image/gif') return file
+export const thumbPathFor = (storagePath) => `thumbs/${storagePath.replace(/\.[^.]+$/, '')}.jpg`
+
+// JPEG Blob, or null when no thumbnail can be made (video, GIF, or a format
+// this browser can't decode such as HEIC in non-Safari) — callers then leave
+// thumb_path null and grids fall back to the original.
+export async function makeThumbnail(file) {
+  if (!file || !file.type?.startsWith('image/') || file.type === 'image/gif') return null
   try {
-    // Bake the EXIF rotation into the pixels — the re-encoded JPEG below
-    // carries no EXIF, so a sideways phone photo would otherwise stay sideways.
+    // The derivative carries no EXIF, so bake the rotation into its pixels.
     const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' })
-    const scale = Math.min(1, MAX_DIMENSION / Math.max(bitmap.width, bitmap.height))
-    if (scale === 1 && file.size < 800 * 1024) {
-      bitmap.close?.()
-      return file // already small and already within bounds — don't bother re-encoding
-    }
+    const scale = Math.min(1, THUMB_MAX_DIMENSION / Math.max(bitmap.width, bitmap.height))
     const width = Math.round(bitmap.width * scale)
     const height = Math.round(bitmap.height * scale)
     const canvas = document.createElement('canvas')
     canvas.width = width
     canvas.height = height
     const ctx = canvas.getContext('2d')
-    // JPEG has no alpha — without this a transparent PNG (screenshot, receipt
-    // scan) comes out on a black background instead of white.
+    // JPEG has no alpha — white, not black, behind a transparent PNG.
     ctx.fillStyle = '#fff'
     ctx.fillRect(0, 0, width, height)
     ctx.drawImage(bitmap, 0, 0, width, height)
     bitmap.close?.()
-    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', JPEG_QUALITY))
-    if (!blob || blob.size >= file.size) return file // re-encode didn't actually help — keep the original
-    const name = file.name.replace(/\.[^.]+$/, '') + '.jpg'
-    return new File([blob], name, { type: 'image/jpeg' })
+    return await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', THUMB_JPEG_QUALITY))
   } catch {
-    // HEIC/HEIF and a few other formats aren't decodable via createImageBitmap
-    // in every browser — fail open to the original file rather than block the upload.
-    return file
+    return null
   }
+}
+
+// Hex SHA-256 of the file exactly as uploaded, stored on the row so the
+// original can later be shown to be unchanged. Null if hashing isn't available.
+export async function sha256Hex(file) {
+  try {
+    const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer())
+    return Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, '0')).join('')
+  } catch {
+    return null
+  }
+}
+
+// The one upload path for a gear photo: original first (untouched), then the
+// thumbnail beside it. A failed thumbnail is not a failed upload — the photo
+// is still saved and shown full-size until the nightly backfill fills it in.
+// `bucket` is supabase.storage.from('gear-photos').
+export async function uploadGearPhoto(bucket, path, file) {
+  const [thumb, sha256] = await Promise.all([makeThumbnail(file), sha256Hex(file)])
+  const { error } = await bucket.upload(path, file, { contentType: file.type || 'image/jpeg' })
+  if (error) return { error }
+  let thumb_path = null
+  if (thumb) {
+    const candidate = thumbPathFor(path)
+    const { error: thumbError } = await bucket.upload(candidate, thumb, { contentType: 'image/jpeg' })
+    if (!thumbError) thumb_path = candidate
+  }
+  return { thumb_path, sha256 }
 }
 
 // Forces a real save-to-disk instead of a bare `<a href download>` — Supabase

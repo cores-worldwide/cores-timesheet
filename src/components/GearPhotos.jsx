@@ -397,7 +397,7 @@ export default function GearPhotos() {
       const { error: supplyError } = await supabase.schema('Cores').from('job_supplies').delete().in('id', unbilledIds)
       if (supplyError) { alert('Error removing linked supply lines: ' + supplyError.message); setSavingId(null); return }
     }
-    const { error: storageError } = await supabase.storage.from('gear-photos').remove([photo.storage_path])
+    const { error: storageError } = await supabase.storage.from('gear-photos').remove([photo.storage_path, photo.thumb_path].filter(Boolean))
     if (storageError) { alert('Error deleting file: ' + storageError.message); setSavingId(null); return }
     const { error } = await supabase.schema('Cores').from('gear_photos').delete().eq('id', photo.id)
     if (error) alert('File removed but record delete failed: ' + error.message)
@@ -534,7 +534,7 @@ export default function GearPhotos() {
                 style={{ aspectRatio: '4 / 3', background: '#f0f0f0', cursor: 'pointer', overflow: 'hidden' }}
               >
                 <MediaThumb
-                  src={publicUrl(photo.storage_path)}
+                  src={publicUrl(photo.thumb_path || photo.storage_path)}
                   alt={photo.ship_or_job || 'gear photo'}
                   loading="lazy"
                   style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}

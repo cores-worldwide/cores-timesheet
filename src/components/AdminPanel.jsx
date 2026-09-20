@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react'
 import { marked } from 'marked'
 import { supabase } from '../supabaseClient'
 import { fmtHours } from '../utils/format'
-import { compressImage } from '../utils/media'
 import AuditLog from './AuditLog'
 import MediaThumb from './MediaThumb'
 import VesselEngines from './VesselEngines'
@@ -219,10 +218,9 @@ export default function AdminPanel() {
         await supabase.schema('Cores').from('vessels').update({ photo_storage_path: null }).eq('id', vesselId)
       }
       if (vesselPhotoFile) {
-        const vesselUpload = await compressImage(vesselPhotoFile)
-        const ext = (vesselUpload.name.split('.').pop() || 'jpg').toLowerCase()
+        const ext = (vesselPhotoFile.name.split('.').pop() || 'jpg').toLowerCase()
         const path = `vessels/${vesselId}/${Date.now()}.${ext}`
-        const { error: upErr } = await supabase.storage.from('gear-photos').upload(path, vesselUpload, { contentType: vesselUpload.type || 'image/jpeg' })
+        const { error: upErr } = await supabase.storage.from('gear-photos').upload(path, vesselPhotoFile, { contentType: vesselPhotoFile.type || 'image/jpeg' })
         if (upErr) { alert(`Vessel saved but photo failed to upload: ${upErr.message}`); setSaving(false); return }
         const { error: photoErr } = await supabase.schema('Cores').from('vessels').update({ photo_storage_path: path }).eq('id', vesselId)
         if (photoErr) { alert(`Vessel saved but photo link failed to save: ${photoErr.message}`); setSaving(false); return }
