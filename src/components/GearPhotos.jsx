@@ -22,6 +22,14 @@ export default function GearPhotos() {
   // her hunt for it in a list of 179.
   const [searchParams] = useSearchParams()
   const highlightPhotoId = searchParams.get('photo')
+  // Loading every photo ever texted/uploaded — full resolution, no thumbnails
+  // — turned out to be the single biggest driver of a Supabase egress overage
+  // (Sept 2026): one open of this page could pull tens of MB of originals for
+  // a grid of small thumbnails. Default to a recent window; a deep link to an
+  // older photo (e.g. from the Supplies report) or an explicit "show all"
+  // click bypasses it.
+  const RECENT_DAYS = 30
+  const [showAllTime, setShowAllTime] = useState(false)
   const [photos, setPhotos]     = useState([])
   const [jobs, setJobs]         = useState([])
   const [employees, setEmployees] = useState([])
@@ -65,8 +73,17 @@ export default function GearPhotos() {
 
   const load = useCallback(async () => {
     setLoading(true)
+    // A deep link to a specific (possibly old) photo always needs its target
+    // to actually be in range, so it opts out of the recent-days bound.
+    const unbounded = showAllTime || !!highlightPhotoId
+    let photosQuery = supabase.schema('Cores').from('gear_photos').select('*').order('created_at', { ascending: false })
+    if (!unbounded) {
+      const cutoff = new Date()
+      cutoff.setDate(cutoff.getDate() - RECENT_DAYS)
+      photosQuery = photosQuery.gte('created_at', cutoff.toISOString())
+    }
     const [{ data: p }, { data: j }, { data: emps }, { data: logged }, { data: entries }, { data: pending }] = await Promise.all([
-      supabase.schema('Cores').from('gear_photos').select('*').order('created_at', { ascending: false }),
+      photosQuery,
       // Include closed jobs: a photo can legitimately be tagged to a job that's
       // since closed, and excluding them silently nulled out job_id (photo vanished
       // from every report with no error).
@@ -87,7 +104,7 @@ export default function GearPhotos() {
     setEntryDays(new Set((entries || []).map(e => `${e.employee_id}|${e.work_date}`)))
     setPendingDays(new Set((pending || []).map(e => `${e.employee_id}|${e.work_date}`)))
     setLoading(false)
-  }, [])
+  }, [showAllTime, highlightPhotoId])
 
   useEffect(() => { load() }, [load])
 
@@ -390,7 +407,16 @@ export default function GearPhotos() {
     <div style={{ padding: '1.5rem 2rem' }}>
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.6rem', marginBottom: '1.25rem' }}>
         <h2 style={{ margin: 0, fontSize: '1.2rem' }}>Gear Photos</h2>
-        <span style={{ color: '#888', fontSize: '0.85rem' }}>{photos.length} total</span>
+        <span style={{ color: '#888', fontSize: '0.85rem' }}>
+          {photos.length} {showAllTime || highlightPhotoId ? 'total' : `in the last ${RECENT_DAYS} days`}
+        </span>
+        {!showAllTime && (
+          <button
+            onClick={() => setShowAllTime(true)}
+            title="Loads every photo/video ever uploaded, full resolution — slower and uses more data"
+            style={{ border: 'none', background: 'transparent', color: '#0066cc', cursor: 'pointer', fontSize: '0.8rem', padding: 0 }}
+          >Show all time</button>
+        )}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', marginLeft: '1rem' }}>
           <JobPicker
             jobs={jobs}
