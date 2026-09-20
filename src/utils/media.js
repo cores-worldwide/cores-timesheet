@@ -21,7 +21,9 @@ const JPEG_QUALITY = 0.82
 export async function compressImage(file) {
   if (!file || !file.type?.startsWith('image/') || file.type === 'image/gif') return file
   try {
-    const bitmap = await createImageBitmap(file)
+    // Bake the EXIF rotation into the pixels — the re-encoded JPEG below
+    // carries no EXIF, so a sideways phone photo would otherwise stay sideways.
+    const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' })
     const scale = Math.min(1, MAX_DIMENSION / Math.max(bitmap.width, bitmap.height))
     if (scale === 1 && file.size < 800 * 1024) {
       bitmap.close?.()
@@ -32,7 +34,12 @@ export async function compressImage(file) {
     const canvas = document.createElement('canvas')
     canvas.width = width
     canvas.height = height
-    canvas.getContext('2d').drawImage(bitmap, 0, 0, width, height)
+    const ctx = canvas.getContext('2d')
+    // JPEG has no alpha — without this a transparent PNG (screenshot, receipt
+    // scan) comes out on a black background instead of white.
+    ctx.fillStyle = '#fff'
+    ctx.fillRect(0, 0, width, height)
+    ctx.drawImage(bitmap, 0, 0, width, height)
     bitmap.close?.()
     const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', JPEG_QUALITY))
     if (!blob || blob.size >= file.size) return file // re-encode didn't actually help — keep the original

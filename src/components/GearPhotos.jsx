@@ -16,19 +16,25 @@ const fmtSize = (bytes) => bytes ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : '�
 // Local calendar date — toISOString() is UTC and rolls to tomorrow after 9pm Atlantic
 const toYMD = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 
+// Loading every photo ever texted/uploaded — full resolution, no thumbnails —
+// turned out to be the single biggest driver of a Supabase egress overage
+// (Sept 2026): one open of this page could pull tens of MB of originals for a
+// grid of small thumbnails. Default to this recent window; a deep link to an
+// older photo (e.g. from the Supplies report), a custom date older than this,
+// or an explicit "Show all time" click bypasses it.
+const RECENT_DAYS = 30
+const recentCutoffYMD = () => {
+  const d = new Date()
+  d.setDate(d.getDate() - RECENT_DAYS)
+  return toYMD(d)
+}
+
 export default function GearPhotos() {
   // Deep link from elsewhere (e.g. the Supplies report's "from photo" link)
   // — ?photo=<id> scrolls to and highlights that one card instead of making
   // her hunt for it in a list of 179.
   const [searchParams] = useSearchParams()
   const highlightPhotoId = searchParams.get('photo')
-  // Loading every photo ever texted/uploaded — full resolution, no thumbnails
-  // — turned out to be the single biggest driver of a Supabase egress overage
-  // (Sept 2026): one open of this page could pull tens of MB of originals for
-  // a grid of small thumbnails. Default to a recent window; a deep link to an
-  // older photo (e.g. from the Supplies report) or an explicit "show all"
-  // click bypasses it.
-  const RECENT_DAYS = 30
   const [showAllTime, setShowAllTime] = useState(false)
   const [photos, setPhotos]     = useState([])
   const [jobs, setJobs]         = useState([])
@@ -78,9 +84,10 @@ export default function GearPhotos() {
     const unbounded = showAllTime || !!highlightPhotoId
     let photosQuery = supabase.schema('Cores').from('gear_photos').select('*').order('created_at', { ascending: false })
     if (!unbounded) {
-      const cutoff = new Date()
-      cutoff.setDate(cutoff.getDate() - RECENT_DAYS)
-      photosQuery = photosQuery.gte('created_at', cutoff.toISOString())
+      // Anything still needing a ship/job stays in no matter how old — that
+      // list is the office's triage queue, and an unresolved photo quietly
+      // aging out of it would cost more than the bytes it saves.
+      photosQuery = photosQuery.or(`created_at.gte.${recentCutoffYMD()},pending_context.eq.true`)
     }
     const [{ data: p }, { data: j }, { data: emps }, { data: logged }, { data: entries }, { data: pending }] = await Promise.all([
       photosQuery,
@@ -107,6 +114,14 @@ export default function GearPhotos() {
   }, [showAllTime, highlightPhotoId])
 
   useEffect(() => { load() }, [load])
+
+  // Picking a date older than the recent window would otherwise just show
+  // "no photos match" for a day that does have photos — they simply weren't
+  // loaded. Widen automatically rather than make her find the link.
+  useEffect(() => {
+    if (showAllTime || dateFilter !== 'custom' || !customDate) return
+    if (customDate < recentCutoffYMD()) setShowAllTime(true)
+  }, [dateFilter, customDate, showAllTime])
 
   // Runs once the target card is actually in the DOM — a plain [] dep would
   // fire before `photos` has loaded, when the grid is still empty.
@@ -150,6 +165,7 @@ export default function GearPhotos() {
     return true
   })
   const hasActiveFilter = filter !== 'all' || jobFilterId || jobFilterQuery.trim() || employeeFilter || employeeFilterQuery.trim() || dateFilter !== 'all'
+  const boundedToRecent = !showAllTime && !highlightPhotoId
 
   async function saveContext(photo, value) {
     setSavingId(photo.id)
@@ -407,10 +423,13 @@ export default function GearPhotos() {
     <div style={{ padding: '1.5rem 2rem' }}>
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.6rem', marginBottom: '1.25rem' }}>
         <h2 style={{ margin: 0, fontSize: '1.2rem' }}>Gear Photos</h2>
-        <span style={{ color: '#888', fontSize: '0.85rem' }}>
-          {photos.length} {showAllTime || highlightPhotoId ? 'total' : `in the last ${RECENT_DAYS} days`}
+        <span
+          style={{ color: '#888', fontSize: '0.85rem' }}
+          title={boundedToRecent ? 'Plus any older photo still needing a ship/job' : undefined}
+        >
+          {photos.length} {boundedToRecent ? `in the last ${RECENT_DAYS} days` : 'total'}
         </span>
-        {!showAllTime && (
+        {boundedToRecent && (
           <button
             onClick={() => setShowAllTime(true)}
             title="Loads every photo/video ever uploaded, full resolution — slower and uses more data"
@@ -486,7 +505,16 @@ export default function GearPhotos() {
 
       {visible.length === 0 && (
         <div style={{ color: '#888', padding: '2rem 0', textAlign: 'center' }}>
-          No photos {hasActiveFilter ? 'match this filter' : 'have been texted in yet'}.
+          No photos {hasActiveFilter ? 'match this filter' : 'have been texted in'}{boundedToRecent ? ` in the last ${RECENT_DAYS} days` : hasActiveFilter ? '' : ' yet'}.
+          {boundedToRecent && (
+            <>
+              {' '}
+              <button
+                onClick={() => setShowAllTime(true)}
+                style={{ border: 'none', background: 'transparent', color: '#0066cc', cursor: 'pointer', fontSize: 'inherit', padding: 0 }}
+              >Show all time</button>
+            </>
+          )}
         </div>
       )}
 
