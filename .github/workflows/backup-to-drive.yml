@@ -110,10 +110,27 @@ jobs:
           node scripts/backup-gear-photos.mjs drive-listing.txt prev-index.csv out/gear-photos moves.tsv
           # Server-side moves for photos already in Drive under an old path
           # (the original date layout, or a job they were since re-tagged away
-          # from). Nothing is ever deleted from Drive.
-          while IFS=$'\t' read -r from to; do
-            [ -n "$from" ] && rclone moveto "$DRIVE_ROOT/gear-photos/$from" "$DRIVE_ROOT/gear-photos/$to"
-          done < moves.tsv
+          # from). Nothing is ever deleted from Drive. One long-lived rclone
+          # daemon does them all — a fresh `rclone moveto` per file re-auths,
+          # re-lists and restarts the rate-limit pacer every time, which turned
+          # a 610-file reshuffle into hours.
+          if [ -s moves.tsv ]; then
+            rclone rcd --rc-no-auth --rc-addr 127.0.0.1:5572 >/dev/null 2>&1 &
+            sleep 2
+            moved=0; move_failed=0
+            while IFS=$'\t' read -r from to; do
+              [ -n "$from" ] || continue
+              if rclone rc operations/movefile srcFs="$DRIVE_ROOT/gear-photos" srcRemote="$from" \
+                   dstFs="$DRIVE_ROOT/gear-photos" dstRemote="$to" --rc-addr 127.0.0.1:5572 >/dev/null 2>move.err; then
+                moved=$((moved+1))
+              else
+                move_failed=$((move_failed+1)); echo "::warning::move failed: $from -> $to: $(tr -d '\n' < move.err | cut -c1-200)"
+              fi
+            done < moves.tsv
+            kill %1 2>/dev/null || true
+            echo "moved $moved, failed $move_failed"
+            [ "$move_failed" -eq 0 ]
+          fi
           # copy, never sync — sync would mirror deletions into the backup.
           rclone copy out/gear-photos "$DRIVE_ROOT/gear-photos" --no-traverse
 
