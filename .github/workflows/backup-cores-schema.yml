@@ -29,7 +29,7 @@ jobs:
           # direct table access instead of using real auth (no login yet), so those
           # GRANT statements are essential to a working restore, not just noise.
           docker run --rm ghcr.io/supabase/postgres:17.6.1.143 \
-            pg_dump "$SUPABASE_DB_URL" --schema='"Cores"' --no-owner \
+            pg_dump "$SUPABASE_DB_URL" --schema='"Cores"' --schema='"BLD_Inventory"' --no-owner \
             > cores_backup_$(date +%Y%m%d_%H%M%S).sql
       - uses: actions/upload-artifact@v4
         with:
