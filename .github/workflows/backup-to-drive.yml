@@ -1,0 +1,98 @@
+name: Backup to Google Drive
+
+# Second custodian for everything in the Supabase project, outside Supabase
+# and outside GitHub's 90-day artifact window:
+#   Cores Backups/db/daily/    nightly pg_dump of Cores + BLD_Inventory, last 30 kept
+#   Cores Backups/db/monthly/  the 1st-of-month dump, kept forever
+#   Cores Backups/gear-photos/ every file in the gear-photos bucket (originals
+#                              may be evidence years later) — copy-only, never
+#                              deleted here even if deleted in the app
+#
+# Google Drive access is an rclone OAuth token with the drive.file scope, so it
+# can only see files it created itself. Made once with `rclone authorize
+# "drive"` on Jim's machine and stored as the RCLONE_DRIVE_TOKEN secret.
+on:
+  schedule:
+    - cron: '0 9 * * *'   # ~5-6am Atlantic, after the schema backup
+  workflow_dispatch: {}
+
+env:
+  DRIVE_ROOT: 'drive:Cores Backups'
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check secrets are set
+        env:
+          RCLONE_DRIVE_TOKEN: ${{ secrets.RCLONE_DRIVE_TOKEN }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        run: |
+          for v in RCLONE_DRIVE_TOKEN SUPABASE_DB_URL VITE_SUPABASE_ANON_KEY; do
+            if [ -z "${!v}" ]; then
+              echo "::error::$v secret is not set — add it under Settings > Secrets and variables > Actions."
+              exit 1
+            fi
+          done
+
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: Configure rclone
+        env:
+          RCLONE_DRIVE_TOKEN: ${{ secrets.RCLONE_DRIVE_TOKEN }}
+        run: |
+          curl -fsSL https://rclone.org/install.sh | sudo bash >/dev/null
+          mkdir -p ~/.config/rclone
+          printf '[drive]\ntype = drive\nscope = drive.file\ntoken = %s\n' "$RCLONE_DRIVE_TOKEN" > ~/.config/rclone/rclone.conf
+          chmod 600 ~/.config/rclone/rclone.conf
+
+      # ── Database ────────────────────────────────────────────────────────
+      - name: Dump database (Cores + BLD_Inventory)
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          # See backup-cores-schema.yml for why pg_dump is called directly.
+          # --no-privileges deliberately NOT used: the GRANTs are essential to a
+          # working restore (anon/authenticated have direct table access).
+          mkdir -p out/db
+          docker run --rm ghcr.io/supabase/postgres:17.6.1.143 \
+            pg_dump "$SUPABASE_DB_URL" --schema='"Cores"' --schema='"BLD_Inventory"' --no-owner \
+            | gzip > "out/db/supabase_$(date -u +%Y%m%d).sql.gz"
+          ls -la out/db
+
+      - name: Upload dump — daily (keep 30) and monthly (keep forever)
+        run: |
+          rclone copy out/db "$DRIVE_ROOT/db/daily" --no-traverse
+          rclone delete "$DRIVE_ROOT/db/daily" --min-age 31d
+          if [ "$(date -u +%d)" = "01" ]; then
+            rclone copy out/db "$DRIVE_ROOT/db/monthly" --no-traverse
+          fi
+
+      # ── Photos ──────────────────────────────────────────────────────────
+      - name: Copy new gear-photos files
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        run: |
+          # What's already in Drive (empty on the very first run).
+          rclone lsf -R --files-only "$DRIVE_ROOT/gear-photos" > already-backed-up.txt 2>/dev/null || true
+          node scripts/backup-gear-photos.mjs already-backed-up.txt out/gear-photos
+          if [ -d out/gear-photos ]; then
+            # copy, never sync — sync would mirror deletions into the backup.
+            rclone copy out/gear-photos "$DRIVE_ROOT/gear-photos" --no-traverse
+          fi
+
+      - name: Summary
+        run: |
+          echo "## Google Drive backup" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          rclone size "$DRIVE_ROOT/db/daily"    | sed 's/^/db\/daily:    /' >> "$GITHUB_STEP_SUMMARY"
+          rclone size "$DRIVE_ROOT/db/monthly"  | sed 's/^/db\/monthly:  /' >> "$GITHUB_STEP_SUMMARY" || true
+          rclone size "$DRIVE_ROOT/gear-photos" | sed 's/^/gear-photos: /' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
