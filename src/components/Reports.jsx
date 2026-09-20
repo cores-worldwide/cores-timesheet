@@ -168,7 +168,7 @@ export default function Reports() {
       // Excludes still-drafting GearPhotos supply lines (applied_at null) —
       // they're not real until she taps Apply to Timesheet on that photo.
       supabase.schema('Cores').from('job_supplies').select('*, employees(id, name)').not('applied_at', 'is', null).order('work_date', { ascending: false }),
-      supabase.schema('Cores').from('gear_photos').select('id, job_id, storage_path, employee_id, work_date, created_at').not('job_id', 'is', null),
+      supabase.schema('Cores').from('gear_photos').select('id, job_id, storage_path, thumb_path, employee_id, work_date, created_at').not('job_id', 'is', null),
       supabase.schema('Cores').from('sms_submissions').select('id', { count: 'exact', head: true }).in('status', ['submitted', 'collecting']),
       supabase.schema('Cores').from('daily_summary_posted').select('employee_id, work_date, posted_at, posted_by'),
     ])
@@ -1275,7 +1275,7 @@ export default function Reports() {
                                   <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                                     {groupPhotos.map(p => (
                                       <div key={p.id} style={{ width: '110px', cursor: 'pointer' }} onClick={() => setPhotoLightbox(p)}>
-                                        <MediaThumb src={gearPhotoUrl(p.storage_path)} alt="" style={{ width: '100%', aspectRatio: '4 / 3', objectFit: 'cover', borderRadius: '4px', border: '1px solid #eee', display: 'block' }} />
+                                        <MediaThumb src={gearPhotoUrl(p.thumb_path || p.storage_path)} alt="" style={{ width: '100%', aspectRatio: '4 / 3', objectFit: 'cover', borderRadius: '4px', border: '1px solid #eee', display: 'block' }} />
                                       </div>
                                     ))}
                                   </div>
@@ -1313,7 +1313,7 @@ export default function Reports() {
                       onClick={() => setPhotoLightbox(p)}
                       style={{ aspectRatio: '4 / 3', background: '#f0f0f0', cursor: 'pointer', overflow: 'hidden', position: 'relative' }}
                     >
-                      <MediaThumb src={gearPhotoUrl(p.storage_path)} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                      <MediaThumb src={gearPhotoUrl(p.thumb_path || p.storage_path)} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
                       <DownloadButton src={gearPhotoUrl(p.storage_path)} />
                     </div>
                     <div style={{ padding: '0.35rem 0.5rem', fontSize: '0.75rem', color: '#888' }}>

@@ -4,7 +4,7 @@ import { supabase } from '../supabaseClient'
 import { fetchDailyOTContext, computeDailyOTSplit, computeSubmissionTiming } from '../utils/entrySave'
 import JobPicker from './JobPicker'
 import MediaThumb from '../components/MediaThumb'
-import { compressImage } from '../utils/media'
+import { uploadGearPhoto } from '../utils/media'
 import './employee.css'
 
 const toYMD = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
@@ -157,15 +157,14 @@ export default function EntryForm({ employee }) {
   async function uploadPhoto(file) {
     setUploadingPhoto(true); setError('')
     const jobNumber = photoJobId ? jobs.find(j => j.id === photoJobId)?.job_number || '' : ''
-    const upload = await compressImage(file)
-    const ext = (upload.name.split('.').pop() || 'jpg').toLowerCase()
+    const ext = (file.name.split('.').pop() || 'jpg').toLowerCase()
     const path = `${workDate}/${employee.id}/${Date.now()}.${ext}`
-    const { error: upErr } = await supabase.storage.from('gear-photos').upload(path, upload, { contentType: upload.type || 'image/jpeg' })
+    const { error: upErr, thumb_path, sha256 } = await uploadGearPhoto(supabase.storage.from('gear-photos'), path, file)
     if (upErr) { setError(upErr.message); setUploadingPhoto(false); return }
     const { error: insErr } = await supabase.schema('Cores').from('gear_photos').insert({
       employee_id: employee.id, work_date: workDate, from_phone: 'mobile-app',
       storage_path: path, job_id: photoJobId || null, ship_or_job: jobNumber || null,
-      pending_context: !photoJobId, file_size_bytes: upload.size,
+      pending_context: !photoJobId, file_size_bytes: file.size, thumb_path, sha256,
     })
     if (insErr) { setError(insErr.message); setUploadingPhoto(false); return }
     await loadPhotos()
@@ -233,7 +232,7 @@ export default function EntryForm({ employee }) {
           {photos.length > 0 && (
             <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginTop: '0.4rem' }}>
               {photos.map(p => (
-                <MediaThumb key={p.id} src={gearPhotoUrl(p.storage_path)} alt={p.ship_or_job || 'photo'}
+                <MediaThumb key={p.id} src={gearPhotoUrl(p.thumb_path || p.storage_path)} alt={p.ship_or_job || 'photo'}
                   style={{ width: '3.2rem', height: '3.2rem', objectFit: 'cover', borderRadius: '4px', border: '1px solid #ddd' }} />
               ))}
             </div>
