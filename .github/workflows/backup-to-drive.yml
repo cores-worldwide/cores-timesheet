@@ -49,8 +49,25 @@ jobs:
         run: |
           curl -fsSL https://rclone.org/install.sh | sudo bash >/dev/null
           mkdir -p ~/.config/rclone
-          printf '[drive]\ntype = drive\nscope = drive.file\ntoken = %s\n' "$RCLONE_DRIVE_TOKEN" > ~/.config/rclone/rclone.conf
-          chmod 600 ~/.config/rclone/rclone.conf
+          # Recent rclone versions print `rclone authorize` output as a base64
+          # config blob ({"token":"<json>"}) rather than the bare token JSON;
+          # accept either form so the secret can be pasted straight from it.
+          python3 - <<'PY'
+          import base64, json, os
+          raw = os.environ['RCLONE_DRIVE_TOKEN'].strip()
+          try:
+              json.loads(raw); token = raw
+          except ValueError:
+              decoded = json.loads(base64.b64decode(raw + '=' * (-len(raw) % 4)))
+              token = decoded.get('token', decoded) if isinstance(decoded, dict) else decoded
+              if not isinstance(token, str): token = json.dumps(token)
+          json.loads(token)  # must be valid token JSON or fail loudly here, not deep in rclone
+          path = os.path.expanduser('~/.config/rclone/rclone.conf')
+          with open(path, 'w') as f:
+              f.write(f"[drive]\ntype = drive\nscope = drive.file\ntoken = {token}\n")
+          os.chmod(path, 0o600)
+          PY
+          rclone lsd drive: >/dev/null && echo "Drive access OK"
 
       # ── Database ────────────────────────────────────────────────────────
       - name: Dump database (Cores + BLD_Inventory)
