@@ -9,6 +9,7 @@ jobs:
   backup:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - name: Check SUPABASE_DB_URL is set
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
@@ -36,3 +37,16 @@ jobs:
           name: cores-schema-backup
           path: cores_backup_*.sql
           retention-days: 90
+      - name: Record outcome
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        run: |
+          bytes=$(stat -c %s cores_backup_*.sql)
+          scripts/log-backup.sh schema-artifact true "{\"dump_bytes\": $bytes}"
+      - name: Record failure
+        if: failure()
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        run: scripts/log-backup.sh schema-artifact false '{"note":"a step failed — see run_url"}'
