@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { isVideoPath } from '../utils/media'
 
 // Grid thumbnail for a gear_photos row — image or video, decided by file
@@ -6,12 +6,39 @@ import { isVideoPath } from '../utils/media'
 // frame plus a play badge so it reads as "tap to play" rather than a broken
 // image. Used by GearPhotos/SmsReview/Reports/AdminDashboard/EmployeeHome so
 // none of them have to special-case video on their own.
+//
+// Video has no native `loading="lazy"` equivalent — unlike the <img> branch
+// below, a <video src> starts fetching the moment it's in the DOM, even if
+// scrolled far off-screen. A gallery of two dozen videos was found doing this
+// simultaneously (Sept 2026 Supabase egress investigation), so video mounts
+// its <video> tag only once an IntersectionObserver says it's actually near
+// the viewport.
 export default function MediaThumb({ src, alt = '', style, onClick, loading }) {
-  if (isVideoPath(src)) {
+  const isVideo = isVideoPath(src)
+  const containerRef = useRef(null)
+  const [videoInView, setVideoInView] = useState(false)
+
+  useEffect(() => {
+    if (!isVideo) return
+    const el = containerRef.current
+    if (!el || typeof IntersectionObserver === 'undefined') { setVideoInView(true); return }
+    const observer = new IntersectionObserver((entries) => {
+      if (entries[0]?.isIntersecting) {
+        setVideoInView(true)
+        observer.disconnect()
+      }
+    }, { rootMargin: '200px' })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [isVideo, src])
+
+  if (isVideo) {
     return (
-      <div onClick={onClick} style={{ position: 'relative', cursor: onClick ? 'pointer' : undefined, ...style }}>
-        <video src={src} muted playsInline preload="metadata"
-          style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', borderRadius: 'inherit' }} />
+      <div ref={containerRef} onClick={onClick} style={{ position: 'relative', cursor: onClick ? 'pointer' : undefined, ...style }}>
+        {videoInView && (
+          <video src={src} muted playsInline preload="metadata"
+            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', borderRadius: 'inherit' }} />
+        )}
         <div style={{
           position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
           background: 'rgba(0,0,0,0.15)', borderRadius: 'inherit',
