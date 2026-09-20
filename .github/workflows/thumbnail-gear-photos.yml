@@ -13,12 +13,12 @@ jobs:
   thumbnails:
     runs-on: ubuntu-latest
     steps:
-      - name: Check SUPABASE_ANON_KEY is set
+      - name: Check VITE_SUPABASE_ANON_KEY is set
         env:
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
         run: |
-          if [ -z "$SUPABASE_ANON_KEY" ]; then
-            echo "::error::SUPABASE_ANON_KEY secret is not set — add it under Settings > Secrets and variables > Actions (same value as VITE_SUPABASE_ANON_KEY in .env.local)."
+          if [ -z "$VITE_SUPABASE_ANON_KEY" ]; then
+            echo "::error::VITE_SUPABASE_ANON_KEY secret is not set — it's the same secret the Pages deploy uses; add it under Settings > Secrets and variables > Actions."
             exit 1
           fi
       - uses: actions/checkout@v4
@@ -29,6 +29,6 @@ jobs:
       - run: npm ci
       - name: Generate missing thumbnails
         env:
-          SUPABASE_URL: https://wgjuflwbkmgirhqoqfgp.supabase.co
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
         run: node scripts/backfill-thumbs.mjs

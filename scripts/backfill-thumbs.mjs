@@ -61,7 +61,9 @@ for (const row of candidates) {
   try {
     // .rotate() with no args applies the EXIF orientation; the thumbnail
     // itself carries no EXIF so the pixels have to be upright already.
-    thumb = await sharp(original).rotate()
+    // failOn 'none': a slightly corrupt phone JPEG (stray bytes before a
+    // marker) still decodes fine visually — don't refuse it a thumbnail.
+    thumb = await sharp(original, { failOn: 'none' }).rotate()
       .resize(THUMB_MAX_DIMENSION, THUMB_MAX_DIMENSION, { fit: 'inside', withoutEnlargement: true })
       .flatten({ background: '#fff' })
       .jpeg({ quality: THUMB_JPEG_QUALITY })
@@ -76,8 +78,14 @@ for (const row of candidates) {
   console.log(`  ${DRY_RUN ? 'would' : 'thumb'} ${label}  ${(original.length / 1024).toFixed(0)} KB → ${(thumb.length / 1024).toFixed(0)} KB`)
   if (DRY_RUN) { done++; continue }
 
-  const { error: upError } = await bucket.upload(thumb_path, thumb, { contentType: 'image/jpeg', upsert: true })
-  if (upError) { console.log(`  fail  ${label} — thumb upload: ${upError.message}`); failed++; continue }
+  const { error: upError } = await bucket.upload(thumb_path, thumb, { contentType: 'image/jpeg' })
+  if (upError) {
+    // Two gear_photos rows can point at the same file (a doubled-up MMS). The
+    // first row's run already made this thumbnail; the bucket has no UPDATE
+    // policy so re-uploading is refused — just link the existing one.
+    const { data: existing } = await bucket.download(thumb_path)
+    if (!existing) { console.log(`  fail  ${label} — thumb upload: ${upError.message}`); failed++; continue }
+  }
   const { error: rowError } = await supabase.schema('Cores').from('gear_photos')
     .update({ thumb_path, ...(row.sha256 ? {} : { sha256 }) }).eq('id', row.id)
   if (rowError) { console.log(`  fail  ${label} — row update: ${rowError.message}`); failed++; continue }
