@@ -25,11 +25,11 @@ jobs:
     steps:
       - name: Check secrets are set
         env:
-          RCLONE_DRIVE_TOKEN: ${{ secrets.RCLONE_DRIVE_TOKEN }}
+          DRIVE_TOKEN_SECRET: ${{ secrets.RCLONE_DRIVE_TOKEN }}
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
         run: |
-          for v in RCLONE_DRIVE_TOKEN SUPABASE_DB_URL VITE_SUPABASE_ANON_KEY; do
+          for v in DRIVE_TOKEN_SECRET SUPABASE_DB_URL VITE_SUPABASE_ANON_KEY; do
             if [ -z "${!v}" ]; then
               echo "::error::$v secret is not set — add it under Settings > Secrets and variables > Actions."
               exit 1
@@ -43,9 +43,13 @@ jobs:
           cache: npm
       - run: npm ci
 
+      # NB: the env var is deliberately NOT named RCLONE_DRIVE_TOKEN — rclone
+      # reads RCLONE_<BACKEND>_<OPTION> from the environment as a config
+      # override, so that name would feed the raw secret straight to the drive
+      # backend as its token and bypass the decoding below.
       - name: Configure rclone
         env:
-          RCLONE_DRIVE_TOKEN: ${{ secrets.RCLONE_DRIVE_TOKEN }}
+          DRIVE_TOKEN_SECRET: ${{ secrets.RCLONE_DRIVE_TOKEN }}
         run: |
           curl -fsSL https://rclone.org/install.sh | sudo bash >/dev/null
           mkdir -p ~/.config/rclone
@@ -54,7 +58,7 @@ jobs:
           # accept either form so the secret can be pasted straight from it.
           python3 - <<'PY'
           import base64, json, os
-          raw = os.environ['RCLONE_DRIVE_TOKEN'].strip()
+          raw = os.environ['DRIVE_TOKEN_SECRET'].strip()
           try:
               json.loads(raw); token = raw
           except ValueError:
