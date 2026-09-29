@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../supabaseClient'
 import { ensureStatPay } from '../utils/statPay'
 import { fmtHours } from '../utils/format'
+import { approvalBlockers } from '../utils/entrySave'
 import { looksLikeSameSupply } from '../utils/supplyMatch'
 import MultiSelectDropdown from './MultiSelectDropdown'
 import PersonPicker from './PersonPicker'
@@ -235,20 +236,16 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
         alert('Every job needs a note describing what was done — click Edit to add one before approving.')
         return
       }
-      // Matches the validation saveEdit() enforces — approving straight from the
-      // list (without opening Edit) used to skip this, letting a 0/blank-hours
-      // entry (e.g. a job mentioned with no stated duration) through silently.
-      if (entries.some(e => !(Number(e.hours) > 0))) {
-        alert('Every entry needs hours greater than 0 — click Edit to fix it before approving.')
+      // Hard block, not a confirm: hours logged to a job must be > 0 (a day with
+      // no job entries at all used to slip through, since [].some() is false)
+      // and the start/stop times must agree with those hours. The job hours are
+      // the record — the times get corrected to match them. Recomputed here from
+      // the row itself rather than trusting the stored delta_minutes, which goes
+      // stale when either side is edited (see Aug 6 2026 incident).
+      const blockers = approvalBlockers(sub)
+      if (blockers.length > 0) {
+        alert(`Can't approve yet:\n\n• ${blockers.join('\n• ')}\n\nClick Edit to fix it, then approve.`)
         return
-      }
-      // Hours can go stale against time_in/stated_time_out when either gets edited
-      // without the other (see Aug 6 2026 incident — time was corrected but the
-      // job hours weren't, and it slipped through to approval unnoticed).
-      if (sub.delta_minutes != null && Math.abs(sub.delta_minutes) > 15) {
-        const deltaHrs = deltaMinsToHours(sub.delta_minutes)
-        const ok = confirm(`Heads up — this submission's job hours don't match its time span (off by ${Math.abs(deltaHrs)}hrs). Approve anyway?`)
-        if (!ok) return
       }
 
       // Guard against a text-reported supply duplicating one already logged
@@ -840,6 +837,11 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
         if (sub.delta_minutes && Math.abs(sub.delta_minutes) > 15) {
           const deltaHrs = deltaMinsToHours(sub.delta_minutes)
           flags.push(`time delta ${deltaHrs > 0 ? '+' : ''}${fmtHours(deltaHrs)}hrs`)
+        }
+        // Same rules approve() enforces, shown up front so it's clear why the
+        // Approve button will refuse before she clicks it.
+        if (sub.status === 'submitted' || sub.status === 'collecting') {
+          for (const b of approvalBlockers(sub)) flags.push(`⛔ can't approve yet — ${b}`)
         }
         if (sub.status === 'collecting' && (sub.pending_questions || []).length > 0) {
           flags.push(`⏳ awaiting reply — ${sub.pending_questions.join(' | ')}`)
