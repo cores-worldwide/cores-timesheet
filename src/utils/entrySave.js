@@ -102,6 +102,73 @@ export function computeSubmissionTiming(timeIn, statedTimeOut, lunchMinutes, tot
   return { calculated_time_out, delta_minutes }
 }
 
+// Minutes of slack allowed between the stated stop time and the stop time the
+// job hours work out to (start + job hours + lunch) before approval is blocked.
+// Same 15-minute threshold the office already used for its "time delta" flag.
+export const APPROVAL_TIME_TOLERANCE_MINUTES = 15
+
+const hhmm = (t) => String(t).slice(0, 5)
+const quarterHours = (mins) => Math.round(mins / 15) / 4
+
+// Reasons an sms_submissions row must NOT be approved yet — empty array means
+// it's fine. The hours logged to jobs are the record; start/stop are checked
+// against them (never the other way round), so nothing here ever suggests
+// changing job hours to fit the clock. Day-off requests and auto stat-pay
+// grants are exempt: they carry no job hours or shift times by design.
+export function approvalBlockers(sub) {
+  if (!sub || sub.is_day_off || sub.is_stat_grant) return []
+  const blockers = []
+  const entries = sub.entries || []
+  const totalHours = entries.reduce((s, e) => s + (Number(e.hours) || 0), 0)
+
+  if (entries.length === 0 || !(totalHours > 0)) {
+    blockers.push('No hours are logged to a job — add at least one job with hours greater than 0.')
+  } else if (entries.some(e => !(Number(e.hours) > 0))) {
+    blockers.push('Every job entry needs hours greater than 0.')
+  }
+
+  if (!sub.time_in || !sub.stated_time_out) {
+    blockers.push('Start and stop times are both needed so they can be checked against the job hours.')
+  } else if (totalHours > 0) {
+    const { calculated_time_out, delta_minutes } = computeSubmissionTiming(sub.time_in, sub.stated_time_out, sub.lunch_minutes, totalHours)
+    // Wrap into ±12h so a shift that finishes after midnight isn't read as a ~24h mismatch.
+    const delta = ((((delta_minutes + 720) % 1440) + 1440) % 1440) - 720
+    if (Math.abs(delta) > APPROVAL_TIME_TOLERANCE_MINUTES) {
+      const lunch = Number(sub.lunch_minutes) || 0
+      blockers.push(
+        `Start/stop don't match the job hours: ${quarterHours(totalHours * 60)}hrs of jobs from ${hhmm(sub.time_in)}` +
+        `${lunch ? ` with ${lunch}min lunch` : ''} should finish at ${calculated_time_out}, but the stop time is ${hhmm(sub.stated_time_out)} ` +
+        `(off by ${Math.abs(quarterHours(delta))}hrs). Correct the start/stop times to match the job hours.`
+      )
+    }
+  }
+  return blockers
+}
+
+// Records a refused Approve click in Cores.approval_block_log. Fire-and-forget:
+// a logging failure must never get between the office and the message telling
+// her what's wrong, so errors are swallowed to the console.
+export async function logBlockedApproval(supabase, sub, reasons, attemptedBy) {
+  try {
+    const entries = sub.entries || []
+    const { error } = await supabase.schema('Cores').from('approval_block_log').insert({
+      attempted_by: attemptedBy || null,
+      submission_id: sub.id,
+      employee_id: sub.employee_id || null,
+      work_date: sub.work_date || null,
+      reasons,
+      snapshot: {
+        status: sub.status, from_phone: sub.from_phone,
+        time_in: sub.time_in, stated_time_out: sub.stated_time_out, lunch_minutes: sub.lunch_minutes,
+        total_hours: entries.reduce((s, e) => s + (Number(e.hours) || 0), 0), entry_count: entries.length,
+      },
+    })
+    if (error) console.error('approval_block_log insert failed:', error.message)
+  } catch (e) {
+    console.error('approval_block_log insert failed:', e.message)
+  }
+}
+
 // Submit a manually-typed entry (or set of entries) for one employee/day as
 // an sms_submissions row — the same review gate a text goes through —
 // instead of writing timesheet_entries directly. An admin typing hours in is
