@@ -1786,7 +1786,13 @@ Deno.serve(async (req: Request) => {
   let flags: string[] = []
   let saved = false
   let saveError: any = null
-  const MAX_SAVE_ATTEMPTS = 10
+  // Raised from 10 after a 20-text burst from one phone lost 6 texts: with N writers
+  // colliding, roughly one wins per round, so 10 rounds couldn't cover 20 and the
+  // last-resort unconditional save below overwrote whatever had landed. The jittered
+  // pause spreads the retries out so they stop colliding in lockstep.
+  const MAX_SAVE_ATTEMPTS = 40
+  const backoff = (attempt: number) =>
+    new Promise(resolve => setTimeout(resolve, Math.random() * Math.min(400, 40 * (attempt + 1))))
 
   for (let attempt = 0; attempt < MAX_SAVE_ATTEMPTS && !saved; attempt++) {
     submission = null
@@ -2174,13 +2180,14 @@ Deno.serve(async (req: Request) => {
         if (fallbackErr) saveError = fallbackErr
         saved = true
       }
-      // else: conflict — loop back and retry against fresh state
+      // else: conflict — pause briefly, then loop back and retry against fresh state
+      await backoff(attempt)
     } else {
       const { error: insertErr } = await supabase.from('sms_submissions').insert(record)
       // 23505 = a concurrent first text of the day inserted the row between our lookup and
       // this insert (sms_submissions_one_open_per_phone_employee_day). Loop back so the
       // lookup finds it and this message merges in instead of becoming a second row.
-      if (insertErr?.code === '23505' && attempt < MAX_SAVE_ATTEMPTS - 1) continue
+      if (insertErr?.code === '23505' && attempt < MAX_SAVE_ATTEMPTS - 1) { await backoff(attempt); continue }
       if (insertErr) { saveError = insertErr; break }
       saved = true
     }
