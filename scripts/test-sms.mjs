@@ -642,6 +642,31 @@ await scenario('photo supplies caption', phone(47), [
   ['This is Test. 4760 2hrs pump seals', ['4760: 2hrs']],
   ['Supplies: 3 disks', ['Got the photo', 'logged to 4760'], [TEST_IMAGE]],
 ])
+// 34. A burst of texts at the same instant from one phone must land on ONE
+// submission with every message kept. Regression for 2026-09-29 (Jim, SMS
+// Review): the "no existing row -> insert" step had no locking, so concurrent
+// first texts each inserted their own row and one text's content was orphaned;
+// and a 20-text burst lost 6 texts once the retry loop ran out of attempts.
+// Techs inside a ship have no signal and everything they wrote arrives at once
+// when they surface. Sent from Test Tech's own registered phone, like a real
+// crew member — from an unrecognised phone only a text that names the sender
+// resolves to an employee, so the burst would legitimately split by employee.
+await cleanupTestTech()
+{
+  console.log(`\n▶ concurrent burst shares one submission`)
+  const burst = Array.from({ length: 15 }, (_, i) => `4760 step ${i + 1} on the pump`)
+  await Promise.all(burst.map(t => sms(TEST_PHONE, t)))
+  const rowsRes = await fetch(
+    `${SUPABASE_URL}/rest/v1/sms_submissions?employee_id=eq.${TEST_TECH_ID}&select=raw_messages`,
+    { headers: { apikey: ANON_KEY, Authorization: `Bearer ${ANON_KEY}`, 'Accept-Profile': 'Cores' } }
+  )
+  const rows = await rowsRes.json().catch(() => [])
+  const inbound = new Set(rows.flatMap(r => r.raw_messages || []).filter(m => m.direction === 'in').map(m => m.text))
+  const missing = burst.filter(t => !inbound.has(t))
+  if (rows.length === 1 && missing.length === 0) { console.log('  ✓ passed'); passed++ }
+  else { console.log(`  ✗ expected 1 row holding all ${burst.length} texts, got ${rows.length} row(s), missing ${missing.length}: ${missing.join(' | ')}`); failed++ }
+}
+
 // Nothing runs cleanupTestTech() after the last scenario otherwise, so its
 // gear-photos upload would sit in the bucket until the next full run starts.
 // Skipped on failure so a broken run's data stays put for debugging, same as
