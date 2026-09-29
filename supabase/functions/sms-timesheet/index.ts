@@ -2177,6 +2177,10 @@ Deno.serve(async (req: Request) => {
       // else: conflict — loop back and retry against fresh state
     } else {
       const { error: insertErr } = await supabase.from('sms_submissions').insert(record)
+      // 23505 = a concurrent first text of the day inserted the row between our lookup and
+      // this insert (sms_submissions_one_open_per_phone_employee_day). Loop back so the
+      // lookup finds it and this message merges in instead of becoming a second row.
+      if (insertErr?.code === '23505' && attempt < MAX_SAVE_ATTEMPTS - 1) continue
       if (insertErr) { saveError = insertErr; break }
       saved = true
     }

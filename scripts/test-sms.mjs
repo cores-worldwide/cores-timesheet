@@ -642,6 +642,29 @@ await scenario('photo supplies caption', phone(47), [
   ['This is Test. 4760 2hrs pump seals', ['4760: 2hrs']],
   ['Supplies: 3 disks', ['Got the photo', 'logged to 4760'], [TEST_IMAGE]],
 ])
+// 34. Two first texts of the day fired at the same instant must land on ONE
+// submission with both messages in it — not two rows. Regression for
+// 2026-09-29 (Jim, SMS Review): the "no existing row -> insert" step had no
+// locking, so concurrent first texts each inserted their own row and one text's
+// content was orphaned. Fixed by the sms_submissions_one_open_per_phone_employee_day
+// unique index + retry on 23505.
+await cleanupTestTech()
+{
+  console.log(`\n▶ concurrent first texts share one submission`)
+  await Promise.all([
+    sms(phone(48), 'This is Test. 4760 pump seals'),
+    sms(phone(48), 'This is Test. 4760 checked the impeller'),
+  ])
+  const rowsRes = await fetch(
+    `${SUPABASE_URL}/rest/v1/sms_submissions?from_phone=eq.${phone(48)}&select=raw_messages`,
+    { headers: { apikey: ANON_KEY, Authorization: `Bearer ${ANON_KEY}`, 'Accept-Profile': 'Cores' } }
+  )
+  const rows = await rowsRes.json().catch(() => [])
+  const inbound = rows.flatMap(r => r.raw_messages || []).filter(m => m.direction === 'in').length
+  if (rows.length === 1 && inbound === 2) { console.log('  ✓ passed'); passed++ }
+  else { console.log(`  ✗ expected 1 row with 2 inbound texts, got ${rows.length} row(s), ${inbound} inbound`); failed++ }
+}
+
 // Nothing runs cleanupTestTech() after the last scenario otherwise, so its
 // gear-photos upload would sit in the bucket until the next full run starts.
 // Skipped on failure so a broken run's data stays put for debugging, same as
