@@ -145,6 +145,30 @@ export function approvalBlockers(sub) {
   return blockers
 }
 
+// Records a refused Approve click in Cores.approval_block_log. Fire-and-forget:
+// a logging failure must never get between the office and the message telling
+// her what's wrong, so errors are swallowed to the console.
+export async function logBlockedApproval(supabase, sub, reasons, attemptedBy) {
+  try {
+    const entries = sub.entries || []
+    const { error } = await supabase.schema('Cores').from('approval_block_log').insert({
+      attempted_by: attemptedBy || null,
+      submission_id: sub.id,
+      employee_id: sub.employee_id || null,
+      work_date: sub.work_date || null,
+      reasons,
+      snapshot: {
+        status: sub.status, from_phone: sub.from_phone,
+        time_in: sub.time_in, stated_time_out: sub.stated_time_out, lunch_minutes: sub.lunch_minutes,
+        total_hours: entries.reduce((s, e) => s + (Number(e.hours) || 0), 0), entry_count: entries.length,
+      },
+    })
+    if (error) console.error('approval_block_log insert failed:', error.message)
+  } catch (e) {
+    console.error('approval_block_log insert failed:', e.message)
+  }
+}
+
 // Submit a manually-typed entry (or set of entries) for one employee/day as
 // an sms_submissions row — the same review gate a text goes through —
 // instead of writing timesheet_entries directly. An admin typing hours in is
