@@ -174,9 +174,11 @@ function resolveTimelineEvent(group, allRowsForDay, employeeById, jobById) {
         detail = truncate(appended[0]?.text)
         style = EVENT_STYLE.botReply
       } else if (od.status !== nd.status) {
-        // 'draft' is written exclusively by the mobile app's autosave (no
-        // other code path sets it), regardless of what the status/from_phone
-        // was before — so this is always the employee, safe unconditionally.
+        // LEGACY: nothing writes 'draft' any more (removed 2026-09-29 — mobile
+        // autosave goes straight to 'submitted'), but audit rows recorded
+        // before then still carry it, so the timeline must keep reading it.
+        // It was written exclusively by the mobile app's autosave, so this is
+        // always the employee, safe unconditionally.
         if (nd.status === 'draft') {
           verb = od.status === 'submitted' ? `${employeeName} reopened the day to make changes` : `${employeeName} is working on this day`
           actor = resolveActor({ source: 'employee', employeeId, employeeById })

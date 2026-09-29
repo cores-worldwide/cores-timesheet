@@ -42,7 +42,6 @@ export default function EmployeeHome({ employee }) {
   const [entries, setEntries] = useState([])
   const [supplies, setSupplies] = useState([])
   const [submissions, setSubmissions] = useState([])
-  const [staleDrafts, setStaleDrafts] = useState([])
   const [jobs, setJobs] = useState([])
   const [payrollConfig, setPayrollConfig] = useState({})
   const [statHolidays, setStatHolidays] = useState(new Set())
@@ -110,17 +109,6 @@ export default function EmployeeHome({ employee }) {
       .gte('work_date', weekStart).lte('work_date', weekEnd)
       .order('created_at', { ascending: false })
     setPhotos(gp || [])
-    // Not week-scoped like everything above — a day left at 'draft' (autosaved
-    // but never "Submit day"-ed) is otherwise invisible unless the tech happens
-    // to page back to that exact week. work_date < today only: today's draft
-    // may just be a shift still in progress. Refreshes on the same cadence as
-    // the rest of this page (every autosave/submit calls load()), so submitting
-    // one of these clears it from the banner right away.
-    const { data: stale } = await supabase.schema('Cores').from('sms_submissions')
-      .select('id, work_date, updated_at').eq('employee_id', employee.id)
-      .eq('status', 'draft').lt('work_date', todayYMD())
-      .order('work_date')
-    setStaleDrafts(stale || [])
     if (!silent) setLoading(false)
   }, [employee.id, weekStart, weekEnd])
 
@@ -139,23 +127,6 @@ export default function EmployeeHome({ employee }) {
     const top = el.getBoundingClientRect().top + window.scrollY - headerH - 12
     window.scrollTo({ top: Math.max(0, top) })
   }, [loading])
-
-  // "Finish this day" banner jump target — switches to the pay week
-  // containing a stale draft, then scrolls to it once that week's data lands.
-  const [pendingScrollTo, setPendingScrollTo] = useState(null)
-  function jumpToDraft(ymd) {
-    setWeekStart(payWeekRange(ymd)[0])
-    setPendingScrollTo(ymd)
-  }
-  useEffect(() => {
-    if (loading || !pendingScrollTo) return
-    const el = document.getElementById(`day-${pendingScrollTo}`)
-    setPendingScrollTo(null)
-    if (!el) return
-    const headerH = document.querySelector('.emp-header')?.offsetHeight || 0
-    const top = el.getBoundingClientRect().top + window.scrollY - headerH - 12
-    window.scrollTo({ top: Math.max(0, top) })
-  }, [loading, pendingScrollTo])
 
   useEffect(() => {
     supabase.schema('Cores').from('jobs').select('id, job_number, description, vessels(name)').order('job_number').then(({ data }) => setJobs(data || []))
@@ -258,8 +229,7 @@ export default function EmployeeHome({ employee }) {
     for (const s of sub.supplies || []) parts.push(`Supply: ${s.supply_name} ×${s.quantity}${s.job_number ? ' (Job# ' + s.job_number + ')' : ''}`)
     if (parts.length === 0) return // nothing worth a snapshot
 
-    const label = sub.status === 'submitted' ? 'Submitted via app' : 'Saved via app'
-    const text = `${label}: ${parts.join(' · ')}`
+    const text = `Submitted via app: ${parts.join(' · ')}`
     const existing = sub.raw_messages || []
     if (existing.length > 0 && existing[existing.length - 1].text === text) return // unchanged since last snapshot
 
@@ -286,7 +256,7 @@ export default function EmployeeHome({ employee }) {
     let resolveLock
     insertLocksRef.current[ymd] = new Promise(res => { resolveLock = res })
     const { data, error } = await supabase.schema('Cores').from('sms_submissions').insert({
-      from_phone: 'mobile-app', employee_id: employee.id, work_date: ymd, entries: [], status: 'draft',
+      from_phone: 'mobile-app', employee_id: employee.id, work_date: ymd, entries: [], status: 'submitted',
     }).select('id').single()
     if (!error) daySubIdsRef.current[ymd] = data.id
     insertLocksRef.current[ymd] = null
@@ -347,15 +317,12 @@ export default function EmployeeHome({ employee }) {
       }
 
       const id = await ensureDaySubId(ymd)
-      // 'draft' while they're actively working the day — stop time alone was
-      // an unreliable "I'm done" signal (guys often put in a placeholder just
-      // to move past the field), so autosave no longer marks the day
-      // 'submitted' on its own. submitDay() does that explicitly. Reopening an
-      // already-submitted/rejected day to edit it drops it back to 'draft'
-      // too, on purpose — Niki shouldn't see a mid-edit day as ready to review
-      // until the tech re-submits it.
+      // Autosave goes straight to 'submitted' — there is no separate draft state
+      // or "Submit day" step any more (Niki was confused by days techs had to
+      // submit as an extra step, 2026-09-29). Each save updates the same
+      // pending row in SMS Review; reopening a rejected day to fix it resends it.
       const { error: err } = await supabase.schema('Cores').from('sms_submissions')
-        .update({ time_in, stated_time_out, lunch_minutes, per_diem_location, entries, supplies: cleanedSupplies, calculated_time_out, delta_minutes, status: 'draft', updated_at: new Date().toISOString() })
+        .update({ time_in, stated_time_out, lunch_minutes, per_diem_location, entries, supplies: cleanedSupplies, calculated_time_out, delta_minutes, status: 'submitted', updated_at: new Date().toISOString() })
         .eq('id', id)
       if (err) { setError(err.message); setSavingLog(false); return }
       await load({ silent: true })
@@ -363,30 +330,6 @@ export default function EmployeeHome({ employee }) {
       setError(e.message)
     }
     setSavingLog(false)
-  }
-
-  // Explicit "I'm done for the day" — the signal Niki actually needs. Flushes
-  // whatever's currently in the editor first (so a still-focused field's
-  // value isn't lost to blur-timing), then requires at least one job with
-  // hours before finalizing — an empty or half-filled day can't accidentally
-  // look "ready to review" just because a stop time got typed in.
-  async function submitDay(ymd) {
-    setError('')
-    await autosaveLog(ymd)
-    const id = daySubIdsRef.current[ymd]
-    if (!id) { setError('Add at least one job before submitting.'); return }
-    const { data: row, error: fetchErr } = await supabase.schema('Cores').from('sms_submissions')
-      .select('entries').eq('id', id).single()
-    if (fetchErr) { setError(fetchErr.message); return }
-    const totalHours = (row?.entries || []).reduce((s, e) => s + (Number(e.hours) || 0), 0)
-    if (!(totalHours > 0)) { setError('Add at least one job with hours before submitting.'); return }
-    setSavingLog(true)
-    const { error: err } = await supabase.schema('Cores').from('sms_submissions')
-      .update({ status: 'submitted', updated_at: new Date().toISOString() }).eq('id', id)
-    setSavingLog(false)
-    if (err) { setError(err.message); return }
-    await load({ silent: true })
-    closeLog()
   }
 
   // Uploaded straight to the gear-photos bucket — photo or video, the
@@ -481,25 +424,6 @@ export default function EmployeeHome({ employee }) {
 
       {error && <div className="emp-error">{error}</div>}
 
-      {/* Autosave writes every change as you go, but a day only actually
-          reaches the office once you tap "Submit day" — this catches days
-          you started and never finished, even outside the week you're
-          currently looking at. */}
-      {staleDrafts.length > 0 && (
-        <div style={{ marginBottom: '1rem', padding: '0.65rem 0.85rem', background: '#f5f5f0', border: '1px solid #ddd6b8', borderRadius: 6, color: '#7a6a1a', fontSize: '0.85rem' }}>
-          <div style={{ fontWeight: 600, marginBottom: '0.35rem' }}>
-            📝 {staleDrafts.length} unfinished day{staleDrafts.length === 1 ? '' : 's'} — started but never submitted
-          </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
-            {staleDrafts.map(d => (
-              <button key={d.id} onClick={() => jumpToDraft(d.work_date)} style={{ padding: '0.25rem 0.6rem', background: '#fff', border: '1px solid #ddd6b8', borderRadius: 4, cursor: 'pointer', fontSize: '0.8rem', color: '#7a6a1a', fontWeight: 600 }}>
-                {shortDate(d.work_date)} — finish it →
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
       {loading ? (
         <div className="emp-empty">Loading…</div>
       ) : days.map((ymd) => {
@@ -518,7 +442,6 @@ export default function EmployeeHome({ employee }) {
         // a tech can tell a day's state without scrolling into the card.
         const dayStatus = daySub
           ? (daySub.status === 'rejected' ? { label: '✗ Sent back', cls: 'rejected' }
-            : daySub.status === 'draft' ? { label: '📝 Draft', cls: 'draft' }
             : { label: '⏳ Submitted', cls: 'submitted' })
           : dayEntries.length > 0 ? { label: '✓ Logged', cls: 'logged' }
           : null
@@ -653,8 +576,7 @@ export default function EmployeeHome({ employee }) {
                 })()}
 
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '0.6rem', marginTop: '0.9rem' }}>
-                  <button className="emp-btn emp-btn-secondary" disabled={savingLog} onClick={closeLog}>Save Entry</button>
-                  <button className="emp-btn" disabled={savingLog} onClick={() => submitDay(ymd)}>Submit day</button>
+                  <button className="emp-btn" disabled={savingLog} onClick={closeLog}>Save Entry</button>
                   {/* Everything above autosaves as it's typed, so there's nothing to
                       actually discard — this closes the same way Save Entry does.
                       It exists for whoever opened this just to look and wants a
@@ -665,7 +587,7 @@ export default function EmployeeHome({ employee }) {
               </div>
             ) : daySub?.time_in ? (
               <div className="emp-hint" style={{ marginBottom: '0.6rem', cursor: 'pointer' }} onClick={() => openLog(ymd)}>
-                {`${daySub.status === 'draft' ? '📝 Draft — not submitted yet' : daySub.status === 'rejected' ? '✗ Sent back' : '⏳ Submitted'}: In ${fmtTimeShort(daySub.time_in)} · Out ${daySub.stated_time_out ? fmtTimeShort(daySub.stated_time_out) : '—'} · Lunch ${daySub.lunch_minutes ?? 0}min · PD: ${daySub.per_diem_location && daySub.per_diem_location !== 'none' ? daySub.per_diem_location : 'none'} (tap to edit)`}
+                {`${daySub.status === 'rejected' ? '✗ Sent back' : '⏳ Submitted'}: In ${fmtTimeShort(daySub.time_in)} · Out ${daySub.stated_time_out ? fmtTimeShort(daySub.stated_time_out) : '—'} · Lunch ${daySub.lunch_minutes ?? 0}min · PD: ${daySub.per_diem_location && daySub.per_diem_location !== 'none' ? daySub.per_diem_location : 'none'} (tap to edit)`}
               </div>
             ) : daySub?.is_day_off && daySub.status !== 'rejected' ? (
               // No fields to reopen for a day-off request — nothing tappable,
@@ -793,12 +715,11 @@ export default function EmployeeHome({ employee }) {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
                   <span className="emp-chip" style={{
                     marginLeft: 0,
-                    background: daySub.status === 'rejected' ? '#fdecea' : daySub.status === 'draft' ? '#f0f0f0' : '#fff4de',
-                    color: daySub.status === 'rejected' ? '#c0392b' : daySub.status === 'draft' ? '#777' : '#a06b00',
+                    background: daySub.status === 'rejected' ? '#fdecea' : '#fff4de',
+                    color: daySub.status === 'rejected' ? '#c0392b' : '#a06b00',
                   }}>
-                    {daySub.status === 'rejected' ? '✗ Office sent this back — fix and resend'
-                      : daySub.status === 'draft' ? '📝 draft — tap Submit day when finished'
-                      : '⏳ texted in — awaiting approval'}
+                    {daySub.status === 'rejected' ? '✗ Office sent this back — make your fixes and they resend automatically'
+                      : '⏳ sent to the office — awaiting approval'}
                   </span>
                   {subTotalHours > 0 && <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>{fmtHours(subTotalHours)}h</span>}
                 </div>

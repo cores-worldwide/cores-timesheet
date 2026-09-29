@@ -19,7 +19,6 @@ const gearPhotoUrl = (path) => supabase.storage.from('gear-photos').getPublicUrl
 const fmtSignedAt = (iso) => iso ? new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''
 
 const STATUS_COLORS = {
-  draft:      '#aaa',
   collecting: '#888',
   submitted:  '#cc7700',
   approved:   '#2a7a2a',
@@ -776,12 +775,12 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
         <h2 style={{ margin: 0, fontSize: '1.1rem' }}>SMS Submissions</h2>
         <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
-          {['draft', 'submitted', 'approved', 'rejected', 'all'].map(f => (
+          {['submitted', 'approved', 'rejected', 'all'].map(f => (
             <button key={f} onClick={() => setFilter(f)} style={{
               padding: '0.3rem 0.8rem', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: '0.85rem', fontWeight: filter === f ? 700 : 400,
               background: filter === f ? '#0066cc' : '#eee', color: filter === f ? '#fff' : '#333',
             }}>
-              {f === 'submitted' ? 'Pending' : f === 'rejected' ? 'Deleted' : f === 'draft' ? 'Drafts' : f.charAt(0).toUpperCase() + f.slice(1)}
+              {f === 'submitted' ? 'Pending' : f === 'rejected' ? 'Deleted' : f.charAt(0).toUpperCase() + f.slice(1)}
             </button>
           ))}
           <MultiSelectDropdown
@@ -817,7 +816,7 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
 
       {!loading && visible.length === 0 && (
         <div style={{ color: '#888', textAlign: 'center', padding: '3rem', border: '2px dashed #ddd', borderRadius: 8 }}>
-          No {filter === 'submitted' ? 'pending' : filter === 'rejected' ? 'deleted' : filter === 'draft' ? 'stuck drafts' : filter} submissions
+          No {filter === 'submitted' ? 'pending' : filter === 'rejected' ? 'deleted' : filter} submissions
         </div>
       )}
 
@@ -1246,67 +1245,6 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
                   <div style={{ marginTop: '0.5rem' }}>
                     {adminNoteOpen[sub.id] && (
                       <div style={{ marginTop: '0.4rem', display: 'flex', gap: '0.4rem', alignItems: 'flex-start' }}>
-                        <textarea
-                          value={adminNoteDrafts[sub.id] || ''}
-                          onChange={e => setAdminNoteDrafts(d => ({ ...d, [sub.id]: e.target.value }))}
-                          placeholder={`Text ${employeeName(sub.employee_id)} about this submission...`}
-                          rows={2}
-                          style={{ flex: 1, padding: '0.4rem 0.6rem', border: '1px solid #ccc', borderRadius: 4, fontSize: '0.85rem', resize: 'vertical', fontFamily: 'inherit' }}
-                        />
-                        <button
-                          onClick={() => sendAdminNote(sub)}
-                          disabled={!(adminNoteDrafts[sub.id] || '').trim() || adminNoteStatus[sub.id] === 'sending'}
-                          style={{
-                            padding: '0.4rem 0.8rem',
-                            background: (adminNoteDrafts[sub.id] || '').trim() ? '#0066cc' : '#ccc',
-                            color: '#fff', border: 'none', borderRadius: 4,
-                            cursor: (adminNoteDrafts[sub.id] || '').trim() ? 'pointer' : 'default',
-                            fontWeight: 600, fontSize: '0.85rem', whiteSpace: 'nowrap',
-                          }}
-                        >
-                          {adminNoteStatus[sub.id] === 'sending' ? 'Sending…' : 'Send'}
-                        </button>
-                      </div>
-                    )}
-                    {adminNoteStatus[sub.id] && adminNoteStatus[sub.id] !== 'sending' && (
-                      <div style={{ fontSize: '0.78rem', marginTop: '0.25rem', color: adminNoteStatus[sub.id] === 'sent' ? '#2a7a2a' : '#c00' }}>
-                        {adminNoteStatus[sub.id] === 'sent' ? '✓ Note texted' : adminNoteStatus[sub.id]}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Mobile-app autosave writes every keystroke as 'draft' — a day only
-                    leaves this state when the employee explicitly taps "Submit day"
-                    (EmployeeHome.submitDay). If they never do, it just sits here
-                    forever with no reminder to anyone (Jim, 2026-09-16: "I can see
-                    the boys doing this all the time"). Reuses the same Delete
-                    (reject) and Send Note flows the submitted/collecting block
-                    below uses, since neither has a status precondition. */}
-                {sub.status === 'draft' && (
-                  <div>
-                    <div style={{ color: '#777', fontSize: '0.85rem', marginBottom: '0.6rem' }}>
-                      📝 Started on the mobile app but never submitted — last touched {fmtSignedAt(sub.updated_at)}. Nudge {employeeName(sub.employee_id)} to open the app and tap "Submit day," or delete it if it's junk.
-                    </div>
-                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                      <button
-                        onClick={() => setRejectOpen(o => ({ ...o, [sub.id]: !o[sub.id] }))}
-                        disabled={!!acting}
-                        style={{ padding: '0.4rem 1rem', background: '#fff', color: '#c00', border: '1px solid #c00', borderRadius: 4, cursor: 'pointer' }}
-                      >
-                        Delete
-                      </button>
-                      <button
-                        onClick={() => setAdminNoteOpen(o => ({ ...o, [sub.id]: !o[sub.id] }))}
-                        disabled={!sub.employee_id}
-                        title={!sub.employee_id ? 'No employee identified for this submission' : undefined}
-                        style={{ padding: '0.4rem 0.8rem', background: 'transparent', border: '1px solid #ccc', borderRadius: 4, cursor: sub.employee_id ? 'pointer' : 'default', fontSize: '0.85rem', color: sub.employee_id ? '#555' : '#bbb' }}
-                      >
-                        ✉️ Send Note to: {sub.employee_id ? employeeName(sub.employee_id) : '—'}
-                      </button>
-                    </div>
-                    {adminNoteOpen[sub.id] && (
-                      <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.4rem', alignItems: 'flex-start' }}>
                         <textarea
                           value={adminNoteDrafts[sub.id] || ''}
                           onChange={e => setAdminNoteDrafts(d => ({ ...d, [sub.id]: e.target.value }))}
