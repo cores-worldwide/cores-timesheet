@@ -642,7 +642,7 @@ await scenario('photo supplies caption', phone(47), [
   ['This is Test. 4760 2hrs pump seals', ['4760: 2hrs']],
   ['Supplies: 3 disks', ['Got the photo', 'logged to 4760'], [TEST_IMAGE]],
 ])
-// 34. Two first texts of the day fired at the same instant must land on ONE
+// 34. A burst of first texts of the day fired at the same instant must land on ONE
 // submission with both messages in it — not two rows. Regression for
 // 2026-09-29 (Jim, SMS Review): the "no existing row -> insert" step had no
 // locking, so concurrent first texts each inserted their own row and one text's
@@ -651,18 +651,25 @@ await scenario('photo supplies caption', phone(47), [
 await cleanupTestTech()
 {
   console.log(`\n▶ concurrent first texts share one submission`)
-  await Promise.all([
-    sms(phone(48), 'This is Test. 4760 pump seals'),
-    sms(phone(48), 'This is Test. 4760 checked the impeller'),
-  ])
+  // A burst, not just a pair: techs working inside a ship have no signal, and
+  // everything they wrote arrives at once when they surface.
+  const burst = [
+    'This is Test. 4760 pump seals',
+    '4760 checked the impeller',
+    '4760 replaced the gasket',
+    '4760 torqued the cover',
+    '4760 cleaned the bilge',
+    '4760 tested the pump',
+  ]
+  await Promise.all(burst.map(t => sms(phone(48), t)))
   const rowsRes = await fetch(
     `${SUPABASE_URL}/rest/v1/sms_submissions?from_phone=eq.${phone(48)}&select=raw_messages`,
     { headers: { apikey: ANON_KEY, Authorization: `Bearer ${ANON_KEY}`, 'Accept-Profile': 'Cores' } }
   )
   const rows = await rowsRes.json().catch(() => [])
   const inbound = rows.flatMap(r => r.raw_messages || []).filter(m => m.direction === 'in').length
-  if (rows.length === 1 && inbound === 2) { console.log('  ✓ passed'); passed++ }
-  else { console.log(`  ✗ expected 1 row with 2 inbound texts, got ${rows.length} row(s), ${inbound} inbound`); failed++ }
+  if (rows.length === 1 && inbound === burst.length) { console.log('  ✓ passed'); passed++ }
+  else { console.log(`  ✗ expected 1 row with ${burst.length} inbound texts, got ${rows.length} row(s), ${inbound} inbound`); failed++ }
 }
 
 // Nothing runs cleanupTestTech() after the last scenario otherwise, so its
