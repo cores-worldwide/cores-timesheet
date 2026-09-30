@@ -366,10 +366,11 @@ function bytesToBase64(bytes: Uint8Array): string {
 
 type SupplyItem = { id: string; name: string; identify_by: string; part_numbers: string[] }
 type IdentifiedSupply = { item_id: string; name: string; quantity: number; evidence: string }
+type SuggestedSupply = { supply_name: string; quantity: number; evidence: string }
 
 // Asks Claude which (if any) of the known supply items the photo shows. Only
 // items from the list can come back, and only with the text it actually read.
-async function identifySuppliesInPhoto(imageB64: string, mediaType: string, caption: string | null, items: SupplyItem[]): Promise<IdentifiedSupply[]> {
+async function identifySuppliesInPhoto(imageB64: string, mediaType: string, caption: string | null, items: SupplyItem[]): Promise<{ known: IdentifiedSupply[]; other: SuggestedSupply[] }> {
   const list = items.map(i => `- id ${i.id}: "${i.name}" — ${i.identify_by}${i.part_numbers.length ? ` Part numbers: ${i.part_numbers.join(', ')}.` : ''}`).join('\n')
   const system = `You check photos that marine shop technicians text in, to see whether they show one of a short list of shop consumables used on a job.
 
@@ -380,7 +381,8 @@ Rules:
 - Only report an item when you can actually read its product name or part number in the photo (or, for a can, clearly recognise that exact product). Never guess from colour or brand alone. If unsure, report nothing.
 - Pads look alike across grits, so a pad counts only when its shelf/bin label part number is readable.
 - Quantity: if the caption states a number (e.g. "qt1", "x2", "2 cans", "1 pc", "1x"), use it. Otherwise count separate cans of that item visible in the photo. For a shelf-label photo with no number in the caption, use 1.
-- Anything that isn't one of the known items (tools, parts, engines, paperwork) is not reported.
+- Separately, under other_consumables, list any OTHER shop consumable the photo clearly shows that is not a known item — things used up on a job such as rags, tape, silicone, sealant, sanding discs, abrasives, cable ties, lubricants, paint. Name it the way it would appear on a supply list, from what you can read (product name, size, grit, part number), e.g. "Roloc disc 2in 36 grit (N123456)". Same quantity rules. Leave it empty when unsure.
+- Never report tools, machinery, engine parts, measurement sheets, receipts or paperwork as supplies.
 Answer with the report_supplies tool.`
   const payload = JSON.stringify({
     model: 'claude-haiku-4-5-20251001',
@@ -401,8 +403,13 @@ Answer with the report_supplies tool.`
             quantity: { type: 'integer', minimum: 1 },
             evidence: { type: 'string', description: 'the product name or part number you read' },
           }, required: ['item_id', 'quantity', 'evidence'] } },
+          other_consumables: { type: 'array', items: { type: 'object', properties: {
+            name: { type: 'string', description: 'supply-list name, including size/grit/part number when readable' },
+            quantity: { type: 'integer', minimum: 1 },
+            evidence: { type: 'string', description: 'the label text you read' },
+          }, required: ['name', 'quantity', 'evidence'] } },
         },
-        required: ['items'],
+        required: ['items', 'other_consumables'],
       },
     }],
     tool_choice: { type: 'tool', name: 'report_supplies' },
@@ -414,16 +421,21 @@ Answer with the report_supplies tool.`
   })
   if (!res.ok) throw new Error(`Claude supply check failed (${res.status}): ${(await res.text().catch(() => '')).slice(0, 200)}`)
   const data = await res.json()
-  const found = (data.content || []).find((c: any) => c.type === 'tool_use')?.input?.items || []
+  const input = (data.content || []).find((c: any) => c.type === 'tool_use')?.input || {}
+  const qty = (v: any) => { const q = Math.round(Number(v)); return q >= 1 && q <= 100 ? q : 1 }
   const byId = new Map(items.map(i => [i.id, i]))
-  const out: IdentifiedSupply[] = []
-  for (const f of found) {
+  const known: IdentifiedSupply[] = []
+  for (const f of input.items || []) {
     const item = byId.get(String(f?.item_id))
-    if (!item || out.some(o => o.item_id === item.id)) continue
-    const q = Math.round(Number(f.quantity))
-    out.push({ item_id: item.id, name: item.name, quantity: q >= 1 && q <= 20 ? q : 1, evidence: String(f.evidence || '').slice(0, 200) })
+    if (!item || known.some(o => o.item_id === item.id)) continue
+    known.push({ item_id: item.id, name: item.name, quantity: qty(f.quantity), evidence: String(f.evidence || '').slice(0, 200) })
   }
-  return out
+  // A suggestion that is really a known item (the model listed it twice) is dropped.
+  const other: SuggestedSupply[] = (input.other_consumables || [])
+    .map((f: any) => ({ supply_name: String(f?.name || '').trim().slice(0, 120), quantity: qty(f?.quantity), evidence: String(f?.evidence || '').slice(0, 200) }))
+    .filter((o: SuggestedSupply) => o.supply_name && !known.some(k => looksLikeSameSupply(k.name, o.supply_name)))
+    .slice(0, 5)
+  return { known, other }
 }
 
 // Checks one saved photo and (unless dryRun) logs what it finds. Runs in the
@@ -433,8 +445,8 @@ async function autoLogSuppliesFromPhoto(
   supabase: any,
   photo: { id: string; storage_path: string; employee_id: string | null; work_date: string; job_id: string | null; note: string | null; photo_type: string | null },
   { dryRun = false }: { dryRun?: boolean } = {},
-): Promise<{ identified: IdentifiedSupply[]; logged: string[]; skipped: string[]; reason?: string }> {
-  const result = { identified: [] as IdentifiedSupply[], logged: [] as string[], skipped: [] as string[] }
+): Promise<{ identified: IdentifiedSupply[]; suggested: SuggestedSupply[]; logged: string[]; skipped: string[]; reason?: string }> {
+  const result = { identified: [] as IdentifiedSupply[], suggested: [] as SuggestedSupply[], logged: [] as string[], skipped: [] as string[] }
   try {
     if (!photo.job_id || !photo.employee_id) return { ...result, reason: 'photo has no job or employee' }
     const ext = (photo.storage_path.split('.').pop() || '').toLowerCase()
@@ -452,9 +464,10 @@ async function autoLogSuppliesFromPhoto(
     // Read-only download of the stored original (never modified — photos are evidence).
     const { data: blob, error: dlError } = await supabase.storage.from('gear-photos').download(photo.storage_path)
     if (dlError || !blob) return { ...result, reason: `download failed: ${dlError?.message}` }
-    const identified = await identifySuppliesInPhoto(bytesToBase64(new Uint8Array(await blob.arrayBuffer())), mediaType, photo.note, items)
+    const { known: identified, other } = await identifySuppliesInPhoto(bytesToBase64(new Uint8Array(await blob.arrayBuffer())), mediaType, photo.note, items)
     result.identified = identified
-    if (dryRun || identified.length === 0) return result
+    result.suggested = other
+    if (dryRun || (identified.length === 0 && other.length === 0)) return result
 
     const { data: jobRow } = await supabase.from('jobs').select('job_number').eq('id', photo.job_id).maybeSingle()
     const { data: existing } = await supabase.from('job_supplies').select('supply_name')
@@ -483,10 +496,19 @@ async function autoLogSuppliesFromPhoto(
       if (error) return { ...result, reason: `insert failed: ${error.message}` }
       result.logged = inserts.map(i => `${i.quantity} × ${i.supply_name}`)
     }
-    // Tag it as a supply photo either way, so it shows under Supplies in Gear
-    // Photos with its lines (or, when skipped, for her to glance at as before).
-    if (!photo.photo_type) await supabase.from('gear_photos').update({ photo_type: 'supply' }).eq('id', photo.id)
-    console.error(`auto supply ${photo.id}: logged [${result.logged.join('; ')}] skipped [${result.skipped.join('; ')}]`)
+    // Consumables not in supply_items: left on the photo as suggestions for
+    // Tracy to confirm — never put on the timesheet by the bot. Ones already
+    // logged or texted that day are left out, same as above.
+    result.suggested = other.filter(o =>
+      !(existing || []).some((r: any) => looksLikeSameSupply(o.supply_name, r.supply_name)) &&
+      !textedSupplies.some((t: any) => looksLikeSameSupply(o.supply_name, t.supply_name || '')))
+    // Tag it as a supply photo so it shows under Supplies in Gear Photos with
+    // its lines/suggestions (or, when everything was skipped, as before).
+    const photoUpdate: any = {}
+    if (!photo.photo_type) photoUpdate.photo_type = 'supply'
+    if (result.suggested.length) photoUpdate.suggested_supplies = result.suggested
+    if (Object.keys(photoUpdate).length) await supabase.from('gear_photos').update(photoUpdate).eq('id', photo.id)
+    console.error(`auto supply ${photo.id}: logged [${result.logged.join('; ')}] suggested [${result.suggested.map(o => o.supply_name).join('; ')}] skipped [${result.skipped.join('; ')}]`)
     return result
   } catch (err: any) {
     console.error(`auto supply ${photo.id} failed:`, err.message)
