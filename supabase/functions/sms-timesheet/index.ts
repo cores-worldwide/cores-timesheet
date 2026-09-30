@@ -845,24 +845,86 @@ CONTEXT: This shift's start time is already known to be ${knownTimeIn}. If this 
   return JSON.parse(jsonMatch[0])
 }
 
+// A gap of this many days or more between two logged work days on a job is
+// shown in its "What Was Done" summary as a break (typically waiting on parts,
+// the vessel, or the customer). Ordinary weekends are at most 3-4 days.
+const JOB_SUMMARY_BREAK_DAYS = 7
+
+type WorkNote = { date: string; text: string }
+
+// Splits a job's dated notes (already sorted by date) into work periods,
+// starting a new period wherever the next logged day is JOB_SUMMARY_BREAK_DAYS
+// or more after the previous one. gapDays on each period after the first is the
+// number of days since the previous period's last logged day.
+function groupWorkPeriods(notes: WorkNote[]): { notes: WorkNote[]; gapDays: number }[] {
+  const dayNum = (ymd: string) => Math.round(Date.parse(ymd + 'T12:00:00Z') / 86400000)
+  const periods: { notes: WorkNote[]; gapDays: number }[] = []
+  for (const n of notes) {
+    const last = periods[periods.length - 1]
+    const gap = last ? dayNum(n.date) - dayNum(last.notes[last.notes.length - 1].date) : 0
+    if (!last || gap >= JOB_SUMMARY_BREAK_DAYS) periods.push({ notes: [n], gapDays: gap })
+    else last.notes.push(n)
+  }
+  return periods
+}
+
+// Days with nothing logged between two work days (Sep 17 -> Sep 28 is 10).
+function describeGap(gapDays: number): string {
+  const idle = gapDays - 1
+  if (idle < 14) return `${idle} days`
+  if (idle < 60) return `about ${Math.round(idle / 7)} weeks`
+  return `about ${Math.round(idle / 30)} months`
+}
+
+// Joins the per-period paragraphs with a "⏸ Break" line between each pair.
+// Job Reports renders any paragraph starting with ⏸ as a muted break marker.
+function assembleJobSummary(periodTexts: string[], gapDays: number[], breakReasons: (string | null)[]): string {
+  const parts: string[] = []
+  periodTexts.forEach((text, i) => {
+    if (i > 0) {
+      const reason = (breakReasons[i - 1] || '').trim().replace(/\.$/, '')
+      parts.push(`⏸ Break — no work logged for ${describeGap(gapDays[i])}${reason ? ` (${reason})` : ''}.`)
+    }
+    parts.push(text.trim())
+  })
+  return parts.join('\n\n')
+}
+
 // Condenses a job's raw timesheet-entry descriptions (which repeat themselves
 // constantly — "clean liners" logged by three different people across three
-// days) into a deduplicated bullet list for the Job Reports "What Was Done"
-// summary. Dates are given to Claude for its own ordering/context only — the
-// instruction is explicit that the OUTPUT must not include dates or names,
-// since the report already shows those separately.
-async function summarizeJobWork(descriptions: { date: string; text: string }[]): Promise<string> {
+// days) into prose for the Job Reports "What Was Done" summary, strictly in the
+// order the work was done. The notes are split into work periods at any gap of
+// JOB_SUMMARY_BREAK_DAYS+ days; Claude writes one paragraph per period and, only
+// if the notes say so, why work stopped. The break lines themselves are added
+// here, not by Claude, so they can't be dropped or reordered. Dates are given
+// to Claude for ordering only — the output has no dates or names, since the
+// report shows those separately.
+async function summarizeJobWork(descriptions: WorkNote[]): Promise<string> {
+  const periods = groupWorkPeriods(descriptions)
+
   const system = `You summarize marine engineering shop work logs for an internal job report.
 
-You'll be given a list of dated, raw text entries — informal notes texted in by different crew members about work done on one job, in chronological order. Multiple entries often describe the same ongoing task (e.g. "clean liners" logged three separate times as different people worked on it).
+You'll be given raw text entries — informal notes texted in by different crew members about work done on one job — grouped into numbered work PERIODS. Periods are separated by breaks of a week or more when no work was logged. Everything is in date order.
 
-Write one or two short paragraphs of flowing prose describing the work performed on this job, in the voice of a professional technician writing a job report — factual, technical, matter-of-fact, no fluff or marketing language. Merge duplicate/overlapping entries so each distinct task is described once, in the rough order the work progressed. Do NOT include dates, times, or who did the work — just what was done, written as continuous prose (not a bullet list, not a numbered list). Do not add commentary, headers, or a preamble — return only the paragraph(s) themselves.`
+For each period, write one short paragraph of flowing prose (two if the period is very long) describing the work performed, in the voice of a professional technician writing a job report — factual, technical, matter-of-fact, no fluff or marketing language.
 
-  const userContent = descriptions.map(d => `[${d.date}] ${d.text}`).join('\n')
+Ordering is the most important rule: describe the work STRICTLY in the chronological order it was logged. Never move something done later to earlier in the text. Merge entries that describe the same task on the same day or consecutive days (e.g. "clean liners" logged by three people), but if a task comes up again later (e.g. a head gasket leak found again after reassembly), describe it again at the point it happened.
+
+Do NOT include dates, times, or who did the work — just what was done, as continuous prose (not a bullet or numbered list). No commentary, headers, or preamble.
+
+For each break between periods, give a short reason ONLY if the notes around it actually state or clearly show why work stopped (e.g. waiting for parts, waiting for the vessel's tanks to be filled, parts shipped out). Otherwise use null — never guess.
+
+Return ONLY JSON in this exact shape, with exactly one "periods" item per period and one "break_reasons" item per break:
+{"periods": ["paragraph for period 1", "paragraph for period 2"], "break_reasons": ["short reason or null"]}`
+
+  const userContent = periods.map((p, i) =>
+    (i > 0 ? `--- BREAK ${i}: no work logged for ${p.gapDays} days ---\n` : '') +
+    `PERIOD ${i + 1}:\n` + p.notes.map(d => `[${d.date}] ${d.text}`).join('\n')
+  ).join('\n\n')
 
   const payload = JSON.stringify({
     model: 'claude-haiku-4-5-20251001',
-    max_tokens: 1024,
+    max_tokens: 3000,
     system,
     messages: [{ role: 'user', content: userContent }]
   })
@@ -886,7 +948,15 @@ Write one or two short paragraphs of flowing prose describing the work performed
   const data = await res.json()
   const text = (data.content?.[0]?.text || '').trim()
   if (!text) throw new Error('Empty response from Claude')
-  return text
+  const jsonMatch = text.match(/\{[\s\S]*\}/)
+  let parsed: any = null
+  try { parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : null } catch { /* handled below */ }
+  const periodTexts: string[] = Array.isArray(parsed?.periods) ? parsed.periods.map((t: any) => String(t || '')) : []
+  if (periodTexts.length !== periods.length || periodTexts.some(t => !t.trim())) {
+    throw new Error('Summary came back in an unexpected shape — click Refresh summary to try again')
+  }
+  const breakReasons: (string | null)[] = Array.isArray(parsed.break_reasons) ? parsed.break_reasons : []
+  return assembleJobSummary(periodTexts, periods.map(p => p.gapDays), breakReasons.map(r => (typeof r === 'string' ? r : null)))
 }
 
 // ── Main handler ──────────────────────────────────────────────────────────────
