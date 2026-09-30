@@ -7,6 +7,7 @@ import { getAdminName } from './PasswordGate'
 import JobPicker from '../employee/JobPicker'
 import PersonPicker from './PersonPicker'
 import { looksLikeSameSupply } from '../utils/supplyMatch'
+import { fetchAll } from '../utils/fetchAll'
 
 const publicUrl = (path) => supabase.storage.from('gear-photos').getPublicUrl(path).data.publicUrl
 
@@ -82,22 +83,22 @@ export default function GearPhotos() {
     // A deep link to a specific (possibly old) photo always needs its target
     // to actually be in range, so it opts out of the recent-days bound.
     const unbounded = showAllTime || !!highlightPhotoId
-    let photosQuery = supabase.schema('Cores').from('gear_photos').select('*').order('created_at', { ascending: false })
-    if (!unbounded) {
+    const photosQuery = () => {
+      const q = supabase.schema('Cores').from('gear_photos').select('*').order('created_at', { ascending: false })
       // Anything still needing a ship/job stays in no matter how old — that
       // list is the office's triage queue, and an unresolved photo quietly
       // aging out of it would cost more than the bytes it saves.
-      photosQuery = photosQuery.or(`created_at.gte.${recentCutoffYMD()},pending_context.eq.true`)
+      return unbounded ? q : q.or(`created_at.gte.${recentCutoffYMD()},pending_context.eq.true`)
     }
     const [{ data: p }, { data: j }, { data: emps }, { data: logged }, { data: entries }, { data: pending }] = await Promise.all([
-      photosQuery,
+      fetchAll(photosQuery),
       // Include closed jobs: a photo can legitimately be tagged to a job that's
       // since closed, and excluding them silently nulled out job_id (photo vanished
       // from every report with no error).
       supabase.schema('Cores').from('jobs').select('id, job_number, description, status, vessels(name)'),
       supabase.schema('Cores').from('employees').select('id, name'),
-      supabase.schema('Cores').from('job_supplies').select('id, source_photo_id, supply_name, quantity, applied_at, applied_by, billed_at').not('source_photo_id', 'is', null),
-      supabase.schema('Cores').from('timesheet_entries').select('employee_id, work_date'),
+      fetchAll(() => supabase.schema('Cores').from('job_supplies').select('id, source_photo_id, supply_name, quantity, applied_at, applied_by, billed_at').not('source_photo_id', 'is', null)),
+      fetchAll(() => supabase.schema('Cores').from('timesheet_entries').select('employee_id, work_date')),
       supabase.schema('Cores').from('sms_submissions').select('employee_id, work_date').in('status', ['submitted', 'collecting']),
     ])
     setPhotos(p || [])
