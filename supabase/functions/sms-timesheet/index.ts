@@ -882,7 +882,8 @@ function assembleJobSummary(periodTexts: string[], gapDays: number[], breakReaso
   const parts: string[] = []
   periodTexts.forEach((text, i) => {
     if (i > 0) {
-      const reason = (breakReasons[i - 1] || '').trim().replace(/\.$/, '')
+      const raw = (breakReasons[i - 1] || '').trim().replace(/\.$/, '')
+      const reason = raw.charAt(0).toLowerCase() + raw.slice(1)
       parts.push(`⏸ Break — no work logged for ${describeGap(gapDays[i])}${reason ? ` (${reason})` : ''}.`)
     }
     parts.push(text.trim())
@@ -906,16 +907,17 @@ async function summarizeJobWork(descriptions: WorkNote[]): Promise<string> {
 
 You'll be given raw text entries — informal notes texted in by different crew members about work done on one job — grouped into numbered work PERIODS. Periods are separated by breaks of a week or more when no work was logged. Everything is in date order.
 
-For each period, write one short paragraph of flowing prose (two if the period is very long) describing the work performed, in the voice of a professional technician writing a job report — factual, technical, matter-of-fact, no fluff or marketing language.
+For each period, write flowing prose describing the work performed, in the voice of a professional technician writing a job report — factual, technical, matter-of-fact, no fluff or marketing language. A short period is one paragraph. A long period should be split into several short paragraphs (separated by a blank line), starting a new one when the focus changes (e.g. moving on to a different engine block, or from shop work to work on the vessel) or roughly every week of work — never one wall of text.
+
+Stick strictly to what the notes say. Do not add units, measurements, part names, or conclusions that aren't in the notes, and don't generalize (if only engine A was worked on, don't say "all blocks").
 
 Ordering is the most important rule: describe the work STRICTLY in the chronological order it was logged. Never move something done later to earlier in the text. Merge entries that describe the same task on the same day or consecutive days (e.g. "clean liners" logged by three people), but if a task comes up again later (e.g. a head gasket leak found again after reassembly), describe it again at the point it happened.
 
-Do NOT include dates, times, or who did the work — just what was done, as continuous prose (not a bullet or numbered list). No commentary, headers, or preamble.
+Do NOT include dates, times, or anyone's name (crew, office staff, or customer contacts) — just what was done, as continuous prose (not a bullet or numbered list). No commentary, headers, or preamble.
 
 For each break between periods, give a short reason ONLY if the notes around it actually state or clearly show why work stopped (e.g. waiting for parts, waiting for the vessel's tanks to be filled, parts shipped out). Otherwise use null — never guess.
 
-Return ONLY JSON in this exact shape, with exactly one "periods" item per period and one "break_reasons" item per break:
-{"periods": ["paragraph for period 1", "paragraph for period 2"], "break_reasons": ["short reason or null"]}`
+Answer by calling the job_summary tool, with exactly one "periods" item per period and one "break_reasons" item per break.`
 
   const userContent = periods.map((p, i) =>
     (i > 0 ? `--- BREAK ${i}: no work logged for ${p.gapDays} days ---\n` : '') +
@@ -926,7 +928,22 @@ Return ONLY JSON in this exact shape, with exactly one "periods" item per period
     model: 'claude-haiku-4-5-20251001',
     max_tokens: 3000,
     system,
-    messages: [{ role: 'user', content: userContent }]
+    messages: [{ role: 'user', content: userContent }],
+    // Forced tool call so the reply is always well-formed JSON — free-text JSON
+    // broke on the quotes and line breaks crew notes are full of.
+    tools: [{
+      name: 'job_summary',
+      description: 'Return the job summary, one paragraph per work period.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          periods: { type: 'array', items: { type: 'string' }, description: `Exactly ${periods.length} item(s), one per period, in order. Each item may contain several paragraphs separated by a blank line.` },
+          break_reasons: { type: 'array', items: { type: ['string', 'null'] }, description: `Exactly ${periods.length - 1} item(s): a short reason for each break if the notes state one, else null.` },
+        },
+        required: ['periods', 'break_reasons'],
+      },
+    }],
+    tool_choice: { type: 'tool', name: 'job_summary' },
   })
   const headers = {
     'x-api-key': Deno.env.get('ANTHROPIC_API_KEY')!,
@@ -946,13 +963,11 @@ Return ONLY JSON in this exact shape, with exactly one "periods" item per period
   }
 
   const data = await res.json()
-  const text = (data.content?.[0]?.text || '').trim()
-  if (!text) throw new Error('Empty response from Claude')
-  const jsonMatch = text.match(/\{[\s\S]*\}/)
-  let parsed: any = null
-  try { parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : null } catch { /* handled below */ }
+  const parsed = (data.content || []).find((c: any) => c.type === 'tool_use')?.input
   const periodTexts: string[] = Array.isArray(parsed?.periods) ? parsed.periods.map((t: any) => String(t || '')) : []
   if (periodTexts.length !== periods.length || periodTexts.some(t => !t.trim())) {
+    console.error('summarizeJobWork: expected', periods.length, 'periods, got', periodTexts.length,
+      'stop_reason:', data.stop_reason, JSON.stringify(data.content || []).slice(0, 500))
     throw new Error('Summary came back in an unexpected shape — click Refresh summary to try again')
   }
   const breakReasons: (string | null)[] = Array.isArray(parsed.break_reasons) ? parsed.break_reasons : []
