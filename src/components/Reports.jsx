@@ -53,8 +53,12 @@ export default function Reports() {
   const [gearPhotos, setGearPhotos] = useState([])
   const [photoGroup, setPhotoGroup] = useState(null)
   const [photoLightbox, setPhotoLightbox] = useState(null)
+  // 'job' | 'range' | false — which summary button is busy
   const [summarizing, setSummarizing] = useState(false)
   const [summarizeError, setSummarizeError] = useState('')
+  // Date-range summary for the job being viewed: { jobId, from, to, text }.
+  // Generated on demand and never saved, so it can't overwrite the whole-job one.
+  const [rangeSummary, setRangeSummary] = useState(null)
 
   // Navigation
   const [activeTab, setActiveTab] = useState('jobs')
@@ -342,7 +346,7 @@ export default function Reports() {
   // called on demand rather than automatically so opening a job's report never
   // surprises with an API-call delay unless the summary is actually missing/stale.
   async function summarizeJob(jobId) {
-    setSummarizing(true); setSummarizeError('')
+    setSummarizing('job'); setSummarizeError('')
     try {
       const res = await fetch(FUNCTION_URL, {
         method: 'POST',
@@ -353,6 +357,25 @@ export default function Reports() {
       if (!data.ok) { setSummarizeError(data.error || 'Summarize failed'); return }
       setJobs(prev => prev.map(j => j.id === jobId ? { ...j, work_summary: data.summary, work_summary_entry_count: data.entry_count } : j))
       if (selectedJob?.id === jobId) setSelectedJob(j => ({ ...j, work_summary: data.summary, work_summary_entry_count: data.entry_count }))
+    } catch (e) {
+      setSummarizeError(e.message)
+    } finally {
+      setSummarizing(false)
+    }
+  }
+
+  // Summary of only the entries inside the page's date filter — shown, not saved.
+  async function summarizeJobRange(jobId, from, to) {
+    setSummarizing('range'); setSummarizeError('')
+    try {
+      const res = await fetch(FUNCTION_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ANON_KEY}` },
+        body: JSON.stringify({ action: 'summarize_job', job_id: jobId, date_from: from || undefined, date_to: to || undefined }),
+      })
+      const data = await res.json()
+      if (!data.ok) { setSummarizeError(data.error || 'Summarize failed'); return }
+      setRangeSummary({ jobId, from, to, text: data.summary })
     } catch (e) {
       setSummarizeError(e.message)
     } finally {
@@ -640,36 +663,70 @@ export default function Reports() {
           // Normalize whatever line-break style Claude used: blank lines separate
           // paragraphs, any single newline within a paragraph collapses to a space
           // (prose shouldn't have hard breaks mid-paragraph).
-          const summaryParagraphs = (job.work_summary || '')
+          const toParagraphs = (text) => (text || '')
             .split(/\n\s*\n/)
             .map(p => p.replace(/\s+/g, ' ').trim())
             .filter(Boolean)
+          // Paragraphs starting with ⏸ are break markers the summarizer adds
+          // between work periods separated by a week or more.
+          const renderParagraphs = (paras) => paras.map((p, i) => p.startsWith('⏸') ? (
+            <p key={i} style={{ margin: '0.75rem 0 0', fontSize: '0.85rem', fontStyle: 'italic', color: '#888', borderLeft: '3px solid #ddd', paddingLeft: '0.6rem' }}>{p}</p>
+          ) : (
+            <p key={i} style={{ margin: i === 0 ? '0 0 0.75rem' : '0.75rem 0 0', lineHeight: 1.6, color: '#333' }}>{p}</p>
+          ))
+          const summaryParagraphs = toParagraphs(job.work_summary)
+
+          // Date-range summary: only offered when the page is filtered to some dates
+          // and this job has entries in them. Shown only while the filter still
+          // matches the dates it was generated for.
+          const rangeActive = Boolean(dateFrom || dateTo)
+          const rangeEntryCount = rangeActive ? entries.filter(e => e.job_id === job.id
+            && (!dateFrom || e.work_date >= dateFrom) && (!dateTo || e.work_date <= dateTo)).length : 0
+          const fmtDay = (ymd) => new Date(ymd + 'T12:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+          const rangeText = dateFrom && dateTo ? `${fmtDay(dateFrom)} – ${fmtDay(dateTo)}`
+            : dateFrom ? `from ${fmtDay(dateFrom)}` : dateTo ? `up to ${fmtDay(dateTo)}` : ''
+          const shownRange = rangeSummary && rangeSummary.jobId === job.id
+            && rangeSummary.from === dateFrom && rangeSummary.to === dateTo ? rangeSummary : null
+          const btn = (busy) => ({ padding: '0.3rem 0.7rem', border: '1px solid #ccc', borderRadius: 4, background: '#fff', cursor: busy ? 'default' : 'pointer', fontSize: '0.8rem', color: '#555' })
           return (
             <>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', gap: '0.5rem', flexWrap: 'wrap' }}>
                 <h4 style={{ color: '#555', margin: 0 }}>What Was Done</h4>
-                {jobTotalEntryCount > 0 && (
-                  <button onClick={() => summarizeJob(job.id)} disabled={summarizing}
-                    style={{ padding: '0.3rem 0.7rem', border: '1px solid #ccc', borderRadius: 4, background: '#fff', cursor: summarizing ? 'default' : 'pointer', fontSize: '0.8rem', color: '#555' }}>
-                    {summarizing ? 'Summarizing…' : summaryParagraphs.length > 0 ? '🔄 Refresh summary' : '✨ Generate summary'}
-                  </button>
-                )}
+                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  {rangeActive && rangeEntryCount > 0 && (
+                    <button onClick={() => summarizeJobRange(job.id, dateFrom, dateTo)} disabled={!!summarizing} style={btn(summarizing)}>
+                      {summarizing === 'range' ? 'Summarizing…' : `📅 Summarize ${rangeText} only`}
+                    </button>
+                  )}
+                  {jobTotalEntryCount > 0 && (
+                    <button onClick={() => summarizeJob(job.id)} disabled={!!summarizing} style={btn(summarizing)}>
+                      {summarizing === 'job' ? 'Summarizing…' : summaryParagraphs.length > 0
+                        ? (rangeActive ? '🔄 Refresh whole-job summary' : '🔄 Refresh summary')
+                        : '✨ Generate summary'}
+                    </button>
+                  )}
+                </div>
               </div>
               {summarizeError && <div style={{ color: '#c00', fontSize: '0.85rem', marginBottom: '0.5rem' }}>{summarizeError}</div>}
+              {shownRange && (
+                <div style={{ ...card, margin: '0 0 1rem', borderLeft: '4px solid #4a7fd4' }}>
+                  <div style={{ fontSize: '0.78rem', color: '#4a7fd4', fontWeight: 600, marginBottom: '0.75rem' }}>
+                    📅 {rangeText} only — work outside these dates is left out
+                  </div>
+                  {renderParagraphs(toParagraphs(shownRange.text))}
+                </div>
+              )}
               {summaryParagraphs.length > 0 ? (
                 <div style={{ ...card, margin: '0 0 2rem' }}>
+                  {rangeActive && (
+                    <div style={{ fontSize: '0.78rem', color: '#888', fontWeight: 600, marginBottom: '0.75rem' }}>Whole job — all dates</div>
+                  )}
                   {isStale && (
                     <div style={{ fontSize: '0.78rem', color: '#a06b00', marginBottom: '0.75rem' }}>
                       ⚠️ New work logged since this summary — click Refresh to update.
                     </div>
                   )}
-                  {/* Paragraphs starting with ⏸ are break markers the summarizer adds
-                      between work periods separated by a week or more. */}
-                  {summaryParagraphs.map((p, i) => p.startsWith('⏸') ? (
-                    <p key={i} style={{ margin: '0.75rem 0 0', fontSize: '0.85rem', fontStyle: 'italic', color: '#888', borderLeft: '3px solid #ddd', paddingLeft: '0.6rem' }}>{p}</p>
-                  ) : (
-                    <p key={i} style={{ margin: i === 0 ? '0 0 0.75rem' : '0.75rem 0 0', lineHeight: 1.6, color: '#333' }}>{p}</p>
-                  ))}
+                  {renderParagraphs(summaryParagraphs)}
                 </div>
               ) : (
                 <div style={{ color: '#999', fontSize: '0.9rem', marginBottom: '2rem' }}>

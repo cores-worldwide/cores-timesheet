@@ -1150,22 +1150,35 @@ Deno.serve(async (req: Request) => {
 
       // App-triggered action — Job Reports' "What Was Done" section asks for a
       // fresh Claude-condensed summary of a job's timesheet_entries descriptions.
-      // Caches the result on the job row (work_summary + the entry count it was
-      // generated from) so the caller can skip regenerating when nothing's
-      // changed; this action always generates fresh when called.
+      // Whole-job summaries are cached on the job row (work_summary + the entry
+      // count it was generated from) so the caller can skip regenerating when
+      // nothing's changed; this action always generates fresh when called.
+      // With date_from and/or date_to (YYYY-MM-DD, inclusive) it summarizes only
+      // that range and returns it WITHOUT saving — a range summary must never
+      // overwrite the whole-job one.
       if (json.action === 'summarize_job') {
-        const { data: entryRows, error: entriesError } = await supabase
+        const isYmd = (v: any) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v)
+        const dateFrom = isYmd(json.date_from) ? json.date_from : null
+        const dateTo = isYmd(json.date_to) ? json.date_to : null
+        if ((json.date_from && !dateFrom) || (json.date_to && !dateTo)) {
+          return jsonReply({ ok: false, error: 'Invalid date range' })
+        }
+        let entriesQuery = supabase
           .from('timesheet_entries')
           .select('work_date, description')
           .eq('job_id', json.job_id)
-          .order('work_date', { ascending: true })
+        if (dateFrom) entriesQuery = entriesQuery.gte('work_date', dateFrom)
+        if (dateTo) entriesQuery = entriesQuery.lte('work_date', dateTo)
+        const { data: entryRows, error: entriesError } = await entriesQuery.order('work_date', { ascending: true })
         if (entriesError) return jsonReply({ ok: false, error: entriesError.message })
 
         const descriptions = (entryRows || [])
           .filter((e: any) => e.description?.trim())
           .map((e: any) => ({ date: String(e.work_date).substring(0, 10), text: e.description.trim() }))
         if (descriptions.length === 0) {
-          return jsonReply({ ok: false, error: 'No work descriptions logged for this job yet' })
+          return jsonReply({ ok: false, error: dateFrom || dateTo
+            ? 'No work descriptions logged for this job in the selected dates'
+            : 'No work descriptions logged for this job yet' })
         }
 
         let summary: string
@@ -1173,6 +1186,10 @@ Deno.serve(async (req: Request) => {
           summary = await summarizeJobWork(descriptions)
         } catch (err: any) {
           return jsonReply({ ok: false, error: err.message })
+        }
+
+        if (dateFrom || dateTo) {
+          return jsonReply({ ok: true, summary, entry_count: entryRows.length, date_from: dateFrom, date_to: dateTo })
         }
 
         const { error: updateError } = await supabase
