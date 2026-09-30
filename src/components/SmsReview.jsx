@@ -9,6 +9,7 @@ import PersonPicker from './PersonPicker'
 import { getAdminName } from './PasswordGate'
 import MediaThumb from './MediaThumb'
 import MediaViewer from './MediaViewer'
+import { fetchAll } from '../utils/fetchAll'
 
 // Rounds a minute delta to the nearest quarter hour, as hours (e.g. -150 -> -2.5)
 const deltaMinsToHours = (mins) => Math.round(mins / 15) / 4
@@ -89,12 +90,12 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
     if (!silent) setLoading(true)
     const ninetyDaysAgo = new Date(); ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90)
     const [{ data: subs }, { data: j }, { data: emps }, { data: photos }, { data: approvedDays }, { data: applied }] = await Promise.all([
-      supabase.schema('Cores').from('sms_submissions').select('*').order('updated_at', { ascending: false }),
+      fetchAll(() => supabase.schema('Cores').from('sms_submissions').select('*').order('updated_at', { ascending: false })),
       supabase.schema('Cores').from('jobs').select('id, job_number, description').eq('status', 'open'),
       supabase.schema('Cores').from('employees').select('id, name, active'),
-      supabase.schema('Cores').from('gear_photos').select('id, job_id, storage_path, thumb_path, employee_id, work_date, created_at').not('job_id', 'is', null),
-      supabase.schema('Cores').from('timesheet_entries').select('employee_id, work_date').gte('work_date', ninetyDaysAgo.toISOString().slice(0, 10)),
-      supabase.schema('Cores').from('job_supplies').select('id, employee_id, work_date, supply_name, quantity, job_id, billed_at, source_photo_id, jobs(job_number)').not('applied_at', 'is', null).is('sms_submission_id', null).gte('work_date', ninetyDaysAgo.toISOString().slice(0, 10)),
+      fetchAll(() => supabase.schema('Cores').from('gear_photos').select('id, job_id, storage_path, thumb_path, employee_id, work_date, created_at').not('job_id', 'is', null)),
+      fetchAll(() => supabase.schema('Cores').from('timesheet_entries').select('employee_id, work_date').gte('work_date', ninetyDaysAgo.toISOString().slice(0, 10))),
+      fetchAll(() => supabase.schema('Cores').from('job_supplies').select('id, employee_id, work_date, supply_name, quantity, job_id, billed_at, source_photo_id, jobs(job_number)').not('applied_at', 'is', null).is('sms_submission_id', null).gte('work_date', ninetyDaysAgo.toISOString().slice(0, 10))),
     ])
     setSubmissions(subs || [])
     setJobs(j || [])

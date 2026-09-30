@@ -7,6 +7,7 @@ import { fmtHours } from '../utils/format'
 import MediaThumb from './MediaThumb'
 import MediaViewer, { DownloadButton } from './MediaViewer'
 import { getAdminName } from './PasswordGate'
+import { fetchAll } from '../utils/fetchAll'
 
 const card = { padding: '1.25rem', background: '#fff', borderRadius: '6px', border: '1px solid #e0e0e0', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }
 const badge = (s) => ({ padding: '0.2rem 0.6rem', borderRadius: '12px', fontSize: '0.8rem', fontWeight: 600, background: s === 'open' ? '#e6f4ea' : '#f0f0f0', color: s === 'open' ? '#2d6a38' : '#666' })
@@ -162,15 +163,15 @@ export default function Reports() {
       supabase.schema('Cores').from('customers').select('*').order('name'),
       supabase.schema('Cores').from('vessels').select('*').order('name'),
       supabase.schema('Cores').from('employees').select('*').order('name'),
-      supabase.schema('Cores').from('timesheet_entries').select('*, employees(id, name), jobs(id, job_number, description, status, customers(name), vessels(name))').order('work_date', { ascending: false }),
+      fetchAll(() => supabase.schema('Cores').from('timesheet_entries').select('*, employees(id, name), jobs(id, job_number, description, status, customers(name), vessels(name))').order('work_date', { ascending: false })),
       supabase.schema('Cores').from('payroll_config').select('key, value'),
       supabase.schema('Cores').from('stat_holidays').select('holiday_date'),
       // Excludes still-drafting GearPhotos supply lines (applied_at null) —
       // they're not real until she taps Apply to Timesheet on that photo.
-      supabase.schema('Cores').from('job_supplies').select('*, employees(id, name)').not('applied_at', 'is', null).order('work_date', { ascending: false }),
-      supabase.schema('Cores').from('gear_photos').select('id, job_id, storage_path, thumb_path, employee_id, work_date, created_at').not('job_id', 'is', null),
+      fetchAll(() => supabase.schema('Cores').from('job_supplies').select('*, employees(id, name)').not('applied_at', 'is', null).order('work_date', { ascending: false })),
+      fetchAll(() => supabase.schema('Cores').from('gear_photos').select('id, job_id, storage_path, thumb_path, employee_id, work_date, created_at').not('job_id', 'is', null)),
       supabase.schema('Cores').from('sms_submissions').select('id', { count: 'exact', head: true }).in('status', ['submitted', 'collecting']),
-      supabase.schema('Cores').from('daily_summary_posted').select('employee_id, work_date, posted_at, posted_by'),
+      fetchAll(() => supabase.schema('Cores').from('daily_summary_posted').select('employee_id, work_date, posted_at, posted_by')),
     ])
     setJobs(jobsRes.data || [])
     setCustomers(custRes.data || [])

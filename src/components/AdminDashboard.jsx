@@ -17,6 +17,7 @@ import { fmtHours } from '../utils/format'
 import { generateWeeklyCompilationPDF, fmtShortDate, fmtHeaderDate, dayName, isWeekend } from '../utils/weeklyCompilationPdf'
 import { generateSageSyncPDF } from '../utils/sageSyncPdf'
 import { generateSageSyncIMP } from '../utils/sageSyncImp'
+import { fetchAll } from '../utils/fetchAll'
 
 const gearPhotoUrl = (path) => supabase.storage.from('gear-photos').getPublicUrl(path).data.publicUrl
 // Tracy gets a confetti celebration when her own timesheet is saved here —
@@ -188,9 +189,9 @@ export default function AdminDashboard() {
     supabase.schema('Cores').from('stat_holidays').select('holiday_date').then(({ data }) => setStatHolidays(new Set((data || []).map(r => r.holiday_date))))
     supabase.schema('Cores').from('jobs').select('*, vessels(name)').order('job_number').then(({ data }) => setJobs(data || []))
     // Excludes still-drafting GearPhotos supply lines (applied_at null) — not real until Applied.
-    supabase.schema('Cores').from('job_supplies').select('*, employees(id, name)').not('applied_at', 'is', null).order('work_date', { ascending: false }).then(({ data }) => setSupplies(data || []))
-    supabase.schema('Cores').from('gear_photos').select('*').then(({ data }) => setGearPhotos(data || []))
-    supabase.schema('Cores').from('daily_summary_posted').select('employee_id, work_date, posted_at, posted_by').then(({ data }) => setPostedDays(Object.fromEntries((data || []).map(r => [`${r.employee_id}|${r.work_date}`, { posted_at: r.posted_at, posted_by: r.posted_by }]))))
+    fetchAll(() => supabase.schema('Cores').from('job_supplies').select('*, employees(id, name)').not('applied_at', 'is', null).order('work_date', { ascending: false })).then(({ data }) => setSupplies(data || []))
+    fetchAll(() => supabase.schema('Cores').from('gear_photos').select('*')).then(({ data }) => setGearPhotos(data || []))
+    fetchAll(() => supabase.schema('Cores').from('daily_summary_posted').select('employee_id, work_date, posted_at, posted_by')).then(({ data }) => setPostedDays(Object.fromEntries((data || []).map(r => [`${r.employee_id}|${r.work_date}`, { posted_at: r.posted_at, posted_by: r.posted_by }]))))
   }, [])
 
   // Auto-refresh so one admin's edit (e.g. Niki zeroing out a per diem) shows up
@@ -222,10 +223,10 @@ export default function AdminDashboard() {
   // transient network hiccup the admin never asked to see.
   async function loadTimesheets({ silent = false } = {}) {
     if (!silent) setLoadingEntries(true)
-    const { data, error } = await supabase
+    const { data, error } = await fetchAll(() => supabase
       .schema('Cores').from('timesheet_entries')
       .select('*, employees(id, name), jobs(id, job_number, jobnum_pref, description, customers(name), vessels(name))')
-      .order('work_date', { ascending: false })
+      .order('work_date', { ascending: false }))
     if (error) {
       if (!silent) alert(`Failed to load timesheets: ${error.message}`)
       else console.error('Background refresh failed:', error.message)
