@@ -378,11 +378,13 @@ Known items:
 ${list}
 
 Rules:
+- If the photo is a receipt, invoice, packing slip, measurement sheet or any other document or screen, report nothing at all (both lists empty) — items printed on paper were not used on the job.
 - Only report an item when you can actually read its product name or part number in the photo (or, for a can, clearly recognise that exact product). Never guess from colour or brand alone. If unsure, report nothing.
 - Pads look alike across grits, so a pad counts only when its shelf/bin label part number is readable.
-- Quantity: if the caption states a number (e.g. "qt1", "x2", "2 cans", "1 pc", "1x"), use it. Otherwise count separate cans of that item visible in the photo. For a shelf-label photo with no number in the caption, use 1.
-- Separately, under other_consumables, list any OTHER shop consumable the photo clearly shows that is not a known item — things used up on a job such as rags, tape, silicone, sealant, sanding discs, abrasives, cable ties, lubricants, paint. Name it the way it would appear on a supply list, from what you can read (product name, size, grit, part number), e.g. "Roloc disc 2in 36 grit (N123456)". Same quantity rules. Leave it empty when unsure.
-- Never report tools, machinery, engine parts, measurement sheets, receipts or paperwork as supplies.
+- Shelf photos often show several bins and labels. Report only the one the tech meant: the label whose part number or name matches the caption (e.g. caption "#7485" -> label 07485); if the caption names none, only the label directly on the stock the photo is centred on. Never report neighbouring bins. If you can't tell which one was meant, report nothing.
+- Quantity: if the caption states a number (e.g. "qt1", "x2", "2 cans", "1 pc", "1x", "3 disks"), use it. Otherwise count separate cans of that item visible in the photo. For a shelf-label photo with no number in the caption, use 1. Never use the package quantity printed on a label or box ("Pkg Qty 25", "25 per box") — that is the box size, not what was used.
+- Separately, under other_consumables, list any OTHER shop consumable whose product label (bin label, box or can) is visible in the photo and is not a known item. Never build one from the caption's words alone — things used up on a job such as rags, tape, silicone, sealant, sanding discs, abrasives, cable ties, lubricants, paint. Name it the way it would appear on a supply list, from what you can read (product name, size, grit, part number), e.g. "Roloc disc 2in 36 grit (N123456)". Same quantity rules. Leave it empty when unsure.
+- Never report tools, machinery, engine parts, fasteners, measurement sheets, receipts or paperwork as supplies.
 Answer with the report_supplies tool.`
   const payload = JSON.stringify({
     model: 'claude-haiku-4-5-20251001',
@@ -430,9 +432,15 @@ Answer with the report_supplies tool.`
     if (!item || known.some(o => o.item_id === item.id)) continue
     known.push({ item_id: item.id, name: item.name, quantity: qty(f.quantity), evidence: String(f.evidence || '').slice(0, 200) })
   }
+  // Suggested (unlisted) items: the quantity must come from the caption. Only
+  // a small number the tech typed counts ("3 disks", "x2", "qt1") — not a job
+  // or part number, and never the box size printed on a bin label ("Pkg Qty
+  // 25"), which the model kept reading as the quantity. No number -> 1.
+  const captionQty = (caption || '').match(/(?<![#\d/.])\d{1,2}(?![\d/.])/)
+  const suggestedQty = captionQty ? qty(captionQty[0]) : 1
   // A suggestion that is really a known item (the model listed it twice) is dropped.
   const other: SuggestedSupply[] = (input.other_consumables || [])
-    .map((f: any) => ({ supply_name: String(f?.name || '').trim().slice(0, 120), quantity: qty(f?.quantity), evidence: String(f?.evidence || '').slice(0, 200) }))
+    .map((f: any) => ({ supply_name: String(f?.name || '').trim().slice(0, 120), quantity: Math.min(qty(f?.quantity), suggestedQty), evidence: String(f?.evidence || '').slice(0, 200) }))
     .filter((o: SuggestedSupply) => o.supply_name && !known.some(k => looksLikeSameSupply(k.name, o.supply_name)))
     .slice(0, 5)
   return { known, other }
