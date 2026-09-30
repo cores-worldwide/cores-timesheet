@@ -663,7 +663,11 @@ export default function Reports() {
                       ⚠️ New work logged since this summary — click Refresh to update.
                     </div>
                   )}
-                  {summaryParagraphs.map((p, i) => (
+                  {/* Paragraphs starting with ⏸ are break markers the summarizer adds
+                      between work periods separated by a week or more. */}
+                  {summaryParagraphs.map((p, i) => p.startsWith('⏸') ? (
+                    <p key={i} style={{ margin: '0.75rem 0 0', fontSize: '0.85rem', fontStyle: 'italic', color: '#888', borderLeft: '3px solid #ddd', paddingLeft: '0.6rem' }}>{p}</p>
+                  ) : (
                     <p key={i} style={{ margin: i === 0 ? '0 0 0.75rem' : '0.75rem 0 0', lineHeight: 1.6, color: '#333' }}>{p}</p>
                   ))}
                 </div>
