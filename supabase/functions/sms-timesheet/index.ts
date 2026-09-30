@@ -328,6 +328,172 @@ async function savePhotoToStorage(
   }
 }
 
+// ── Automatic supply logging from photos ─────────────────────────────────────
+// Techs photograph the consumable they used (a brake clean can, a Würth Film
+// can, or the shelf label for a scrubby pad) and Tracy used to open every photo
+// and type the supply line by hand. When auto_supply_from_photos is on, a
+// photo with a job is checked against Cores.supply_items and any recognised
+// item goes straight onto the job's supplies, stamped applied_by 'Auto (photo)'
+// so she can see where it came from and remove it on the photo card (Jim,
+// 2026-09-30). It never double-logs: if the same item is already logged for
+// that employee/day/job, or that day's not-yet-approved text already reports
+// it (the usual "brake clean (see photo)"), the photo adds nothing.
+const AUTO_SUPPLY_BY = 'Auto (photo)'
+
+// Same loose match as src/utils/supplyMatch.js — "Brake clean", "brake
+// cleaner", "break clean (see photo)" all count as the same item.
+function looksLikeSameSupply(a: string, b: string): boolean {
+  const norm = (s: string) => (s || '').toLowerCase().replace(/[üù]/g, 'u').replace(/[^a-z0-9]+/g, ' ').trim()
+  const na = norm(a), nb = norm(b)
+  if (!na || !nb) return false
+  // Different part numbers = different items, however alike the words are
+  // ("Scrubby pad N74000" vs "Scrubby pad N85100" are different grits).
+  // A part number has a digit plus a letter (N74000) or 5+ digits; a bare
+  // 4-digit word is a job number ("Job#4685 scrubby pad"), not a part number.
+  const codes = (s: string) => s.split(' ').filter(w => /\d/.test(w) && (/[a-z]/.test(w) || w.length >= 5))
+  const ca = codes(na), cb = codes(nb)
+  if (ca.length && cb.length && !ca.some(c => cb.includes(c))) return false
+  if (na === nb || na.includes(nb) || nb.includes(na)) return true
+  const wordsA = new Set(na.split(' ').filter(w => w.length >= 4))
+  return nb.split(' ').filter(w => w.length >= 4).some(w => wordsA.has(w))
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let bin = ''
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+  return btoa(bin)
+}
+
+type SupplyItem = { id: string; name: string; identify_by: string; part_numbers: string[] }
+type IdentifiedSupply = { item_id: string; name: string; quantity: number; evidence: string }
+
+// Asks Claude which (if any) of the known supply items the photo shows. Only
+// items from the list can come back, and only with the text it actually read.
+async function identifySuppliesInPhoto(imageB64: string, mediaType: string, caption: string | null, items: SupplyItem[]): Promise<IdentifiedSupply[]> {
+  const list = items.map(i => `- id ${i.id}: "${i.name}" — ${i.identify_by}${i.part_numbers.length ? ` Part numbers: ${i.part_numbers.join(', ')}.` : ''}`).join('\n')
+  const system = `You check photos that marine shop technicians text in, to see whether they show one of a short list of shop consumables used on a job.
+
+Known items:
+${list}
+
+Rules:
+- Only report an item when you can actually read its product name or part number in the photo (or, for a can, clearly recognise that exact product). Never guess from colour or brand alone. If unsure, report nothing.
+- Pads look alike across grits, so a pad counts only when its shelf/bin label part number is readable.
+- Quantity: if the caption states a number (e.g. "qt1", "x2", "2 cans", "1 pc", "1x"), use it. Otherwise count separate cans of that item visible in the photo. For a shelf-label photo with no number in the caption, use 1.
+- Anything that isn't one of the known items (tools, parts, engines, paperwork) is not reported.
+Answer with the report_supplies tool.`
+  const payload = JSON.stringify({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 500,
+    system,
+    messages: [{ role: 'user', content: [
+      { type: 'image', source: { type: 'base64', media_type: mediaType, data: imageB64 } },
+      { type: 'text', text: `Caption texted with the photo: ${caption?.trim() ? `"${caption.trim()}"` : '(none)'}` },
+    ] }],
+    tools: [{
+      name: 'report_supplies',
+      description: 'Report which known items the photo shows (empty list if none).',
+      input_schema: {
+        type: 'object',
+        properties: {
+          items: { type: 'array', items: { type: 'object', properties: {
+            item_id: { type: 'string', description: 'id from the known items list' },
+            quantity: { type: 'integer', minimum: 1 },
+            evidence: { type: 'string', description: 'the product name or part number you read' },
+          }, required: ['item_id', 'quantity', 'evidence'] } },
+        },
+        required: ['items'],
+      },
+    }],
+    tool_choice: { type: 'tool', name: 'report_supplies' },
+  })
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'x-api-key': Deno.env.get('ANTHROPIC_API_KEY')!, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+    body: payload,
+  })
+  if (!res.ok) throw new Error(`Claude supply check failed (${res.status}): ${(await res.text().catch(() => '')).slice(0, 200)}`)
+  const data = await res.json()
+  const found = (data.content || []).find((c: any) => c.type === 'tool_use')?.input?.items || []
+  const byId = new Map(items.map(i => [i.id, i]))
+  const out: IdentifiedSupply[] = []
+  for (const f of found) {
+    const item = byId.get(String(f?.item_id))
+    if (!item || out.some(o => o.item_id === item.id)) continue
+    const q = Math.round(Number(f.quantity))
+    out.push({ item_id: item.id, name: item.name, quantity: q >= 1 && q <= 20 ? q : 1, evidence: String(f.evidence || '').slice(0, 200) })
+  }
+  return out
+}
+
+// Checks one saved photo and (unless dryRun) logs what it finds. Runs in the
+// background after the tech's reply has gone out; every failure is logged and
+// swallowed — the photo itself is already safely saved either way.
+async function autoLogSuppliesFromPhoto(
+  supabase: any,
+  photo: { id: string; storage_path: string; employee_id: string | null; work_date: string; job_id: string | null; note: string | null; photo_type: string | null },
+  { dryRun = false }: { dryRun?: boolean } = {},
+): Promise<{ identified: IdentifiedSupply[]; logged: string[]; skipped: string[]; reason?: string }> {
+  const result = { identified: [] as IdentifiedSupply[], logged: [] as string[], skipped: [] as string[] }
+  try {
+    if (!photo.job_id || !photo.employee_id) return { ...result, reason: 'photo has no job or employee' }
+    const ext = (photo.storage_path.split('.').pop() || '').toLowerCase()
+    const mediaType = ext === 'png' ? 'image/png' : ext === 'gif' ? 'image/gif' : ext === 'webp' ? 'image/webp' : (ext === 'jpg' || ext === 'jpeg') ? 'image/jpeg' : null
+    if (!mediaType) return { ...result, reason: 'not an image' }
+    if (photo.photo_type && photo.photo_type !== 'supply') return { ...result, reason: `photo is tagged ${photo.photo_type}` }
+
+    if (!dryRun) {
+      const { data: flag } = await supabase.from('payroll_config').select('value').eq('key', 'auto_supply_from_photos').maybeSingle()
+      if (Number(flag?.value) !== 1) return { ...result, reason: 'auto_supply_from_photos is off' }
+    }
+    const { data: items } = await supabase.from('supply_items').select('id, name, identify_by, part_numbers').eq('active', true)
+    if (!items?.length) return { ...result, reason: 'no active supply items' }
+
+    // Read-only download of the stored original (never modified — photos are evidence).
+    const { data: blob, error: dlError } = await supabase.storage.from('gear-photos').download(photo.storage_path)
+    if (dlError || !blob) return { ...result, reason: `download failed: ${dlError?.message}` }
+    const identified = await identifySuppliesInPhoto(bytesToBase64(new Uint8Array(await blob.arrayBuffer())), mediaType, photo.note, items)
+    result.identified = identified
+    if (dryRun || identified.length === 0) return result
+
+    const { data: jobRow } = await supabase.from('jobs').select('job_number').eq('id', photo.job_id).maybeSingle()
+    const { data: existing } = await supabase.from('job_supplies').select('supply_name')
+      .eq('employee_id', photo.employee_id).eq('work_date', photo.work_date).eq('job_id', photo.job_id).not('applied_at', 'is', null)
+    const { data: openSubs } = await supabase.from('sms_submissions').select('supplies')
+      .eq('employee_id', photo.employee_id).eq('work_date', photo.work_date).in('status', ['collecting', 'submitted'])
+    const textedSupplies = (openSubs || []).flatMap((s: any) => s.supplies || [])
+      .filter((t: any) => !t.job_number || !jobRow?.job_number || String(t.job_number).toUpperCase() === String(jobRow.job_number).toUpperCase())
+
+    const inserts: any[] = []
+    for (const it of identified) {
+      const already = (existing || []).find((r: any) => looksLikeSameSupply(it.name, r.supply_name))
+      const texted = textedSupplies.find((t: any) => looksLikeSameSupply(it.name, t.supply_name || ''))
+      if (already || texted) {
+        result.skipped.push(`${it.name} — already ${already ? `logged as "${already.supply_name}"` : `in today's text as "${texted.supply_name}"`}`)
+        continue
+      }
+      inserts.push({
+        job_id: photo.job_id, employee_id: photo.employee_id, work_date: photo.work_date,
+        supply_name: it.name, quantity: it.quantity, source_photo_id: photo.id,
+        applied_at: new Date().toISOString(), applied_by: AUTO_SUPPLY_BY,
+      })
+    }
+    if (inserts.length > 0) {
+      const { error } = await supabase.from('job_supplies').insert(inserts)
+      if (error) return { ...result, reason: `insert failed: ${error.message}` }
+      result.logged = inserts.map(i => `${i.quantity} × ${i.supply_name}`)
+    }
+    // Tag it as a supply photo either way, so it shows under Supplies in Gear
+    // Photos with its lines (or, when skipped, for her to glance at as before).
+    if (!photo.photo_type) await supabase.from('gear_photos').update({ photo_type: 'supply' }).eq('id', photo.id)
+    console.error(`auto supply ${photo.id}: logged [${result.logged.join('; ')}] skipped [${result.skipped.join('; ')}]`)
+    return result
+  } catch (err: any) {
+    console.error(`auto supply ${photo.id} failed:`, err.message)
+    return { ...result, reason: `error: ${err.message}` }
+  }
+}
+
 function twiML(msg: string): Response {
   const safe = msg.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   return new Response(
@@ -1156,6 +1322,16 @@ Deno.serve(async (req: Request) => {
       // With date_from and/or date_to (YYYY-MM-DD, inclusive) it summarizes only
       // that range and returns it WITHOUT saving — a range summary must never
       // overwrite the whole-job one.
+      // Dry run of the automatic supply check on an already-saved photo —
+      // reports what it would log, writes nothing. Used to test supply_items
+      // against real photos before auto_supply_from_photos is switched on.
+      if (json.action === 'identify_supply_photo') {
+        const { data: photo } = await supabase.from('gear_photos')
+          .select('id, storage_path, employee_id, work_date, job_id, note, photo_type').eq('id', json.photo_id).maybeSingle()
+        if (!photo) return jsonReply({ ok: false, error: 'photo not found' })
+        return jsonReply({ ok: true, ...(await autoLogSuppliesFromPhoto(supabase, { ...photo, photo_type: null }, { dryRun: true })) })
+      }
+
       if (json.action === 'summarize_job') {
         const isYmd = (v: any) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v)
         const dateFrom = isYmd(json.date_from) ? json.date_from : null
@@ -1598,6 +1774,17 @@ Deno.serve(async (req: Request) => {
     const saved = await Promise.all(
       mediaUrls.map(url => savePhotoToStorage(supabase, url, employeeId, fromPhone, today, photoContext, jobId, note, (isLowStockCaption || isSupplyCaption) ? 'supply' : null))
     )
+
+    // Recognise known consumables in the photo and log them to the job — in
+    // the background, so the tech's reply isn't held up by the Claude call.
+    const autoSupplyPhotos = saved.filter(r => r !== null).map(r => ({
+      id: r!.id, storage_path: r!.path, employee_id: employeeId, work_date: today, job_id: jobId,
+      note, photo_type: (isLowStockCaption || isSupplyCaption) ? 'supply' : null,
+    }))
+    if (jobId && employeeId && autoSupplyPhotos.length > 0) {
+      // @ts-ignore — EdgeRuntime is a Supabase/Deno Deploy global for background tasks, not in the standard lib types.
+      EdgeRuntime.waitUntil(Promise.all(autoSupplyPhotos.map(p => autoLogSuppliesFromPhoto(supabase, p))))
+    }
 
     const firstName = (employeeName || '').split(' ')[0] || ''
 

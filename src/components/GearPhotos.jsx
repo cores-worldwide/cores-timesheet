@@ -673,6 +673,12 @@ export default function GearPhotos() {
                               onChange={e => set({ quantity: e.target.value })} style={qtyStyle} />
                             <input value={v.supply_name} placeholder="Description" disabled={busy}
                               onChange={e => set({ supply_name: e.target.value })} style={descStyle} />
+                            {/* Added by the SMS bot from the photo itself (supply_items) — she can
+                                edit or ✕ it like any other line. */}
+                            {row.applied_by === 'Auto (photo)' && (
+                              <span title="Recognised in the photo and added automatically"
+                                style={{ flexShrink: 0, fontSize: '0.68rem', color: '#2e7d32', background: '#e8f5e9', border: '1px solid #c8e6c9', borderRadius: 3, padding: '0.1rem 0.3rem' }}>auto</span>
+                            )}
                             <button type="button" onClick={() => deleteSupplyRow(row)}
                               disabled={busy} title="Remove from this job's supplies"
                               style={{ flexShrink: 0, padding: '0.2rem 0.5rem', border: '1px solid #fcc', background: '#fee', color: '#c0392b', borderRadius: 4, cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}

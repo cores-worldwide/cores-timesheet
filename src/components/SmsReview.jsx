@@ -229,6 +229,11 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
   // ── Approve ───────────────────────────────────────────────────────────────
   async function approve(sub) {
     const entries = sub.entries || []
+    // Texted supplies that match a line the SMS bot already added from a photo
+    // (applied_by 'Auto (photo)'). A photo of one can often means two were used,
+    // so on approve the photo line is raised to the texted quantity instead of a
+    // second line being added (Jim, 2026-09-30).
+    const autoPhotoMatches = new Map() // texted supply object -> existing job_supplies row
     // Day-off requests and auto stat-pay grants have no job/hours/time to
     // validate against a job list — neither of this block applies (see their
     // dedicated branches right after the atomic claim).
@@ -258,14 +263,18 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
         const jobIds = [...new Set(suppliesToApprove.map(s => jobIdFor(s.job_number)).filter(Boolean))]
         if (jobIds.length > 0) {
           const { data: existing } = await supabase.schema('Cores').from('job_supplies')
-            .select('supply_name, job_id, source_photo_id')
+            .select('id, supply_name, quantity, job_id, source_photo_id, applied_by, billed_at')
             .eq('employee_id', sub.employee_id).eq('work_date', sub.work_date).in('job_id', jobIds)
             .not('applied_at', 'is', null)
           const dupes = []
           for (const s of suppliesToApprove) {
             const jobId = jobIdFor(s.job_number)
             const hit = (existing || []).find(r => r.job_id === jobId && looksLikeSameSupply(s.supply_name, r.supply_name))
-            if (hit) dupes.push({ name: s.supply_name, existing: hit.supply_name, source: hit.source_photo_id ? 'a gear photo' : 'another entry' })
+            if (hit && hit.applied_by === 'Auto (photo)' && !hit.billed_at && ![...autoPhotoMatches.values()].includes(hit)) {
+              autoPhotoMatches.set(s, hit)
+            } else if (hit) {
+              dupes.push({ name: s.supply_name, existing: hit.supply_name, source: hit.source_photo_id ? 'a gear photo' : 'another entry' })
+            }
           }
           // Just tell her exactly what's already there and let her decide —
           // she knows whether this is the same item or a second one.
@@ -436,7 +445,16 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
     }
 
     // Supplies go to job_supplies for job cost reporting (no pricing — invoicing adds that)
-    const supplies = (sub.supplies || []).filter(s => s.supply_name?.trim())
+    for (const [s, row] of autoPhotoMatches) {
+      // Larger of the two: a text with no number parses as 1 and mustn't undercut
+      // a photo that clearly shows two cans.
+      const qty = Math.max(Number(s.quantity) > 0 ? Number(s.quantity) : 1, Number(row.quantity) || 0)
+      if (qty !== Number(row.quantity)) {
+        const { error } = await supabase.schema('Cores').from('job_supplies').update({ quantity: qty }).eq('id', row.id)
+        if (error) alert(`Couldn't update the quantity on "${row.supply_name}" from the photo: ${error.message}`)
+      }
+    }
+    const supplies = (sub.supplies || []).filter(s => s.supply_name?.trim() && !autoPhotoMatches.has(s))
     if (supplies.length > 0) {
       const supplyRows = supplies.map(s => ({
         job_id:            jobMap[(s.job_number || '').toUpperCase()] || null,
