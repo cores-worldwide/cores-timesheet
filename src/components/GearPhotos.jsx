@@ -257,7 +257,25 @@ export default function GearPhotos() {
   // like the just-deleted entry never actually left. "+ Add line" already
   // prefills from the note (see the button below), so nothing is lost by
   // requiring that explicit click instead of guessing.
-  const linesForPhoto = (photo) => newLines[photo.id] ?? []
+  //
+  // The one exception is suggested_supplies: consumables the SMS bot read on
+  // the photo that aren't in supply_items (added 2026-09-30). Those are stored
+  // on the photo itself and cleared the moment she saves or removes them, so
+  // they can't come back the way the old note-based default did.
+  const suggestedLinesFor = (photo) => (photo.suggested_supplies || []).map((sg, i) => ({
+    key: `s${i}`, supply_name: sg.supply_name || '', quantity: String(sg.quantity || 1), suggested: true,
+  }))
+  const linesForPhoto = (photo) => newLines[photo.id] ?? suggestedLinesFor(photo)
+
+  // Stores whichever suggestions are still on the card (null once none are left).
+  async function saveRemainingSuggestions(photo, lines) {
+    const remaining = lines.filter(l => l.suggested && l.supply_name.trim())
+      .map(l => ({ supply_name: l.supply_name.trim(), quantity: Number(l.quantity) > 0 ? Number(l.quantity) : 1 }))
+    const value = remaining.length ? remaining : null
+    const { error } = await supabase.schema('Cores').from('gear_photos').update({ suggested_supplies: value }).eq('id', photo.id)
+    if (error) { alert('Error saving: ' + error.message); return }
+    setPhotos(p => p.map(x => x.id === photo.id ? { ...x, suggested_supplies: value } : x))
+  }
 
   // The one write for the whole card: every ticked line ends up on the
   // timesheet, every unticked one doesn't. Unticking an already-applied line
@@ -342,6 +360,9 @@ export default function GearPhotos() {
     const { data: fresh } = await supabase.schema('Cores').from('job_supplies')
       .select('id, source_photo_id, supply_name, quantity, applied_at, applied_by, billed_at')
       .eq('source_photo_id', photo.id)
+    // Whatever was suggested has now been saved or dropped — clear it (before
+    // the card's unsaved lines reset) so it doesn't reappear as an unsaved line.
+    if (photo.suggested_supplies) await saveRemainingSuggestions(photo, [])
     setSuppliesByPhoto(m => ({ ...m, [photo.id]: fresh || [] }))
     setNewLines(d => { const n = { ...d }; delete n[photo.id]; return n })
     setRowEdits(d => {
@@ -673,6 +694,12 @@ export default function GearPhotos() {
                               onChange={e => set({ quantity: e.target.value })} style={qtyStyle} />
                             <input value={v.supply_name} placeholder="Description" disabled={busy}
                               onChange={e => set({ supply_name: e.target.value })} style={descStyle} />
+                            {/* Added by the SMS bot from the photo itself (supply_items) — she can
+                                edit or ✕ it like any other line. */}
+                            {row.applied_by === 'Auto (photo)' && (
+                              <span title="Recognised in the photo and added automatically"
+                                style={{ flexShrink: 0, fontSize: '0.68rem', color: '#2e7d32', background: '#e8f5e9', border: '1px solid #c8e6c9', borderRadius: 3, padding: '0.1rem 0.3rem' }}>auto</span>
+                            )}
                             <button type="button" onClick={() => deleteSupplyRow(row)}
                               disabled={busy} title="Remove from this job's supplies"
                               style={{ flexShrink: 0, padding: '0.2rem 0.5rem', border: '1px solid #fcc', background: '#fee', color: '#c0392b', borderRadius: 4, cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}
@@ -693,7 +720,15 @@ export default function GearPhotos() {
                               auto-filled draft from a caption that isn't a real supply)
                               was untagging the whole photo, wiping every other line on it
                               too. Reported by Jim, 2026-08-28. */}
-                          <button type="button" onClick={() => setLines(lines.filter((_, xi) => xi !== i))}
+                          {l.suggested && (
+                            <span title="Read on the photo by the SMS bot — not on the timesheet until you save it"
+                              style={{ flexShrink: 0, fontSize: '0.68rem', color: '#8a5a00', background: '#fff6e0', border: '1px solid #f0d9a8', borderRadius: 3, padding: '0.1rem 0.3rem' }}>suggested</span>
+                          )}
+                          <button type="button" onClick={() => {
+                              const next = lines.filter((_, xi) => xi !== i)
+                              setLines(next)
+                              if (l.suggested) saveRemainingSuggestions(photo, next)
+                            }}
                             disabled={busy} title="Remove this line"
                             style={{ flexShrink: 0, padding: '0.2rem 0.5rem', border: '1px solid #fcc', background: '#fee', color: '#c0392b', borderRadius: 4, cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}
                           >✕</button>
