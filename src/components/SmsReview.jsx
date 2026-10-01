@@ -27,6 +27,55 @@ const STATUS_COLORS = {
   rejected:   '#cc2222',
 }
 
+// The only per diem values the database accepts (CHECK constraint on both
+// sms_submissions.per_diem and timesheet_entries.per_diem).
+const PER_DIEM_VALUES = new Set([0, 0.25, 0.5, 0.75, 1])
+
+// The day's per diem multiplier for a submission.
+function dayPerDiem(sub) {
+  // Case-insensitive: Claude is told to return lowercase "none" but
+  // occasionally capitalizes it like normal English ("None"), which an
+  // exact-match check treats as a real location — silently granting per
+  // diem nobody claimed. Confirmed in production against Wade Kenney's
+  // and Finn Jones's submissions (2026-08-27).
+  const hasPD = sub.per_diem_location && sub.per_diem_location.trim().toLowerCase() !== 'none'
+
+  // per_diem_location is free text and doubles as the answer to "how much
+  // per diem" — sometimes it's a real place ("Halifax", meaning a full
+  // day), sometimes the employee texts the fraction straight into it
+  // (".5"). If it parses as one of the actual allowed multipliers, treat
+  // it as the stated amount rather than "a location is present ⇒ x1" —
+  // otherwise quick-approving straight from the pending list (without
+  // opening the Edit modal, which is the only place #124/#125 protected)
+  // silently rounds a texted ".5" up to a full 1 (Jim, 2026-09-16, same
+  // complaint as Niki's original 2026-09-14 report — this reproduced it
+  // again live via SMS Review's one-click Approve).
+  const locationAsAmount = hasPD ? Number(sub.per_diem_location.trim()) : NaN
+
+  // The multiplier Niki picked in the Edit modal wins. Falls back to the
+  // original "a location means x1" rule when she hasn't set one, so every
+  // submission from before per_diem existed approves exactly as it used to.
+  // Before this, approval hardcoded 1 whenever a location was present —
+  // typing ".5" into the location box set the multiplier to 1 anyway
+  // (reported via Niki, 2026-09-14: "if she puts in .5 on sms then on the
+  // timesheet it switched to a 1").
+  return sub.per_diem != null
+    ? Number(sub.per_diem)
+    : (PER_DIEM_VALUES.has(locationAsAmount) ? locationAsAmount : (hasPD ? 1 : 0))
+}
+
+// Per diem for each job line, in entry order. Niki can split the day's per
+// diem across jobs in the Edit modal (e.g. two ships in St. John's: ×0.5 each),
+// stored as per_diem on each entry in the submission's entries JSON. If she
+// hasn't split it, the whole day's per diem goes on the first job, as before.
+// Every report sums per_diem per day, so a split still totals the same.
+function entryPerDiems(sub) {
+  const entries = sub.entries || []
+  if (entries.some(e => e.per_diem != null)) return entries.map(e => Number(e.per_diem) || 0)
+  const day = dayPerDiem(sub)
+  return entries.map((_, i) => (i === 0 ? day : 0))
+}
+
 export default function SmsReview({ onApproved, initialFilter = 'submitted' } = {}) {
   const [submissions, setSubmissions] = useState([])
   const [jobs, setJobs]               = useState([])
@@ -363,36 +412,7 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
       return
     }
 
-    // Case-insensitive: Claude is told to return lowercase "none" but
-    // occasionally capitalizes it like normal English ("None"), which an
-    // exact-match check treats as a real location — silently granting per
-    // diem nobody claimed. Confirmed in production against Wade Kenney's
-    // and Finn Jones's submissions (2026-08-27).
-    const hasPD = sub.per_diem_location && sub.per_diem_location.trim().toLowerCase() !== 'none'
-
-    // per_diem_location is free text and doubles as the answer to "how much
-    // per diem" — sometimes it's a real place ("Halifax", meaning a full
-    // day), sometimes the employee texts the fraction straight into it
-    // (".5"). If it parses as one of the actual allowed multipliers, treat
-    // it as the stated amount rather than "a location is present ⇒ x1" —
-    // otherwise quick-approving straight from the pending list (without
-    // opening the Edit modal, which is the only place #124/#125 protected)
-    // silently rounds a texted ".5" up to a full 1 (Jim, 2026-09-16, same
-    // complaint as Niki's original 2026-09-14 report — this reproduced it
-    // again live via SMS Review's one-click Approve).
-    const PER_DIEM_VALUES = new Set([0, 0.25, 0.5, 0.75, 1])
-    const locationAsAmount = hasPD ? Number(sub.per_diem_location.trim()) : NaN
-
-    // The multiplier Niki picked in the Edit modal wins. Falls back to the
-    // original "a location means x1" rule when she hasn't set one, so every
-    // submission from before per_diem existed approves exactly as it used to.
-    // Before this, approval hardcoded 1 whenever a location was present —
-    // typing ".5" into the location box set the multiplier to 1 anyway
-    // (reported via Niki, 2026-09-14: "if she puts in .5 on sms then on the
-    // timesheet it switched to a 1").
-    const pdMultiplier = sub.per_diem != null
-      ? Number(sub.per_diem)
-      : (PER_DIEM_VALUES.has(locationAsAmount) ? locationAsAmount : (hasPD ? 1 : 0))
+    const pdByEntry = entryPerDiems(sub)
 
     // Map job numbers to IDs — case-insensitive so "shop"/"Shop"/"SHOP" all match
     const jobMap = {}
@@ -416,10 +436,9 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
       // own Edit modal for an already-approved entry.
       ot_hours:    e.ot_override ? Number(e.ot_hours) : null,
       description: e.description || null,
-      // per_diem is a multiplier (×0.5 half, ×1 standard, ×2 double), not a
-      // dollar amount. Only the day's first entry carries it — it's per day,
-      // not per job.
-      per_diem:    i === 0 ? pdMultiplier : 0,
+      // per_diem is a multiplier (×0.25 to ×1), not a dollar amount — the
+      // day's amount on the first job, or Niki's per-job split (entryPerDiems).
+      per_diem:    pdByEntry[i],
       sort_order:  i + 1,
       // Carry the day's shift times onto the entries so the Edit modal and PDF
       // work even if the sms_submission is later cleaned up
@@ -575,6 +594,7 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
         job_number:  e.job_number || '',
         reg_hours:   String(e.reg_hours ?? e.hours ?? ''),
         ot_hours:    String(e.ot_hours ?? 0),
+        per_diem:    e.per_diem != null ? String(e.per_diem) : '',
         description: e.description || '',
       })),
       supplies:          (sub.supplies || []).map(s => ({
@@ -588,7 +608,7 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
   const setEntryField = (i, field, value) =>
     setEditFields(p => ({ ...p, entries: p.entries.map((e, j) => j === i ? { ...e, [field]: value } : e) }))
   const addEntryRow = () =>
-    setEditFields(p => ({ ...p, entries: [...p.entries, { job_number: '', reg_hours: '', ot_hours: '0', description: '' }] }))
+    setEditFields(p => ({ ...p, entries: [...p.entries, { job_number: '', reg_hours: '', ot_hours: '0', per_diem: '', description: '' }] }))
   const removeEntryRow = (i) =>
     setEditFields(p => ({ ...p, entries: p.entries.filter((_, j) => j !== i) }))
 
@@ -614,6 +634,7 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
         job_number:  e.job_number.trim(),
         reg_hours:   Number(e.reg_hours) || 0,
         ot_hours:    Number(e.ot_hours) || 0,
+        per_diem:    e.per_diem === '' || e.per_diem == null ? null : Number(e.per_diem),
         description: e.description.trim(),
       }))
 
@@ -621,6 +642,13 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
     if (cleaned.some(e => !((e.reg_hours + e.ot_hours) > 0))) { alert('Every entry needs Reg + OT hours greater than 0'); return }
     if (cleaned.some(e => !e.description)) { alert('Every entry needs a note describing what was done'); return }
     if (cleaned.some(e => e.reg_hours < 0 || e.ot_hours < 0)) { alert("Reg and OT hours can't be negative"); return }
+
+    // Per-job per diem split: once any job has a PD amount, every job's amount
+    // counts (blank = 0) and the day's per diem is their total. Never more than
+    // ×1 a day (Jim, 2026-10-01).
+    const isSplit = cleaned.some(e => e.per_diem != null)
+    const splitTotal = Math.round(cleaned.reduce((s, e) => s + (e.per_diem || 0), 0) * 100) / 100
+    if (isSplit && splitTotal > 1) { alert(`Per diem across the jobs adds up to ×${splitTotal} — it can't be more than ×1 for the day.`); return }
 
     // Two entries for the same job in one day is a legitimate, common case
     // (e.g. one task on it in the morning, a different task in the
@@ -639,10 +667,13 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
       if (!ok) return
     }
 
-    const entries = cleaned.map(({ job_number, reg_hours, ot_hours, description }) => {
+    const entries = cleaned.map(({ job_number, reg_hours, ot_hours, per_diem, description }) => {
       const reg = Math.round(reg_hours * 100) / 100
       const ot  = Math.round(ot_hours * 100) / 100
-      return { job_number, hours: Math.round((reg + ot) * 100) / 100, description, reg_hours: reg, ot_hours: ot, ot_override: true }
+      return {
+        job_number, hours: Math.round((reg + ot) * 100) / 100, description, reg_hours: reg, ot_hours: ot, ot_override: true,
+        per_diem: isSplit ? (per_diem || 0) : null,
+      }
     })
 
     const supplies = (editFields.supplies || [])
@@ -660,7 +691,7 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
       stated_time_out:   editFields.stated_time_out || null,
       lunch_minutes:     editFields.lunch_minutes !== '' ? Number(editFields.lunch_minutes) : null,
       per_diem_location: editFields.per_diem_location || null,
-      per_diem:          editFields.per_diem === '' ? null : Number(editFields.per_diem),
+      per_diem:          isSplit ? splitTotal : (editFields.per_diem === '' ? null : Number(editFields.per_diem)),
       entries,
       supplies,
       calculated_time_out: null,
@@ -970,6 +1001,7 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
                         <th style={{ padding: '0.4rem 0.6rem', textAlign: 'left', width: 70 }}>Job #</th>
                         <th style={{ padding: '0.4rem 0.6rem', textAlign: 'right', width: 55 }}>Reg</th>
                         <th style={{ padding: '0.4rem 0.6rem', textAlign: 'right', width: 55 }}>OT</th>
+                        <th style={{ padding: '0.4rem 0.6rem', textAlign: 'right', width: 55, color: '#8B4513' }}>PD</th>
                         <th style={{ padding: '0.4rem 0.6rem', textAlign: 'left' }}>Description</th>
                         <th style={{ padding: '0.4rem 0.6rem', textAlign: 'left', width: 110, color: '#888' }}>Matched</th>
                         <th style={{ padding: '0.4rem 0.6rem', textAlign: 'left', width: 70, color: '#888' }}>Photos</th>
@@ -977,6 +1009,7 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
                     </thead>
                     <tbody>
                       {sub.entries.map((e, i) => {
+                        const pd = entryPerDiems(sub)[i]
                         const matchedJob = jobs.find(j => j.job_number.toUpperCase() === (e.job_number || '').toUpperCase())
                         const reg = e.reg_hours ?? e.hours
                         const ot  = e.ot_hours ?? 0
@@ -988,6 +1021,9 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
                             <td style={{ padding: '0.4rem 0.6rem', textAlign: 'right' }}>{reg}</td>
                             <td style={{ padding: '0.4rem 0.6rem', textAlign: 'right', color: ot > 0 ? '#cc6600' : '#ccc', fontWeight: ot > 0 ? 700 : 400 }}>
                               {ot > 0 ? ot : '—'}
+                            </td>
+                            <td style={{ padding: '0.4rem 0.6rem', textAlign: 'right', color: pd > 0 ? '#8B4513' : '#ccc', fontWeight: pd > 0 ? 700 : 400 }}>
+                              {pd > 0 ? `×${pd}` : '—'}
                             </td>
                             <td style={{ padding: '0.4rem 0.6rem', color: '#333' }}>{e.description}</td>
                             <td style={{ padding: '0.4rem 0.6rem', fontSize: '0.8rem', color: matchedJob ? '#2a7a2a' : '#c00' }}>
@@ -1014,6 +1050,9 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
                           </td>
                           <td style={{ padding: '0.3rem 0.6rem', textAlign: 'right', color: '#cc6600' }}>
                             {sub.entries.reduce((s, e) => s + (e.ot_hours ?? 0), 0) || '—'}
+                          </td>
+                          <td style={{ padding: '0.3rem 0.6rem', textAlign: 'right', color: '#8B4513' }}>
+                            {(() => { const t = entryPerDiems(sub).reduce((a, b) => a + b, 0); return t > 0 ? `×${t}` : '—' })()}
                           </td>
                           <td colSpan={3} />
                         </tr>
@@ -1396,6 +1435,11 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
                     overrides are x0.25/x0.5/x0.75. None/x1 stay selectable
                     here too, to let her correct a bad auto-read. */}
                 <label style={lbl}>Per Diem Amount</label>
+                {editFields.entries.some(e => e.per_diem !== '' && e.per_diem != null) ? (
+                  <div style={{ ...inp, background: '#f5f5f5', color: '#8B4513', fontWeight: 600 }}>
+                    ×{Math.round(editFields.entries.reduce((s, e) => s + (Number(e.per_diem) || 0), 0) * 100) / 100} split across jobs
+                  </div>
+                ) : (
                 <select value={editFields.per_diem} onChange={e => setEditFields(p => ({ ...p, per_diem: e.target.value }))} style={inp}>
                   <option value="">Auto (from location)</option>
                   <option value="0">None</option>
@@ -1404,6 +1448,7 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
                   <option value="0.75">×0.75 Three-Quarter</option>
                   <option value="1">×1 Standard</option>
                 </select>
+                )}
               </div>
             </div>
 
@@ -1414,6 +1459,7 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
                   <th style={{ fontWeight: 600, paddingBottom: 2, width: 90 }}>Job #</th>
                   <th style={{ fontWeight: 600, paddingBottom: 2, width: 65 }}>Reg</th>
                   <th style={{ fontWeight: 600, paddingBottom: 2, width: 65 }}>OT</th>
+                  <th style={{ fontWeight: 600, paddingBottom: 2, width: 70 }} title="Split the day's per diem across jobs. Leave all blank to use the Per Diem Amount above.">PD</th>
                   <th style={{ fontWeight: 600, paddingBottom: 2 }}>Description</th>
                   <th style={{ width: 30 }} />
                 </tr>
@@ -1448,6 +1494,16 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
                         />
                       </td>
                       <td style={{ padding: '0.15rem 0.25rem 0.15rem 0' }}>
+                        <select value={e.per_diem ?? ''} onChange={ev => setEntryField(i, 'per_diem', ev.target.value)} style={{ ...inp, padding: '0.35rem 0.2rem' }}>
+                          <option value="">—</option>
+                          <option value="0">0</option>
+                          <option value="0.25">.25</option>
+                          <option value="0.5">.5</option>
+                          <option value="0.75">.75</option>
+                          <option value="1">1</option>
+                        </select>
+                      </td>
+                      <td style={{ padding: '0.15rem 0.25rem 0.15rem 0' }}>
                         <textarea
                           rows={2}
                           value={e.description}
@@ -1479,6 +1535,7 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
             )}
             <div style={{ fontSize: '0.75rem', color: '#888', marginTop: '0.3rem' }}>
               Reg and OT are exactly what's typed above — out-time is still recalculated automatically on save.
+              {' '}PD: leave blank to put the day's per diem on the first job, or set an amount on each job to split it (max ×1 total).
             </div>
 
             <label style={lbl}>Supplies Used</label>
