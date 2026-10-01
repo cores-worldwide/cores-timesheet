@@ -32,18 +32,19 @@ jobs:
           docker run --rm ghcr.io/supabase/postgres:17.6.1.143 \
             pg_dump "$SUPABASE_DB_URL" --schema='"Cores"' --schema='"BLD_Inventory"' --no-owner \
             > cores_backup_$(date +%Y%m%d_%H%M%S).sql
-      - uses: actions/upload-artifact@v4
-        with:
-          name: cores-schema-backup
-          path: cores_backup_*.sql
-          retention-days: 90
+      # No upload. This repo is PUBLIC, so any GitHub artifact is downloadable by
+      # anyone with a GitHub account, and these dumps hold crew phones, hours and
+      # PIN hashes (SECURITY_PLAN.md, hole A; removed 2026-10-01). The private
+      # Google Drive backup (backup-to-drive.yml) keeps the real copies. This job
+      # still runs the dump every night as a check that a full dump works, logs
+      # the result for the daily check routine, and then the runner is thrown away.
       - name: Record outcome
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
         run: |
           bytes=$(stat -c %s cores_backup_*.sql)
-          scripts/log-backup.sh schema-artifact true "{\"dump_bytes\": $bytes}"
+          scripts/log-backup.sh schema-artifact true "{\"dump_bytes\": $bytes, \"uploaded\": false}"
       - name: Record failure
         if: failure()
         env:
