@@ -154,11 +154,13 @@ export function generateDailyTimesheetPDF({ employeeName, workDate, timeIn, time
       ...j,
       wrapped: j.description ? doc.splitTextToSize(j.description, jdDescMaxW) : ['No description on file'],
     }))
-    const jdH = 14 + jdRows.reduce((s, r) => s + r.wrapped.length * jdLineH + 3, 0)
+    const jdH = 24 + jdRows.reduce((s, r) => s + r.wrapped.length * jdLineH + 3, 0)
     ensureSpace(jdH)
     doc.setFont('helvetica', 'bold'); doc.setFontSize(9)
     doc.text('Job Descriptions', margin, y)
-    y += 12
+    y += 6
+    const boxTop = y
+    y += 11
     jdRows.forEach(r => {
       doc.setFont('helvetica', 'bold'); doc.setFontSize(8)
       doc.text(String(r.jobNumber), margin + 4, y)
@@ -168,7 +170,12 @@ export function generateDailyTimesheetPDF({ employeeName, workDate, timeIn, time
       doc.setTextColor(0)
       y += r.wrapped.length * jdLineH + 3
     })
-    y += 12
+    y -= 3
+    // Same outline and Job # divider as the job table below
+    doc.setDrawColor(0); doc.setLineWidth(0.5)
+    doc.rect(margin, boxTop, contentW, y - boxTop)
+    doc.line(jdDescX - 4, boxTop, jdDescX - 4, y)
+    y += 18
   }
 
   // ── Job # / Hrs / Description of Work table ──
