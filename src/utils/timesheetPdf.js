@@ -141,6 +141,36 @@ export function generateDailyTimesheetPDF({ employeeName, workDate, timeIn, time
   })
   y += 10
 
+  // ── Job Descriptions ──
+  // What each job on this sheet is (from the jobs table), so whoever bills it
+  // can see the scope without looking each job up. Kept small and tight so a
+  // normal day still fits on one page.
+  if (jobDescriptions.length > 0) {
+    const jdLineH = 9.5
+    const jdDescX = margin + 104 // lines up with "Description of Work" in the table below
+    const jdDescMaxW = pageW - margin - jdDescX - 4
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8)
+    const jdRows = jobDescriptions.map(j => ({
+      ...j,
+      wrapped: j.description ? doc.splitTextToSize(j.description, jdDescMaxW) : ['No description on file'],
+    }))
+    const jdH = 14 + jdRows.reduce((s, r) => s + r.wrapped.length * jdLineH + 3, 0)
+    ensureSpace(jdH)
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(9)
+    doc.text('Job Descriptions', margin, y)
+    y += 12
+    jdRows.forEach(r => {
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(8)
+      doc.text(String(r.jobNumber), margin + 4, y)
+      doc.setFont('helvetica', 'normal')
+      if (!r.description) doc.setTextColor(130)
+      r.wrapped.forEach((ln, i) => doc.text(ln, jdDescX, y + i * jdLineH))
+      doc.setTextColor(0)
+      y += r.wrapped.length * jdLineH + 3
+    })
+    y += 12
+  }
+
   // ── Job # / Hrs / Description of Work table ──
   const col1W = 55, col2W = 45
   const col3X = margin + col1W + col2W
@@ -320,39 +350,6 @@ export function generateDailyTimesheetPDF({ employeeName, workDate, timeIn, time
   ensureSpace(100)
   drawSignatureRow('Employee Signature:', employeeSignature)
   drawSignatureRow('Approved by:', supervisorSignature)
-
-  // ── Job Descriptions ──
-  // What each job on this sheet is (from the jobs table), so whoever bills it
-  // can see the scope without looking each job up. Kept small and tight so it
-  // fits in the space left on page 1.
-  if (jobDescriptions.length > 0) {
-    const jdLineH = 9.5
-    const jdDescX = margin + col1W
-    const jdDescMaxW = pageW - margin - jdDescX - 4
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(8)
-    const jdRows = jobDescriptions.map(j => ({
-      ...j,
-      wrapped: j.description ? doc.splitTextToSize(j.description, jdDescMaxW) : ['No description on file'],
-    }))
-    const jdH = 14 + jdRows.reduce((s, r) => s + r.wrapped.length * jdLineH + 3, 0)
-    y -= 6
-    ensureSpace(jdH)
-    doc.setDrawColor(0); doc.setLineWidth(0.5)
-    doc.line(margin, y, pageW - margin, y)
-    y += 11
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(9)
-    doc.text('Job Descriptions', margin, y)
-    y += 12
-    jdRows.forEach(r => {
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(8)
-      doc.text(String(r.jobNumber), margin, y)
-      doc.setFont('helvetica', 'normal')
-      if (!r.description) doc.setTextColor(130)
-      r.wrapped.forEach((ln, i) => doc.text(ln, jdDescX, y + i * jdLineH))
-      doc.setTextColor(0)
-      y += r.wrapped.length * jdLineH + 3
-    })
-  }
 
   const filename = `${(employeeName || 'timesheet').replace(/\s+/g, '_')}_${workDate}.pdf`
   doc.save(filename)
