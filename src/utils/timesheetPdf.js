@@ -8,7 +8,7 @@ import { CAVEAT_REGULAR_BASE64 } from './caveatFont'
 // supervisorSignature are optional {name, subtitle} objects — when present,
 // the name prints in a cursive font in place of the blank "Approved by:" line,
 // sourced from real confirmation data (see AdminDashboard.printTimesheetFor).
-export function generateDailyTimesheetPDF({ employeeName, workDate, timeIn, timeOut, lunchMinutes, totalHours, perDiem = 0, jobLines, supplyLines = [], employeeSignature = null, supervisorSignature = null, postedAt = null, postedBy = null }) {
+export function generateDailyTimesheetPDF({ employeeName, workDate, timeIn, timeOut, lunchMinutes, totalHours, perDiem = 0, jobLines, supplyLines = [], jobDescriptions = [], employeeSignature = null, supervisorSignature = null, postedAt = null, postedBy = null }) {
   const doc = new jsPDF({ unit: 'pt', format: 'letter' })
   doc.addFileToVFS('Caveat-Regular.ttf', CAVEAT_REGULAR_BASE64)
   doc.addFont('Caveat-Regular.ttf', 'Caveat', 'normal')
@@ -101,45 +101,44 @@ export function generateDailyTimesheetPDF({ employeeName, workDate, timeIn, time
   doc.setFont('helvetica', 'normal')
   doc.text(perDiem > 0 ? `×${Number(perDiem)}` : 'None', margin + 75, y)
   doc.line(margin + 70, y + 3, margin + contentW / 2 - 10, y + 3)
-  y += 22
+  y += 28
 
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(10)
-  doc.text('Comments:', margin, y)
-  doc.setFont('helvetica', 'normal')
-  doc.line(margin + 65, y + 3, pageW - margin, y + 3)
-  y += 26
-
-  // ── Daily Safety Check ──
-  // Deliberately pre-checked "Yes" (Jim, 2026-07-09): techs flag safety issues
-  // directly if there are any, so the default assumption on the printed form
-  // is all-clear. Do not change to blank without asking.
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(10)
-  doc.text('Daily Safety Check:', margin, y)
-  y += 16
-  const safetyQuestions = [
-    'Have I identified all hazards?',
-    'Are the resources available (PPE, tools, etc)?',
-    'Is everything the same since I last did my tasks (unaltered)?',
-    'I am aware of Emergency devices, locations and I know what to do?',
-    'My work area is safe, clean, and tidy?',
-  ]
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(9)
-  const boxSize = 8
-  const yesX = margin + contentW - 70, noX = margin + contentW - 25
-  doc.setFontSize(8); doc.setFont('helvetica', 'bold')
-  doc.text('Yes', yesX, y - 4); doc.text('No', noX, y - 4)
-  y += 12
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(9)
-  safetyQuestions.forEach(q => {
-    doc.text(q, margin, y)
-    doc.rect(yesX - boxSize / 2, y - boxSize + 1, boxSize, boxSize)
-    doc.rect(noX - boxSize / 2, y - boxSize + 1, boxSize, boxSize)
-    doc.setFont('helvetica', 'bold')
-    doc.text('X', yesX - boxSize / 2 + 1.5, y - 1)
-    doc.setFont('helvetica', 'normal')
-    y += 15
-  })
-  y += 10
+  // ── Job Descriptions ──
+  // What each job on this sheet is (from the jobs table), so whoever bills it
+  // can see the scope without looking each job up. Kept small and tight so a
+  // normal day still fits on one page.
+  if (jobDescriptions.length > 0) {
+    const jdLineH = 9.5
+    const jdDescX = margin + 104 // lines up with "Description of Work" in the table below
+    const jdDescMaxW = pageW - margin - jdDescX - 4
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8)
+    const jdRows = jobDescriptions.map(j => ({
+      ...j,
+      wrapped: j.description ? doc.splitTextToSize(j.description, jdDescMaxW) : ['No description on file'],
+    }))
+    const jdH = 24 + jdRows.reduce((s, r) => s + r.wrapped.length * jdLineH + 3, 0)
+    ensureSpace(jdH)
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(9)
+    doc.text('Job Descriptions', margin, y)
+    y += 6
+    const boxTop = y
+    y += 11
+    jdRows.forEach(r => {
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(8)
+      doc.text(String(r.jobNumber), margin + 4, y)
+      doc.setFont('helvetica', 'normal')
+      if (!r.description) doc.setTextColor(130)
+      r.wrapped.forEach((ln, i) => doc.text(ln, jdDescX, y + i * jdLineH))
+      doc.setTextColor(0)
+      y += r.wrapped.length * jdLineH + 3
+    })
+    y -= 3
+    // Same outline and Job # divider as the job table below
+    doc.setDrawColor(0); doc.setLineWidth(0.5)
+    doc.rect(margin, boxTop, contentW, y - boxTop)
+    doc.line(jdDescX - 4, boxTop, jdDescX - 4, y)
+    y += 18
+  }
 
   // ── Job # / Hrs / Description of Work table ──
   const col1W = 55, col2W = 45
@@ -320,6 +319,40 @@ export function generateDailyTimesheetPDF({ employeeName, workDate, timeIn, time
   ensureSpace(100)
   drawSignatureRow('Employee Signature:', employeeSignature)
   drawSignatureRow('Approved by:', supervisorSignature)
+
+  // ── Daily Safety Check ──
+  // Deliberately pre-checked "Yes" (Jim, 2026-07-09): techs flag safety issues
+  // directly if there are any, so the default assumption on the printed form
+  // is all-clear. Do not change to blank without asking.
+  // Sits below the signatures and is kept tight (Yes/No labels share the
+  // heading's line) so a normal day still fits on one page.
+  const safetyQuestions = [
+    'Have I identified all hazards?',
+    'Are the resources available (PPE, tools, etc)?',
+    'Is everything the same since I last did my tasks (unaltered)?',
+    'I am aware of Emergency devices, locations and I know what to do?',
+    'My work area is safe, clean, and tidy?',
+  ]
+  const safetyLineH = 13
+  y += 8 // clear the approver's subtitle line
+  ensureSpace(16 + safetyQuestions.length * safetyLineH)
+  const boxSize = 8
+  const yesX = margin + contentW - 70, noX = margin + contentW - 25
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(10)
+  doc.text('Daily Safety Check:', margin, y)
+  doc.setFontSize(8)
+  doc.text('Yes', yesX, y, { align: 'center' }); doc.text('No', noX, y, { align: 'center' })
+  y += 15
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(9)
+  safetyQuestions.forEach(q => {
+    doc.text(q, margin, y)
+    doc.rect(yesX - boxSize / 2, y - boxSize + 1, boxSize, boxSize)
+    doc.rect(noX - boxSize / 2, y - boxSize + 1, boxSize, boxSize)
+    doc.setFont('helvetica', 'bold')
+    doc.text('X', yesX - boxSize / 2 + 1.5, y - 1)
+    doc.setFont('helvetica', 'normal')
+    y += safetyLineH
+  })
 
   const filename = `${(employeeName || 'timesheet').replace(/\s+/g, '_')}_${workDate}.pdf`
   doc.save(filename)
