@@ -2,6 +2,7 @@ import React from 'react'
 import { HashRouter, Routes, Route } from 'react-router-dom'
 import AdminApp from './AdminApp'
 import EmployeeApp from './employee/EmployeeApp'
+import DevBanner from './components/DevBanner'
 import './App.css'
 
 // HashRouter (not BrowserRouter) — GitHub Pages serves this as a static site
@@ -10,6 +11,7 @@ import './App.css'
 function App() {
   return (
     <HashRouter>
+      <DevBanner />
       <Routes>
         <Route path="/my/*" element={<EmployeeApp />} />
         <Route path="/*" element={<AdminApp />} />
