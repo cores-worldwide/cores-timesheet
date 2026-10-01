@@ -511,9 +511,13 @@ async function autoLogSuppliesFromPhoto(
       !(existing || []).some((r: any) => looksLikeSameSupply(o.supply_name, r.supply_name)) &&
       !textedSupplies.some((t: any) => looksLikeSameSupply(o.supply_name, t.supply_name || '')))
     // Tag it as a supply photo so it shows under Supplies in Gear Photos with
-    // its lines/suggestions (or, when everything was skipped, as before).
+    // its lines/suggestions (or, when a known item was skipped as already
+    // logged, for her to glance at as before). Not when every suggestion was
+    // filtered out: that left an ordinary work photo with a spray can in the
+    // background tagged supply with nothing on it (2026-10-01).
     const photoUpdate: any = {}
-    if (!photo.photo_type) photoUpdate.photo_type = 'supply'
+    const isSupplyPhoto = result.logged.length > 0 || result.suggested.length > 0 || result.skipped.length > 0
+    if (!photo.photo_type && isSupplyPhoto) photoUpdate.photo_type = 'supply'
     if (result.suggested.length) photoUpdate.suggested_supplies = result.suggested
     if (Object.keys(photoUpdate).length) await supabase.from('gear_photos').update(photoUpdate).eq('id', photo.id)
     console.error(`auto supply ${photo.id}: logged [${result.logged.join('; ')}] suggested [${result.suggested.map(o => o.supply_name).join('; ')}] skipped [${result.skipped.join('; ')}]`)
