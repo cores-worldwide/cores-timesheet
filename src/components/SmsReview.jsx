@@ -10,6 +10,7 @@ import { getAdminName } from './PasswordGate'
 import MediaThumb from './MediaThumb'
 import MediaViewer from './MediaViewer'
 import { fetchAll } from '../utils/fetchAll'
+import { useAutoRefresh } from '../utils/useAutoRefresh'
 
 // Rounds a minute delta to the nearest quarter hour, as hours (e.g. -150 -> -2.5)
 const deltaMinsToHours = (mins) => Math.round(mins / 15) / 4
@@ -117,12 +118,7 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
   useEffect(() => {
     editingRef.current = !!editModal || !!acting
   })
-  useEffect(() => {
-    const id = setInterval(() => {
-      if (!editingRef.current) load({ silent: true })
-    }, 10000)
-    return () => clearInterval(id)
-  }, [load])
+  useAutoRefresh(() => load({ silent: true }), { pausedRef: editingRef })
 
   // "Pending" also surfaces still-open conversations (status='collecting') — otherwise a
   // tech who never answers a follow-up question (lunch/PD/supplies) vanishes from view

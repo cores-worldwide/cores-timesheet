@@ -18,6 +18,7 @@ import { generateWeeklyCompilationPDF, fmtShortDate, fmtHeaderDate, dayName, isW
 import { generateSageSyncPDF } from '../utils/sageSyncPdf'
 import { generateSageSyncIMP } from '../utils/sageSyncImp'
 import { fetchAll } from '../utils/fetchAll'
+import { useAutoRefresh } from '../utils/useAutoRefresh'
 
 const gearPhotoUrl = (path) => supabase.storage.from('gear-photos').getPublicUrl(path).data.publicUrl
 // Tracy gets a confetti celebration when her own timesheet is saved here —
@@ -202,12 +203,7 @@ export default function AdminDashboard() {
   useEffect(() => {
     editingRef.current = !!(editEntry || manualEntry || addingNewJob)
   })
-  useEffect(() => {
-    const id = setInterval(() => {
-      if (!editingRef.current) loadTimesheets({ silent: true })
-    }, 10000)
-    return () => clearInterval(id)
-  }, [])
+  useAutoRefresh(() => loadTimesheets({ silent: true }), { pausedRef: editingRef })
 
   // Default the Payroll tab's employee filter to everyone the first time employee
   // data loads — but only once, so it never overrides a user's own selection after.
@@ -219,7 +215,7 @@ export default function AdminDashboard() {
 
   // silent=true skips the loading-state flash — used by the background poll so
   // it doesn't blank out the Timesheets tab (loadingEntries===true replaces the
-  // whole results area, see render) every 30s, and doesn't alert() on a
+  // whole results area, see render) every cycle, and doesn't alert() on a
   // transient network hiccup the admin never asked to see.
   async function loadTimesheets({ silent = false } = {}) {
     if (!silent) setLoadingEntries(true)
