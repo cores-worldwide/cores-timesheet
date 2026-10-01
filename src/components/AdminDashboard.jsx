@@ -1189,6 +1189,12 @@ export default function AdminDashboard() {
         supplyName: s.supply_name,
         description: s.description || '',
       })),
+      // One line per distinct job on the sheet, for billing. SHOP and Unknown
+      // aren't billable jobs, so their boilerplate descriptions are left off.
+      jobDescriptions: [...new Map(dayEntries
+        .filter(e => e.jobs?.job_number && !['shop', 'unknown'].includes(e.jobs.job_number.trim().toLowerCase()))
+        .map(e => [e.jobs.job_number, { jobNumber: e.jobs.job_number, description: (e.jobs.description || '').trim() }])
+      ).values()],
       employeeSignature,
       supervisorSignature,
       postedAt: dayPostedInfo?.posted_at,
