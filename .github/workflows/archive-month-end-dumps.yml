@@ -1,0 +1,61 @@
+name: Archive month-end dumps (one-off)
+
+# One-off, 2026-10-01: before the public cores-schema-backup artifacts are
+# deleted (SECURITY_PLAN hole A), copy the end-of-July and end-of-August dumps
+# into the private Drive monthly folder, so restore history still reaches back
+# past the Drive backup's own start (~2026-09-20). Delete this file afterwards.
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  actions: read
+
+env:
+  DRIVE_ROOT: 'drive:Cores Backups'
+
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure rclone (same as backup-to-drive.yml)
+        env:
+          DRIVE_TOKEN_SECRET: ${{ secrets.RCLONE_DRIVE_TOKEN }}
+        run: |
+          curl -fsSL https://rclone.org/install.sh | sudo bash >/dev/null
+          mkdir -p ~/.config/rclone
+          python3 - <<'PY'
+          import base64, json, os
+          raw = os.environ['DRIVE_TOKEN_SECRET'].strip()
+          try:
+              json.loads(raw); token = raw
+          except ValueError:
+              decoded = json.loads(base64.b64decode(raw + '=' * (-len(raw) % 4)))
+              token = decoded.get('token', decoded) if isinstance(decoded, dict) else decoded
+              if not isinstance(token, str): token = json.dumps(token)
+          json.loads(token)
+          path = os.path.expanduser('~/.config/rclone/rclone.conf')
+          with open(path, 'w') as f:
+              f.write(f"[drive]\ntype = drive\nscope = drive.file\ntoken = {token}\n")
+          os.chmod(path, 0o600)
+          PY
+          rclone lsd drive: >/dev/null && echo "Drive access OK"
+
+      - name: Download the two month-end artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p out
+          # 2026-07-31 and 2026-08-31 nightly dumps
+          for id in 8790363886 9764365497; do
+            gh api "repos/${{ github.repository }}/actions/artifacts/$id/zip" > a.zip
+            unzip -o -q a.zip -d out
+            rm a.zip
+          done
+          ls -la out
+          test "$(ls out/cores_backup_*.sql | wc -l)" -eq 2
+
+      - name: Copy to Drive monthly folder and confirm
+        run: |
+          rclone copy out "$DRIVE_ROOT/db/monthly" --no-traverse
+          rclone lsl "$DRIVE_ROOT/db/monthly"
