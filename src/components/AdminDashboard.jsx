@@ -1723,7 +1723,11 @@ export default function AdminDashboard() {
                     b.work_date.localeCompare(a.work_date) || (a.sort_order ?? 1) - (b.sort_order ?? 1)
                   )
                   return (
-                    <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+                    // minWidth + the scrolling wrapper: below ~1000px the fixed
+                    // columns get too narrow for words like "Clearwater", so the
+                    // table scrolls sideways instead of squashing.
+                    <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', minWidth: '1000px', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
                       <colgroup>
                         {/* Explicit widths so Description (the one column with real
                             prose) gets the room it needs — left to auto layout, the
@@ -1731,15 +1735,15 @@ export default function AdminDashboard() {
                             like the action buttons, wrapping every word onto its own
                             line. table-layout: fixed makes these the real column
                             widths, so the narrower columns wrap too when they need to. */}
-                        <col style={{ width: '12%' }} />
+                        <col style={{ width: '10%' }} />
+                        <col style={{ width: '7%' }} />
+                        <col style={{ width: '11%' }} />
+                        <col style={{ width: '11%' }} />
+                        <col style={{ width: '4%' }} />
+                        <col style={{ width: '4%' }} />
+                        <col style={{ width: '4%' }} />
+                        <col style={{ width: '30%' }} />
                         <col style={{ width: '5%' }} />
-                        <col style={{ width: '8%' }} />
-                        <col style={{ width: '8%' }} />
-                        <col style={{ width: '5%' }} />
-                        <col style={{ width: '5%' }} />
-                        <col style={{ width: '5%' }} />
-                        <col style={{ width: '32%' }} />
-                        <col style={{ width: '6%' }} />
                         <col style={{ width: '14%' }} />
                       </colgroup>
                       <thead>
@@ -1764,9 +1768,9 @@ export default function AdminDashboard() {
                                   it. Wrapping onto two lines if it's ever tight
                                   is the safe failure mode. */}
                               <td style={{ padding: '0.75rem', color: '#555' }}>{fmtDate(e.work_date)}</td>
-                              <td style={{ padding: '0.75rem', ...linkStyle }}>{e.jobs?.job_number ?? (e.is_day_off ? 'Day off' : e.is_stat_pay ? 'Stat pay' : '—')}</td>
-                              <td style={{ padding: '0.75rem', color: '#666' }}>{e.jobs?.customers?.name ?? '—'}</td>
-                              <td style={{ padding: '0.75rem', color: '#888' }}>{e.jobs?.vessels?.name ?? '—'}</td>
+                              <td style={{ padding: '0.75rem', overflowWrap: 'anywhere', ...linkStyle }}>{e.jobs?.job_number ?? (e.is_day_off ? 'Day off' : e.is_stat_pay ? 'Stat pay' : '—')}</td>
+                              <td style={{ padding: '0.75rem', color: '#666', overflowWrap: 'anywhere' }}>{e.jobs?.customers?.name ?? '—'}</td>
+                              <td style={{ padding: '0.75rem', color: '#888', overflowWrap: 'anywhere' }}>{e.jobs?.vessels?.name ?? '—'}</td>
                               <td style={{ padding: '0.75rem', textAlign: 'center', color: '#2d6a38', fontWeight: 600 }}>{fmtHours(reg)}</td>
                               <td style={{ padding: '0.75rem', textAlign: 'center', color: ot > 0 ? '#c0392b' : '#ddd', fontWeight: ot > 0 ? 600 : 400 }}>{ot > 0 ? fmtHours(ot) : '—'}</td>
                               <td style={{ padding: '0.75rem', textAlign: 'center', color: perDiem > 0 ? '#8B4513' : '#ddd' }}>{perDiem > 0 ? `×${perDiem}` : '—'}</td>
@@ -1823,6 +1827,7 @@ export default function AdminDashboard() {
                         })}
                       </tbody>
                     </table>
+                    </div>
                   )
                 })()}
               </div>
