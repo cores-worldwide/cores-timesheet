@@ -445,3 +445,23 @@ GRANT USAGE ON SCHEMA "Cores" TO anon, authenticated, service_role;
 GRANT ALL ON ALL TABLES IN SCHEMA "Cores" TO anon, authenticated, service_role;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA "Cores" TO anon, authenticated, service_role;
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA "Cores" TO anon, authenticated, service_role;
+
+-- Added after generation (not yet in the live catalog when this file was made):
+-- supabase/migrations/20261002120000_create_shortcut_visits.sql
+CREATE TABLE "Cores".shortcut_visits (
+  id            bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  visited_at    timestamptz NOT NULL DEFAULT now(),
+  visit_key     uuid NOT NULL,
+  via           text NOT NULL CHECK (via IN ('netlify', 'old-github')),
+  stage         text NOT NULL CHECK (stage IN ('arrived', 'logged_in')),
+  employee_id   uuid,
+  employee_name text,
+  admin_name    text,
+  page          text,
+  user_agent    text
+);
+CREATE INDEX shortcut_visits_visited_at ON "Cores".shortcut_visits (visited_at DESC);
+ALTER TABLE "Cores".shortcut_visits ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON "Cores".shortcut_visits FROM anon, authenticated;
+GRANT INSERT ON "Cores".shortcut_visits TO anon, authenticated;
+CREATE POLICY "shortcut_visits_insert" ON "Cores".shortcut_visits FOR INSERT WITH CHECK (true);

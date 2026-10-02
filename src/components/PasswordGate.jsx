@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { recordArrivalIdentity } from '../utils/shortcutVisit'
 
 const PASSWORD = 'Cores'
 const STORAGE_KEY = 'cores_unlocked'
@@ -32,6 +33,7 @@ export default function PasswordGate({ children }) {
       if (!nameInput.trim()) return
       localStorage.setItem(NAME_STORAGE_KEY, nameInput.trim())
       setName(nameInput.trim())
+      recordArrivalIdentity({ admin_name: nameInput.trim() })
       return
     }
     if (input === PASSWORD && nameInput.trim()) {
@@ -39,6 +41,7 @@ export default function PasswordGate({ children }) {
       localStorage.setItem(NAME_STORAGE_KEY, nameInput.trim())
       setName(nameInput.trim())
       setUnlocked(true)
+      recordArrivalIdentity({ admin_name: nameInput.trim() })
     } else {
       setError(true)
     }

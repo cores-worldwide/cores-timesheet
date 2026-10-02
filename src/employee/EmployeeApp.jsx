@@ -4,6 +4,7 @@ import EmployeeLogin from './EmployeeLogin'
 import EmployeeHome from './EmployeeHome'
 import EntryForm from './EntryForm'
 import PendingEntryEdit from './PendingEntryEdit'
+import { recordArrivalIdentity } from '../utils/shortcutVisit'
 import './employee.css'
 
 const SESSION_KEY = 'cores_employee_session'
@@ -18,6 +19,7 @@ export default function EmployeeApp() {
   function handleLogin(employee) {
     localStorage.setItem(SESSION_KEY, JSON.stringify(employee))
     setSession(employee)
+    recordArrivalIdentity({ employee_id: employee.id, employee_name: employee.name || null })
   }
 
   function handleLogout() {
