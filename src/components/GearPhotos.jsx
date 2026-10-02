@@ -96,7 +96,7 @@ export default function GearPhotos() {
       // since closed, and excluding them silently nulled out job_id (photo vanished
       // from every report with no error).
       supabase.schema('Cores').from('jobs').select('id, job_number, description, status, vessels(name)'),
-      supabase.schema('Cores').from('employees').select('id, name'),
+      supabase.schema('Cores').from('employees').select('id, name, active'),
       fetchAll(() => supabase.schema('Cores').from('job_supplies').select('id, source_photo_id, supply_name, quantity, applied_at, applied_by, billed_at').not('source_photo_id', 'is', null)),
       fetchAll(() => supabase.schema('Cores').from('timesheet_entries').select('employee_id, work_date')),
       supabase.schema('Cores').from('sms_submissions').select('employee_id, work_date').in('status', ['submitted', 'collecting']),
