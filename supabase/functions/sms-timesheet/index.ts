@@ -693,6 +693,30 @@ function minsToTime(mins: number): string {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
 }
 
+// Same rule as fixShiftAmPm in src/utils/entrySave.js — keep the two in step.
+// A stop time before the start time is almost always a 12-hour AM/PM slip
+// ("out 4" read as 04:00, or "in 7:00" as 19:00); ~40 hand-fixed in SMS Review
+// Aug 17 – Oct 5 2026. Flips the in time to AM when that makes the shift
+// valid, otherwise the out time to PM — unless the job hours fit a real
+// overnight shift better than the PM reading.
+function fixShiftAmPm(timeIn: string | null, timeOut: string | null, totalHours = 0, lunchMinutes = 0):
+  { time_in: string | null, time_out: string | null, changed: 'in' | 'out' | null } {
+  const same = { time_in: timeIn, time_out: timeOut, changed: null }
+  if (!timeIn || !timeOut) return same
+  const inM = timeToMins(timeIn), outM = timeToMins(timeOut)
+  if (!(outM < inM)) return same
+  if (inM >= 720 && inM - 720 < outM) return { time_in: minsToTime(inM - 720), time_out: timeOut, changed: 'in' }
+  if (outM < 720 && outM + 720 > inM) {
+    if (totalHours > 0) {
+      const pmGap = Math.abs(outM + 720 - inM - lunchMinutes - totalHours * 60)
+      const overnightGap = Math.abs(outM + 1440 - inM - lunchMinutes - totalHours * 60)
+      if (overnightGap < pmGap) return same
+    }
+    return { time_in: timeIn, time_out: minsToTime(outM + 720), changed: 'out' }
+  }
+  return same
+}
+
 function friendlyTime(t: string): string {
   const total = timeToMins(t)
   const h = Math.floor(total / 60) % 24
@@ -2206,13 +2230,25 @@ Deno.serve(async (req: Request) => {
     // Only applies when there's actual work logged for the day — an "off, zero
     // hours" text has no entries at all, and defaulting to 7am there produced a
     // nonsensical "Got it — in 7am" reply for a day the tech said they didn't work.
-    const mergedTimeIn    = parsed.time_in
+    const rawTimeIn       = parsed.time_in
                           ?? (submission?.time_in ? submission.time_in.substring(0, 5) : null)
                           ?? (allEntries.length > 0 ? '07:00' : null)
-    const mergedStatedOut = parsed.stated_time_out
+    const rawStatedOut    = parsed.stated_time_out
                           ?? (submission?.stated_time_out ? submission.stated_time_out.substring(0, 5) : null)
     const mergedLunch     = parsed.lunch_minutes != null ? parsed.lunch_minutes
                           : (submission?.lunch_minutes != null ? submission.lunch_minutes : null)
+    // Fix an AM/PM slip ("out 4" → 04:00) before anything derives hours or OT
+    // from these times, and tell the tech in the reply (ampmFix.changed).
+    const explicitHours   = allEntries.reduce((s: number, e: any) => s + (Number(e.hours) || 0), 0)
+    // A tech who actually typed "am" ("out 3am") meant it — leave that to the
+    // existing after-midnight warning below instead of overruling them.
+    const saidAm          = /\d\s*a\.?m\b/i.test(msgBody)
+    const ampmCandidate   = fixShiftAmPm(rawTimeIn, rawStatedOut, explicitHours, mergedLunch || 0)
+    const ampmFix         = ampmCandidate.changed === 'out' && saidAm
+                          ? { time_in: rawTimeIn, time_out: rawStatedOut, changed: null }
+                          : ampmCandidate
+    const mergedTimeIn    = ampmFix.time_in
+    const mergedStatedOut = ampmFix.time_out
     // Claude is told to return lowercase "none" but occasionally capitalizes
     // it like normal English ("None") — canonicalize here so every downstream
     // check that compares against the exact string 'none' keeps working,
@@ -2445,7 +2481,10 @@ Deno.serve(async (req: Request) => {
     // employee-not-found, or the day summary) — a mistyped am/pm on the out time
     // is worth flagging no matter what else this reply is about, and the ask
     // branches above return early before ever reaching daySummaryReply.
-    if (midnightOutWarning && mergedStatedOut && reply) {
+    if (ampmFix.changed && reply) {
+      const fixedTo = ampmFix.changed === 'in' ? mergedTimeIn! : mergedStatedOut!
+      reply += `\nTook your time ${ampmFix.changed} as ${friendlyTime(fixedTo)}. If that's wrong, text the right time.`
+    } else if (midnightOutWarning && mergedStatedOut && reply) {
       reply += `\nHeads up — your out time (${friendlyTime(mergedStatedOut)}) is after midnight. Did you mean pm?`
     }
     if (hoursBoundsMismatch && reply) {

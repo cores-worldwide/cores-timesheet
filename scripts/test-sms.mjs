@@ -433,6 +433,15 @@ await scenario('midnight out time warning', phone(42), [
   ['ts', ['after midnight']],
 ])
 
+// 18c-2. A bare "out 4" that the parser reads as 04:00 (phone/typing slip)
+// is flipped to 4pm before hours/OT are worked out, and the reply says so.
+// ~40 of these were hand-fixed in SMS Review Aug 17 – Oct 5 2026.
+await cleanupTestTech()
+await scenario('am/pm slip on out time is fixed', phone(48), [
+  ['This is Test. 4760 pump, in 7, out 4, lunch 30', [{ absent: 'after midnight' }]],
+  ['ts', ['Out 4pm', { absent: 'Out 4am' }]],
+])
+
 // 18d. Same-message variant of 18b/18c: a tech states explicit hours AND full
 // time bounds together in one message and the two disagree (e.g. "6hrs" but
 // in/out works out to 8hrs). Bounds still win (matches "all day inference"

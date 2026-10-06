@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
-import { fetchDailyOTContext, computeDailyOTSplit } from '../utils/entrySave'
+import { fetchDailyOTContext, computeDailyOTSplit, fixShiftAmPm, amPmFixNote } from '../utils/entrySave'
 import JobPicker from './JobPicker'
 import './employee.css'
 
@@ -33,6 +33,7 @@ export default function PendingEntryEdit({ employee }) {
   const [timeIn, setTimeIn] = useState('')
   const [timeOut, setTimeOut] = useState('')
   const [lunchMinutes, setLunchMinutes] = useState('')
+  const [amPmNote, setAmPmNote] = useState('')
   const [perDiemLocation, setPerDiemLocation] = useState('')
   const [entries, setEntries] = useState([blankEntry()])
   const [supplies, setSupplies] = useState([blankSupply()])
@@ -70,6 +71,16 @@ export default function PendingEntryEdit({ employee }) {
   const setEntryField = (i, field, value) => setEntries(rows => rows.map((r, j) => j === i ? { ...r, [field]: value } : r))
   const setSupplyField = (i, field, value) => setSupplies(rows => rows.map((r, j) => j === i ? { ...r, [field]: value } : r))
 
+  // Phone left the picker on the wrong AM/PM (see fixShiftAmPm) — correct it
+  // in the fields and tell the tech, rather than sending 4:00 AM to the office.
+  function checkAmPm() {
+    const hours = entries.reduce((s, e) => s + (Number(e.hours) || 0), 0)
+    const fix = fixShiftAmPm(timeIn, timeOut, hours, lunchMinutes)
+    if (!fix.changed) return
+    setTimeIn(fix.time_in); setTimeOut(fix.time_out)
+    setAmPmNote(amPmFixNote(fix))
+  }
+
   async function saveEdit() {
     const cleaned = entries
       .filter(e => e.job_number.trim() || e.description.trim() || e.hours !== '')
@@ -97,9 +108,11 @@ export default function PendingEntryEdit({ employee }) {
         quantity: Number(s.quantity) > 0 ? Number(s.quantity) : 1,
       }))
 
+    // Backstop for checkAmPm() — the onBlur that normally catches it can be skipped
+    const ampm = fixShiftAmPm(timeIn, timeOut, entriesWithOT.reduce((s, e) => s + e.hours, 0), lunchMinutes)
     const updates = {
-      time_in: timeIn || null,
-      stated_time_out: timeOut || null,
+      time_in: ampm.time_in || null,
+      stated_time_out: ampm.time_out || null,
       lunch_minutes: lunchMinutes !== '' ? Number(lunchMinutes) : null,
       per_diem_location: perDiemLocation.trim() || null,
       entries: entriesWithOT,
@@ -165,13 +178,14 @@ export default function PendingEntryEdit({ employee }) {
         <div className="emp-row-2">
           <div className="emp-field">
             <label>Time in</label>
-            <input type="time" value={timeIn} onChange={e => setTimeIn(e.target.value)} />
+            <input type="time" value={timeIn} onChange={e => setTimeIn(e.target.value)} onBlur={checkAmPm} />
           </div>
           <div className="emp-field">
             <label>Time out</label>
-            <input type="time" value={timeOut} onChange={e => setTimeOut(e.target.value)} />
+            <input type="time" value={timeOut} onChange={e => setTimeOut(e.target.value)} onBlur={checkAmPm} />
           </div>
         </div>
+        {amPmNote && <div className="emp-ampm-note">{amPmNote}</div>}
 
         <div className="emp-row-2">
           <div className="emp-field">

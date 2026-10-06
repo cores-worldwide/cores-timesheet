@@ -83,6 +83,45 @@ export async function replaceSupplies(supabase, employeeId, workDate, supplies) 
   return { error }
 }
 
+// Phones set to 12-hour time leave the native time picker on whichever AM/PM
+// it was already on, so "out 4:00" is saved as 04:00 (or "in 7:00" as 19:00).
+// ~40 such days hit SMS Review between Aug 17 and Oct 5 2026 and every one was
+// hand-fixed. Rule: if the stop time is before the start time, an in time in
+// the afternoon/evening that becomes valid by moving 12h earlier is flipped to
+// AM; otherwise an AM stop time is flipped to PM. A real overnight shift is
+// kept when the job hours fit it better than the PM reading. Mirror of
+// fixShiftAmPm in supabase/functions/sms-timesheet/index.ts — keep in step.
+// Returns { time_in, time_out, changed: null | 'in' | 'out' }.
+export function fixShiftAmPm(timeIn, timeOut, totalHours = 0, lunchMinutes = 0) {
+  const same = { time_in: timeIn, time_out: timeOut, changed: null }
+  if (!timeIn || !timeOut) return same
+  const toMins = (t) => { const [h, m] = String(t).split(':').map(Number); return h * 60 + m }
+  const toHHMM = (mins) => `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`
+  const inM = toMins(timeIn), outM = toMins(timeOut)
+  if (!(outM < inM)) return same
+  if (inM >= 720 && inM - 720 < outM) return { time_in: toHHMM(inM - 720), time_out: timeOut, changed: 'in' }
+  if (outM < 720 && outM + 720 > inM) {
+    const hrs = Number(totalHours) || 0
+    if (hrs > 0) {
+      const work = (span) => span - (Number(lunchMinutes) || 0)
+      const pmGap = Math.abs(work(outM + 720 - inM) - hrs * 60)
+      const overnightGap = Math.abs(work(outM + 1440 - inM) - hrs * 60)
+      if (overnightGap < pmGap) return same
+    }
+    return { time_in: timeIn, time_out: toHHMM(outM + 720), changed: 'out' }
+  }
+  return same
+}
+
+// Plain-English note for the tech when fixShiftAmPm changed something.
+export function amPmFixNote(fix) {
+  if (!fix?.changed) return ''
+  const t = fix.changed === 'in' ? fix.time_in : fix.time_out
+  const [h, m] = t.split(':').map(Number)
+  const nice = `${h % 12 === 0 ? 12 : h % 12}:${String(m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`
+  return `Your time ${fix.changed} was set to ${fix.changed === 'in' ? 'PM' : 'AM'}, so it was changed to ${nice}. Check your phone's AM/PM. If you really worked overnight, tell the office.`
+}
+
 // Derives calculated_time_out/delta_minutes for an sms_submissions row from
 // its stated shift times — same math PendingEntryEdit uses, shared here so
 // the mobile self-entry flow (EntryForm.jsx, EmployeeHome.jsx) produces the

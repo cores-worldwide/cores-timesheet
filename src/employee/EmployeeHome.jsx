@@ -4,7 +4,7 @@ import { supabase } from '../supabaseClient'
 import { payWeekRange } from '../utils/statPay'
 import { computeOTMap } from '../utils/otCalc'
 import { fmtHours } from '../utils/format'
-import { fetchDailyOTContext, computeDailyOTSplit, computeSubmissionTiming } from '../utils/entrySave'
+import { fetchDailyOTContext, computeDailyOTSplit, computeSubmissionTiming, fixShiftAmPm, amPmFixNote } from '../utils/entrySave'
 import { uploadGearPhoto } from '../utils/media'
 import JobPicker from './JobPicker'
 import MediaThumb from '../components/MediaThumb'
@@ -55,6 +55,7 @@ export default function EmployeeHome({ employee }) {
   const [draftLines, setDraftLines] = useState([blankDraftLine()])
   const [supplyLines, setSupplyLines] = useState([blankSupplyLine()])
   const [savingLog, setSavingLog] = useState(false)
+  const [amPmNote, setAmPmNote] = useState('')
   // Keyed by work_date so an in-flight autosave for a day that's no longer
   // open (the tech already swiped to another day) can't get corrupted by
   // openLog() resetting shared refs out from under it.
@@ -153,6 +154,7 @@ export default function EmployeeHome({ employee }) {
   const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))
 
   function openLog(ymd) {
+    setAmPmNote('')
     const daySub = submissions.find(s => s.work_date === ymd)
     // No pending sub but the day already has approved hours (submissions
     // excludes status='approved', see load()) — prefill from what's already on
@@ -304,8 +306,13 @@ export default function EmployeeHome({ employee }) {
 
       const entries = [...(baseEntriesRef.current[ymd] || []), ...newEntries]
       const totalHours = entries.reduce((s, e) => s + (Number(e.hours) || 0), 0)
-      const time_in = draftShift.time_in || null
-      const stated_time_out = draftShift.time_out || null
+      const ampm = fixShiftAmPm(draftShift.time_in, draftShift.time_out, totalHours, draftShift.lunch_minutes)
+      if (ampm.changed) {
+        setDraftShift(f => ({ ...f, time_in: ampm.time_in, time_out: ampm.time_out }))
+        setAmPmNote(amPmFixNote(ampm))
+      }
+      const time_in = ampm.time_in || null
+      const stated_time_out = ampm.time_out || null
       const lunch_minutes = draftShift.lunch_minutes === '' ? null : Number(draftShift.lunch_minutes)
       const per_diem_location = draftShift.per_diem_location.trim() || 'none'
       const { calculated_time_out, delta_minutes } = computeSubmissionTiming(time_in, stated_time_out, lunch_minutes, totalHours)
@@ -479,6 +486,7 @@ export default function EmployeeHome({ employee }) {
                       onBlur={() => autosaveLog(ymd)} />
                   </div>
                 </div>
+                {amPmNote && <div className="emp-ampm-note">{amPmNote}</div>}
                 <div className="emp-row-2">
                   <div className="emp-field">
                     <label>Lunch (min)</label>
