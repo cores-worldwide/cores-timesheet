@@ -239,6 +239,15 @@
 
 .emp-hint { color: #888; font-size: 0.8rem; margin-top: 0.5rem; }
 
+.emp-ampm-note {
+  background: #fff4e0;
+  color: #8a5a00;
+  border-radius: 8px;
+  padding: 0.5rem 0.7rem;
+  font-size: 0.85rem;
+  margin-bottom: 0.6rem;
+}
+
 .emp-back-link {
   display: inline-block;
   margin-bottom: 0.85rem;

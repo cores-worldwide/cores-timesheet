@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
-import { fetchDailyOTContext, computeDailyOTSplit, computeSubmissionTiming } from '../utils/entrySave'
+import { fetchDailyOTContext, computeDailyOTSplit, computeSubmissionTiming, fixShiftAmPm, amPmFixNote } from '../utils/entrySave'
 import JobPicker from './JobPicker'
 import MediaThumb from '../components/MediaThumb'
 import { uploadGearPhoto } from '../utils/media'
@@ -29,6 +29,7 @@ export default function EntryForm({ employee }) {
   const [workDate, setWorkDate] = useState(toYMD(new Date()))
   const [timeIn, setTimeIn] = useState('07:00')
   const [timeOut, setTimeOut] = useState('15:30')
+  const [amPmNote, setAmPmNote] = useState('')
   const [lunchMinutes, setLunchMinutes] = useState(30)
   // Matches sms_submissions.per_diem_location (same shape a texted-in day
   // uses; see saveNewDay/PendingEntryEdit.jsx).
@@ -60,6 +61,16 @@ export default function EntryForm({ employee }) {
   }
   function updateSupplyLine(i, patch) {
     setSupplyLines(lines => lines.map((l, idx) => idx === i ? { ...l, ...patch } : l))
+  }
+
+  // Phone left the picker on the wrong AM/PM (see fixShiftAmPm) — correct it
+  // in the fields and tell the tech, rather than sending 4:00 AM to the office.
+  function checkAmPm() {
+    const hours = jobLines.reduce((s, l) => s + (Number(l.hours) || 0), 0)
+    const fix = fixShiftAmPm(timeIn, timeOut, hours, lunchMinutes)
+    if (!fix.changed) return
+    setTimeIn(fix.time_in); setTimeOut(fix.time_out)
+    setAmPmNote(amPmFixNote(fix))
   }
 
   async function saveNewDay() {
@@ -117,20 +128,22 @@ export default function EntryForm({ employee }) {
       .map(s => ({ job_number: jobNumberFor(s.job_id), supply_name: s.supply_name, quantity: Number(s.quantity) }))
 
     const totalHours = entries.reduce((s, e) => s + e.hours, 0)
-    const { calculated_time_out, delta_minutes } = computeSubmissionTiming(timeIn, timeOut, lunchMinutes, totalHours)
+    // Backstop for checkAmPm() — the onBlur that normally catches it can be skipped
+    const { time_in: tIn, time_out: tOut } = fixShiftAmPm(timeIn, timeOut, totalHours, lunchMinutes)
+    const { calculated_time_out, delta_minutes } = computeSubmissionTiming(tIn, tOut, lunchMinutes, totalHours)
 
     // A texted-in day keeps its full back-and-forth in raw_messages, rendered
     // as "Conversation" in SMS Review. This form only ever appends one snapshot
     // line (not an autosave loop needing the session-close handling
     // EmployeeHome.jsx's equivalent uses) — onto the existing conversation when
     // taking over a texted-in row, or as the whole history for a fresh one.
-    const summaryParts = [`In ${timeIn || '—'}`, `Out ${timeOut || '—'}`, `Lunch ${lunchMinutes === '' ? 0 : lunchMinutes}min`]
+    const summaryParts = [`In ${tIn || '—'}`, `Out ${tOut || '—'}`, `Lunch ${lunchMinutes === '' ? 0 : lunchMinutes}min`]
     if (perDiemLocation.trim()) summaryParts.push(`PD: ${perDiemLocation.trim()}`)
     for (const e of entries) summaryParts.push(`Job# ${e.job_number}: ${e.hours}hrs${e.description ? ' — ' + e.description : ''}`)
     const newMessage = { ts: new Date().toISOString(), text: `Logged via app: ${summaryParts.join(' · ')}`, direction: 'in' }
 
     const record = {
-      time_in: timeIn || null, stated_time_out: timeOut || null,
+      time_in: tIn || null, stated_time_out: tOut || null,
       lunch_minutes: lunchMinutes === '' ? null : Number(lunchMinutes),
       per_diem_location: perDiemLocation.trim() || 'none',
       entries, supplies, status: 'submitted',
@@ -187,13 +200,14 @@ export default function EntryForm({ employee }) {
         <div className="emp-row-2">
           <div className="emp-field">
             <label>Time in</label>
-            <input type="time" value={timeIn} onChange={e => setTimeIn(e.target.value)} />
+            <input type="time" value={timeIn} onChange={e => setTimeIn(e.target.value)} onBlur={checkAmPm} />
           </div>
           <div className="emp-field">
             <label>Time out</label>
-            <input type="time" value={timeOut} onChange={e => setTimeOut(e.target.value)} />
+            <input type="time" value={timeOut} onChange={e => setTimeOut(e.target.value)} onBlur={checkAmPm} />
           </div>
         </div>
+        {amPmNote && <div className="emp-ampm-note">{amPmNote}</div>}
 
         <div className="emp-row-2">
           <div className="emp-field">
