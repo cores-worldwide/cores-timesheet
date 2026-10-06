@@ -465,3 +465,20 @@ ALTER TABLE "Cores".shortcut_visits ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON "Cores".shortcut_visits FROM anon, authenticated;
 GRANT INSERT ON "Cores".shortcut_visits TO anon, authenticated;
 CREATE POLICY "shortcut_visits_insert" ON "Cores".shortcut_visits FOR INSERT WITH CHECK (true);
+
+-- supabase/migrations/20261006200000_create_usage_daily.sql
+CREATE TABLE "Cores".usage_daily (
+  day        date NOT NULL,
+  service    text NOT NULL,
+  metric     text NOT NULL,
+  value      numeric NOT NULL DEFAULT 0,
+  unit       text,
+  cost_usd   numeric(12,4),
+  source     text NOT NULL CHECK (source IN ('provider', 'estimate', 'counter')),
+  details    jsonb NOT NULL DEFAULT '{}'::jsonb,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (day, service, metric)
+);
+CREATE INDEX usage_daily_service_day ON "Cores".usage_daily (service, day DESC);
+ALTER TABLE "Cores".usage_daily ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON "Cores".usage_daily FROM anon, authenticated;

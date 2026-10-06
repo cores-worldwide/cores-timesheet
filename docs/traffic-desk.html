@@ -1,0 +1,356 @@
+<title>Cores Traffic Desk</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a dispatcher's board. One status line, then one row ("line") per outside service with its counts, money and runway, then settings. */
+:root {
+  --bg: #f3f4f1; --panel: #ffffff; --ink: #1c2321; --muted: #5f6b67; --rule: #d9ddd8;
+  --accent: #1f6f78; --accent-soft: #dcebec;
+  --ok: #2f7d4f; --warn: #a86a12; --bad: #b3372b; --ok-soft: #e1f0e6; --warn-soft: #f6ead3; --bad-soft: #f6dedb;
+  --display: "IBM Plex Sans Condensed", "Arial Narrow", sans-serif;
+  --body: "IBM Plex Sans", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #141917; --panel: #1c2321; --ink: #e6ebe8; --muted: #9aa6a1; --rule: #2e3835;
+  --accent: #5fb7c0; --accent-soft: #1f3638;
+  --ok: #6cc28e; --warn: #e2a64a; --bad: #ef7d70; --ok-soft: #1d3326; --warn-soft: #3a2e19; --bad-soft: #3d2320; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #141917; --panel: #1c2321; --ink: #e6ebe8; --muted: #9aa6a1; --rule: #2e3835;
+  --accent: #5fb7c0; --accent-soft: #1f3638;
+  --ok: #6cc28e; --warn: #e2a64a; --bad: #ef7d70; --ok-soft: #1d3326; --warn-soft: #3a2e19; --bad-soft: #3d2320; color-scheme: dark }
+body { background: var(--bg); color: var(--ink); font: 15px/1.5 var(--body); }
+.wrap { max-width: 1040px; margin: 0 auto; padding: 28px 16px 48px; display: grid; gap: 22px; }
+header { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px; }
+h1 { font: 700 30px/1.1 var(--display); letter-spacing: .01em; margin: 0; text-wrap: balance; }
+.sub { color: var(--muted); font-size: 13px; }
+button { font: 600 13px var(--body); border: 1px solid var(--accent); background: var(--accent); color: var(--panel);
+  padding: 7px 14px; border-radius: 6px; cursor: pointer; }
+button.ghost { background: transparent; color: var(--accent); }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button:disabled { opacity: .5; cursor: default; }
+.lab { font: 600 11px var(--body); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+.bulletin { background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; padding: 14px 16px; display: grid; gap: 8px; }
+.bulletin ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+.bulletin li { display: flex; gap: 10px; align-items: baseline; }
+.pill { font: 600 11px var(--body); letter-spacing: .06em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+.pill.ok { background: var(--ok-soft); color: var(--ok); }
+.pill.warn { background: var(--warn-soft); color: var(--warn); }
+.pill.bad { background: var(--bad-soft); color: var(--bad); }
+.pill.idle { background: var(--accent-soft); color: var(--accent); }
+
+.lines { display: grid; gap: 14px; }
+.line { background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; padding: 16px; display: grid;
+  grid-template-columns: minmax(150px, 1fr) minmax(0, 3fr); gap: 16px; }
+.line > * { min-width: 0; }
+.who h2 { font: 600 20px/1.2 var(--display); margin: 0 0 4px; }
+.who p { margin: 6px 0 0; color: var(--muted); font-size: 13px; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px 18px; }
+.stat .v { font: 500 20px/1.25 var(--mono); font-variant-numeric: tabular-nums; }
+.stat .n { font-size: 12px; color: var(--muted); }
+.spark { grid-column: 1 / -1; display: grid; gap: 4px; }
+.spark svg { width: 100%; height: 56px; display: block; }
+.note { grid-column: 1 / -1; font-size: 13px; color: var(--muted); }
+.note.err { color: var(--bad); }
+.breakdown { grid-column: 1 / -1; font-size: 13px; color: var(--muted); }
+.breakdown summary { cursor: pointer; color: var(--accent); }
+.breakdown table { border-collapse: collapse; margin-top: 6px; }
+.breakdown td { padding: 2px 14px 2px 0; }
+
+.settings { background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; padding: 16px; display: grid; gap: 12px; }
+.settings h2 { font: 600 18px var(--display); margin: 0; }
+.fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+.fields label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+.fields input { font: 15px var(--mono); padding: 6px 8px; border: 1px solid var(--rule); border-radius: 6px; background: var(--bg); color: var(--ink); }
+.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+footer { font-size: 12px; color: var(--muted); }
+@media (max-width: 640px) { .line { grid-template-columns: 1fr; } }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Cores Traffic Desk</h1>
+      <div class="sub" id="asof">Waiting for the Supabase connector…</div>
+    </div>
+    <button id="refresh" type="button">Refresh</button>
+  </header>
+
+  <section class="bulletin" aria-live="polite">
+    <span class="lab">Next 7 days</span>
+    <ul id="alerts"><li><span class="pill idle">Loading</span><span>Reading the usage table and today's Supabase logs.</span></li></ul>
+  </section>
+
+  <div class="lines">
+    <article class="line" id="line-supabase">
+      <div class="who"><h2>Supabase</h2><span class="pill idle">Loading</span>
+        <p>Database, photos and the SMS bot's function. Shared with BLD Inventory.</p></div>
+      <div class="stats"></div>
+    </article>
+    <article class="line" id="line-twilio">
+      <div class="who"><h2>Twilio</h2><span class="pill idle">Loading</span>
+        <p>Texts in and out, MMS photos, login codes and the phone number.</p></div>
+      <div class="stats"></div>
+    </article>
+    <article class="line" id="line-claude">
+      <div class="who"><h2>Claude API</h2><span class="pill idle">Loading</span>
+        <p>Haiku reading crew texts in the SMS bot. Prepaid credit.</p></div>
+      <div class="stats"></div>
+    </article>
+  </div>
+
+  <form class="settings" id="settings">
+    <h2>Numbers the providers don't report</h2>
+    <div class="fields">
+      <label for="claudeBal">Claude credit balance (USD)<input id="claudeBal" type="number" step="0.01" min="0" placeholder="e.g. 9.40"></label>
+      <label for="claudeAsOf">…as of this date<input id="claudeAsOf" type="date"></label>
+      <label for="twThreshold">Twilio auto-recharge when below (USD)<input id="twThreshold" type="number" step="1" min="0" placeholder="blank = off"></label>
+      <label for="twAmount">Twilio recharge amount (USD)<input id="twAmount" type="number" step="1" min="0" placeholder="e.g. 20"></label>
+      <label for="sbDay">Supabase bill day of month<input id="sbDay" type="number" min="1" max="28" placeholder="1"></label>
+    </div>
+    <div class="row"><button type="submit" id="save">Save</button><span class="sub" id="saveMsg">Check console.anthropic.com → Credits (Uncle Awesome org) for the Claude balance.</span></div>
+  </form>
+
+  <footer>
+    Twilio and Claude count by UTC day, Supabase by Atlantic day. Supabase egress is an estimate from the logs.
+    Nightly numbers come from the usage-snapshot job; "last 24 h" for Supabase is read live.
+    Not tracked yet: Resend emails, Google Drive space.
+  </footer>
+</div>
+
+<script>
+const PROJECT = 'wgjuflwbkmgirhqoqfgp'
+const SERVER = 'Supabase'
+const SUPABASE_PRO = 25, EGRESS_INCLUDED = 250 * 1024 ** 3, EGRESS_FREE = 5 * 1024 ** 3
+const LOW_DAYS = 7, WATCH_DAYS = 21
+
+let mcp = null, db = null
+let settings = {}
+let usage = null, live = null, usageErr = null, liveErr = null, lastLoaded = null
+
+const $ = id => document.getElementById(id)
+const usd = n => n == null || isNaN(n) ? '—' : '$' + (Math.abs(n) < 10 ? n.toFixed(2) : n.toFixed(0))
+const int = n => n == null ? '—' : Math.round(n).toLocaleString()
+const gb = b => b == null ? '—' : b >= 1024 ** 3 ? (b / 1024 ** 3).toFixed(2) + ' GB' : (b / 1024 ** 2).toFixed(0) + ' MB'
+const localDay = (d = new Date()) => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Halifax' }).format(d)
+const addDays = (day, n) => { const d = new Date(day + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10) }
+const nice = day => new Date(day + 'T12:00:00Z').toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' })
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c])
+
+// The Supabase connector wraps results in an untrusted-data envelope; pull the JSON out.
+function unwrap(payload) {
+  let text = typeof payload === 'string' ? payload : payload?.result ?? JSON.stringify(payload)
+  if (typeof text !== 'string') return text
+  const m = text.match(/<untrusted-data-[^>]+>\s*([\s\S]*?)\s*<\/untrusted-data/)
+  const inner = JSON.parse(m ? m[1] : text)
+  return inner && !Array.isArray(inner) && 'result' in inner ? inner.result : inner
+}
+
+function errText(e) {
+  switch (e?.code) {
+    case 'server_not_connected': return 'Add the Supabase connector in claude.ai Settings → Connectors, then refresh.'
+    case 'needs_reauth': return 'Reconnect Supabase in claude.ai Settings → Connectors, then refresh.'
+    case 'not_in_manifest': return 'Supabase access is turned off for this page. Turn it on from the page\'s Permissions menu.'
+    case 'selection_required': return 'Choose which Supabase connector this page should use, then refresh.'
+    case 'blocked_by_policy': case 'approval_required': return 'Your organization\'s policy blocks this Supabase call.'
+    case 'server_unavailable': return 'Supabase didn\'t answer in time. Try Refresh in a minute.'
+    case 'tool_error': return 'Supabase reported an error: ' + (e.message || 'unknown')
+    default: return 'Couldn\'t reach Supabase (' + (e?.code || 'error') + '): ' + (e?.message || '')
+  }
+}
+
+async function call(tool, input) {
+  try { return unwrap((await mcp.callTool(SERVER, tool, input, { cache: false })).payload) }
+  catch (e) {
+    if (e?.retryable) { await new Promise(r => setTimeout(r, Math.max(e.retryAfterMs || 0, 1500 + Math.random() * 1500)))
+      return unwrap((await mcp.callTool(SERVER, tool, input, { cache: false })).payload) }
+    throw e
+  }
+}
+
+const USAGE_SQL = `select day::text as day, service, metric, value::float8 as value, unit, cost_usd::float8 as cost_usd, source, details, updated_at
+from "Cores".usage_daily where day >= current_date - 70 order by day`
+const LIVE_SQL = `select if(source = 'function_edge_logs', 'functions', splitByChar('/', log_attributes['request.path'])[2]) as area,
+  count() as reqs,
+  countIf(source = 'edge_logs' and log_attributes['response.headers.content_length'] = '') as unknown_len,
+  sum(toUInt64OrZero(log_attributes['response.headers.content_length'])) as known_bytes
+from logs where source in ('edge_logs', 'function_edge_logs') group by area`
+
+async function load() {
+  $('refresh').disabled = true
+  if (!mcp) { usageErr = liveErr = { code: 'not_granted' }; render(); return }
+  const [u, l] = await Promise.allSettled([
+    call('execute_sql', { project_id: PROJECT, query: USAGE_SQL }),
+    call('query_logs', { project_id: PROJECT, sql: LIVE_SQL }),
+  ])
+  if (u.status === 'fulfilled') { usage = u.value; usageErr = null } else usageErr = u.reason
+  if (l.status === 'fulfilled') { live = l.value; liveErr = null } else liveErr = l.reason
+  lastLoaded = new Date()
+  $('refresh').disabled = false
+  render()
+}
+
+// ---- helpers over usage rows ----
+const series = (service, metric) => (usage || []).filter(r => r.service === service && r.metric === metric)
+const sumSince = (rows, day, key = 'value') => rows.filter(r => r.day >= day).reduce((a, r) => a + (Number(r[key]) || 0), 0)
+function burn(rows, days = 7) {   // average per day over the last N days that have rows
+  const recent = rows.slice(-days)
+  return recent.length ? recent.reduce((a, r) => a + (Number(r.value) || 0), 0) / recent.length : null
+}
+const monthStart = () => localDay().slice(0, 8) + '01'
+
+function spark(rows, fmt) {
+  const today = localDay(), days = Array.from({ length: 30 }, (_, i) => addDays(today, i - 30))
+  const byDay = Object.fromEntries(rows.map(r => [r.day, Number(r.value) || 0]))
+  const vals = days.map(d => byDay[d])
+  const have = vals.filter(v => v != null)
+  if (!have.length) return '<div class="spark"><span class="lab">Last 30 days</span><span class="sub">No nightly numbers yet.</span></div>'
+  const max = Math.max(...have, 1e-9), W = 600, H = 56, step = W / 29
+  const pts = vals.map((v, i) => v == null ? null : [i * step, H - 4 - (v / max) * (H - 10)])
+  const segs = []; let cur = []
+  pts.forEach(p => { if (p) cur.push(p); else if (cur.length) { segs.push(cur); cur = [] } }); if (cur.length) segs.push(cur)
+  const line = segs.map(s => 'M' + s.map(p => p.map(n => n.toFixed(1)).join(',')).join('L')).join('')
+  const area = segs.map(s => `M${s[0][0].toFixed(1)},${H}L` + s.map(p => p.map(n => n.toFixed(1)).join(',')).join('L') + `L${s[s.length - 1][0].toFixed(1)},${H}Z`).join('')
+  const last = pts.filter(Boolean).pop()
+  return `<div class="spark"><span class="lab">Last 30 days · peak ${fmt(max)}</span>
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Daily trend, last 30 days">
+      <line x1="0" x2="${W}" y1="${H - 0.5}" y2="${H - 0.5}" stroke="var(--rule)" stroke-width="1"/>
+      <path d="${area}" fill="var(--accent-soft)" stroke="none"/>
+      <path d="${line}" fill="none" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke"/>
+      <circle cx="${last[0]}" cy="${last[1]}" r="3.5" fill="var(--accent)"/>
+    </svg></div>`
+}
+
+const stat = (label, value, note = '') => `<div class="stat"><div class="lab">${label}</div><div class="v">${value}</div><div class="n">${note}</div></div>`
+function setLine(id, state, label, html) {
+  const el = $(id)
+  const pill = el.querySelector('.who .pill'); pill.className = 'pill ' + state; pill.textContent = label
+  el.querySelector('.stats').innerHTML = html
+}
+const runwayState = days => days == null ? 'idle' : days <= LOW_DAYS ? 'bad' : days <= WATCH_DAYS ? 'warn' : 'ok'
+
+// ---- the three lines ----
+function renderSupabase(alerts) {
+  const parts = [], ms = monthStart(), today = localDay()
+  if (liveErr) parts.push(`<div class="note err">Last 24 h: ${esc(errText(liveErr))}</div>`)
+  else if (live) {
+    const a = Object.fromEntries(live.map(r => [r.area, r]))
+    const unknown = live.reduce((s, r) => s + Number(r.unknown_len || 0), 0)
+    const est = live.reduce((s, r) => s + Number(r.known_bytes || 0), 0) + unknown * 20000
+    parts.push(stat('Database · 24 h', int(a.rest?.reqs || 0), 'requests, live'),
+      stat('Photos & files · 24 h', int(a.storage?.reqs || 0), 'requests, live'),
+      stat('SMS bot · 24 h', int(a.functions?.reqs || 0), 'function calls, live'),
+      stat('Egress · 24 h', '~' + gb(est), 'estimate'))
+    if ((a.rest?.reqs || 0) > 10000) alerts.push(['warn', `Supabase database traffic is high: ${int(a.rest.reqs)} requests in the last 24 h (normal is well under 10,000).`])
+  }
+  let state = liveErr ? 'warn' : 'ok', label = liveErr ? 'Live data unavailable' : 'Normal'
+  if (usage) {
+    const eg = series('supabase', 'egress_bytes'), mtd = sumSince(eg, ms)
+    const elapsed = Math.max(1, eg.filter(r => r.day >= ms).length)
+    const dim = new Date(+today.slice(0, 4), +today.slice(5, 7), 0).getDate()
+    const proj = mtd / elapsed * dim
+    const billDay = Math.min(28, Math.max(1, Number(settings.sbDay) || 1))
+    let next = today.slice(0, 8) + String(billDay).padStart(2, '0'); if (next <= today) next = addDays(next.slice(0, 8) + '01', 32).slice(0, 8) + String(billDay).padStart(2, '0')
+    const daysToBill = Math.round((new Date(next) - new Date(today)) / 864e5)
+    parts.push(stat('Egress this month', '~' + gb(mtd), `on pace for ~${gb(proj)} · 250 GB included`),
+      stat('Free-plan check', proj <= EGRESS_FREE ? 'Under 5 GB' : 'Over 5 GB', 'could drop to Free if under'),
+      stat('Next bill', usd(SUPABASE_PRO), `${nice(next)} · in ${daysToBill} days`))
+    if (daysToBill <= 7) alerts.push(['idle', `Supabase Pro renews ${nice(next)}: ${usd(SUPABASE_PRO)} plus any overage.`])
+    if (proj > EGRESS_INCLUDED * 0.8) { state = 'bad'; label = 'Egress near limit'; alerts.push(['bad', `Supabase egress is on pace for ${gb(proj)} this month (250 GB included).`]) }
+    parts.push(spark(series('supabase', 'rest_requests'), int))
+    const latest = series('supabase', 'rest_requests').pop()
+    if (latest?.details?.by_table) parts.push(`<details class="breakdown"><summary>Busiest tables on ${nice(latest.day)}</summary><table>${
+      Object.entries(latest.details.by_table).map(([t, n]) => `<tr><td>${esc(t)}</td><td class="num">${int(n)}</td></tr>`).join('')}</table></details>`)
+    if (!eg.length) parts.push('<div class="note">No nightly Supabase numbers yet. They start after the first usage-snapshot run with SUPABASE_ACCESS_TOKEN set.</div>')
+  } else if (usageErr) parts.push(`<div class="note err">History: ${esc(errText(usageErr))}</div>`)
+  setLine('line-supabase', state, label, parts.join(''))
+}
+
+function renderTwilio(alerts) {
+  if (!usage) return setLine('line-twilio', usageErr ? 'warn' : 'idle', usageErr ? 'Unavailable' : 'Loading',
+    usageErr ? `<div class="note err">${esc(errText(usageErr))}</div>` : '')
+  const bal = series('twilio', 'balance').pop(), cost = series('twilio', 'cost')
+  if (!bal && !cost.length) return setLine('line-twilio', 'idle', 'No data yet',
+    '<div class="note">No Twilio numbers yet. They start after the first usage-snapshot run with the Twilio secrets set.</div>')
+  const b = burn(cost), ms = monthStart()
+  const balance = bal ? Number(bal.value) : null
+  const threshold = settings.twThreshold === '' || settings.twThreshold == null ? null : Number(settings.twThreshold)
+  const floor = threshold ?? 0
+  const days = balance != null && b > 0 ? (balance - floor) / b : null
+  const when = days != null ? addDays(localDay(), Math.max(0, Math.floor(days))) : null
+  const texts = sumSince(series('twilio', 'sms_outbound'), ms) + sumSince(series('twilio', 'sms_inbound'), ms)
+  const mms = sumSince(series('twilio', 'mms_inbound'), ms) + sumSince(series('twilio', 'mms_outbound'), ms)
+  const parts = [
+    stat('Balance', usd(balance), bal ? `as of ${nice(bal.day)}` : ''),
+    stat('Spend per day', usd(b), '7-day average'),
+    stat('This month', usd(sumSince(cost, ms)), `${int(texts)} texts · ${int(mms)} MMS`),
+    stat(threshold != null ? 'Auto-recharge' : 'Runs out', when ? nice(when) : '—', days != null ? `in about ${Math.round(days)} days` : 'not enough data'),
+  ]
+  const state = threshold != null ? (days != null && days <= LOW_DAYS ? 'warn' : 'ok') : runwayState(days)
+  if (days != null && days <= LOW_DAYS) alerts.push([threshold != null ? 'warn' : 'bad', threshold != null
+    ? `Twilio will charge ${usd(Number(settings.twAmount) || null)} around ${nice(when)} (balance ${usd(balance)} falls below ${usd(threshold)}).`
+    : `Twilio credit runs out around ${nice(when)} (balance ${usd(balance)}, ${usd(b)}/day).`])
+  parts.push(spark(cost, usd))
+  setLine('line-twilio', state, state === 'ok' ? 'Healthy' : state === 'warn' ? 'Charge coming' : state === 'bad' ? 'Low credit' : 'Watching', parts.join(''))
+}
+
+function renderClaude(alerts) {
+  if (!usage) return setLine('line-claude', usageErr ? 'warn' : 'idle', usageErr ? 'Unavailable' : 'Loading',
+    usageErr ? `<div class="note err">${esc(errText(usageErr))}</div>` : '')
+  const cost = series('claude', 'cost'), ms = monthStart()
+  const b = burn(cost)
+  const hasBal = settings.claudeBal !== '' && settings.claudeBal != null && settings.claudeAsOf
+  const remaining = hasBal ? Number(settings.claudeBal) - sumSince(cost, settings.claudeAsOf) : null
+  const days = remaining != null && b > 0 ? remaining / b : null
+  const when = days != null ? addDays(localDay(), Math.max(0, Math.floor(days))) : null
+  const tokensIn = sumSince(series('claude', 'input_tokens'), ms), tokensOut = sumSince(series('claude', 'output_tokens'), ms)
+  const parts = [
+    stat('Credit left', hasBal ? usd(remaining) : 'Not set', hasBal ? `${usd(Number(settings.claudeBal))} on ${nice(settings.claudeAsOf)}, minus spend since` : 'enter it below'),
+    stat('Spend per day', usd(b), '7-day average'),
+    stat('This month', usd(sumSince(cost, ms)), `${int(tokensIn)} in · ${int(tokensOut)} out tokens`),
+    stat('Runs out', when ? nice(when) : '—', days != null ? `in about ${Math.round(days)} days` : hasBal ? 'no spend yet' : 'needs a balance'),
+  ]
+  if (!cost.length) parts.push('<div class="note">No Claude numbers yet. They start after the first usage-snapshot run with ANTHROPIC_ADMIN_KEY set.</div>')
+  else parts.push(spark(cost, usd))
+  const state = hasBal ? runwayState(days ?? 999) : 'idle'
+  if (days != null && days <= LOW_DAYS) alerts.push(['bad', `Claude credit runs out around ${nice(when)}. When it does, crew texts fail to parse. Top up at console.anthropic.com.`])
+  if (remaining != null && remaining < 1) alerts.push(['bad', `Claude credit is down to ${usd(remaining)}.`])
+  setLine('line-claude', state, state === 'ok' ? 'Healthy' : state === 'warn' ? 'Top up soon' : state === 'bad' ? 'Low credit' : 'Balance not set', parts.join(''))
+}
+
+function render() {
+  const alerts = []
+  renderSupabase(alerts); renderTwilio(alerts); renderClaude(alerts)
+  const latest = (usage || []).reduce((m, r) => r.updated_at > m ? r.updated_at : m, '')
+  $('asof').textContent = (lastLoaded ? 'Checked ' + lastLoaded.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : 'Not checked yet') +
+    (latest ? ' · nightly numbers from ' + new Date(latest).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '')
+  if (usage && !usage.length) alerts.push(['idle', 'The usage table is empty. Nightly numbers appear after the first usage-snapshot run.'])
+  if (!alerts.length && (usage || live)) alerts.push(['ok', 'Nothing running low and no charges due in the next 7 days.'])
+  if (!mcp) alerts.splice(0, alerts.length, ['warn', 'This page needs the Supabase connector. Open it in claude.ai while signed in as Jim.'])
+  $('alerts').innerHTML = alerts.map(([s, t]) => `<li><span class="pill ${s}">${{ ok: 'Clear', warn: 'Heads up', bad: 'Act', idle: 'Note' }[s]}</span><span>${esc(t)}</span></li>`).join('')
+}
+
+// ---- settings (artifact db) ----
+const FIELDS = ['claudeBal', 'claudeAsOf', 'twThreshold', 'twAmount', 'sbDay']
+function fillForm() { FIELDS.forEach(f => { $(f).value = settings[f] ?? '' }) }
+$('settings').addEventListener('submit', async e => {
+  e.preventDefault()
+  if (!db) { $('saveMsg').textContent = 'Saving needs claude.ai sign-in.'; return }
+  const next = Object.fromEntries(FIELDS.map(f => [f, $(f).value]))
+  $('save').disabled = true
+  try { await db.doc('settings/main').set(next); settings = next; $('saveMsg').textContent = 'Saved.'; render() }
+  catch (err) { $('saveMsg').textContent = 'Couldn\'t save: ' + (err?.message || err?.code || 'unknown error') }
+  $('save').disabled = false
+})
+$('refresh').addEventListener('click', load)
+
+;(async () => {
+  render()
+  const [m, d] = await Promise.all([claude.use('mcp'), claude.use('db')])
+  mcp = m; db = d
+  if (db) { try { const s = await db.doc('settings/main').get(); if (s.exists) settings = s.data() || {} } catch {} fillForm() }
+  await load()
+})()
+</script>
