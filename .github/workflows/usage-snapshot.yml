@@ -34,10 +34,12 @@ jobs:
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
-        run: scripts/log-backup.sh usage-snapshot true "{\"rows\": $(jq length usage-rows.json)}"
+        run: |
+          scripts/log-backup.sh usage-snapshot true "{\"rows\": $(jq length usage-rows.json)}"
       - name: Record failure
         if: failure()
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
-        run: scripts/log-backup.sh usage-snapshot false '{"note":"a service failed — see run_url"}'
+        run: |
+          scripts/log-backup.sh usage-snapshot false '{"note":"a service failed — see run_url"}'
