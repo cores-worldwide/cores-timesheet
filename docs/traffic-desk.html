@@ -242,11 +242,13 @@ const runwayState = days => days == null ? 'idle' : days <= LOW_DAYS ? 'bad' : d
 // ---- the three lines ----
 function renderSupabase(alerts) {
   const parts = [], ms = monthStart(), today = localDay()
+  let liveEst = null
   if (liveErr) parts.push(`<div class="note err">Last 24 h: ${esc(errText(liveErr))}</div>`)
   else if (live) {
     const a = Object.fromEntries(live.map(r => [r.area, r]))
     const unknown = live.reduce((s, r) => s + Number(r.unknown_len || 0), 0)
     const est = live.reduce((s, r) => s + Number(r.known_bytes || 0), 0) + unknown * 20000
+    liveEst = est
     parts.push(stat('Database · 24 h', int(a.rest?.reqs || 0), 'requests, live'),
       stat('Photos & files · 24 h', int(a.storage?.reqs || 0), 'requests, live'),
       stat('SMS bot · 24 h', int(a.functions?.reqs || 0), 'function calls, live'),
@@ -258,20 +260,24 @@ function renderSupabase(alerts) {
     const eg = series('supabase', 'egress_bytes'), mtd = sumSince(eg, ms)
     const elapsed = Math.max(1, eg.filter(r => r.day >= ms).length)
     const dim = new Date(+today.slice(0, 4), +today.slice(5, 7), 0).getDate()
-    const proj = mtd / elapsed * dim
+    // Without nightly Supabase history, project the month from the live 24 h instead.
+    const fromLive = !eg.length
+    const proj = fromLive ? (liveEst == null ? null : liveEst * dim) : mtd / elapsed * dim
     const billDay = Math.min(28, Math.max(1, Number(settings.sbDay) || 1))
     let next = today.slice(0, 8) + String(billDay).padStart(2, '0'); if (next <= today) next = addDays(next.slice(0, 8) + '01', 32).slice(0, 8) + String(billDay).padStart(2, '0')
     const daysToBill = Math.round((new Date(next) - new Date(today)) / 864e5)
-    parts.push(stat('Egress this month', '~' + gb(mtd), `on pace for ~${gb(proj)} · 250 GB included`),
-      stat('Free-plan check', proj <= EGRESS_FREE ? 'Under 5 GB' : 'Over 5 GB', 'could drop to Free if under'),
+    parts.push(fromLive
+        ? stat('Egress per month', proj == null ? '—' : '~' + gb(proj), 'last 24 h × days in month · 250 GB included')
+        : stat('Egress this month', '~' + gb(mtd), `on pace for ~${gb(proj)} · 250 GB included`),
+      stat('Free-plan check', proj == null ? '—' : proj <= EGRESS_FREE ? 'Under 5 GB' : 'Over 5 GB', 'could drop to Free if under'),
       stat('Next bill', usd(SUPABASE_PRO), `${nice(next)} · in ${daysToBill} days`))
     if (daysToBill <= 7) alerts.push(['idle', `Supabase Pro renews ${nice(next)}: ${usd(SUPABASE_PRO)} plus any overage.`])
-    if (proj > EGRESS_INCLUDED * 0.8) { state = 'bad'; label = 'Egress near limit'; alerts.push(['bad', `Supabase egress is on pace for ${gb(proj)} this month (250 GB included).`]) }
-    parts.push(spark(series('supabase', 'rest_requests'), int))
+    if (proj != null && proj > EGRESS_INCLUDED * 0.8) { state = 'bad'; label = 'Egress near limit'; alerts.push(['bad', `Supabase egress is on pace for ${gb(proj)} this month (250 GB included).`]) }
+    if (!fromLive) parts.push(spark(series('supabase', 'rest_requests'), int))
     const latest = series('supabase', 'rest_requests').pop()
     if (latest?.details?.by_table) parts.push(`<details class="breakdown"><summary>Busiest tables on ${nice(latest.day)}</summary><table>${
       Object.entries(latest.details.by_table).map(([t, n]) => `<tr><td>${esc(t)}</td><td class="num">${int(n)}</td></tr>`).join('')}</table></details>`)
-    if (!eg.length) parts.push('<div class="note">No nightly Supabase numbers yet. They start after the first usage-snapshot run with SUPABASE_ACCESS_TOKEN set.</div>')
+    if (fromLive) parts.push('<div class="note">No daily Supabase history is saved, so there\'s no trend line. The monthly figure assumes every day looks like the last 24 hours.</div>')
   } else if (usageErr) parts.push(`<div class="note err">History: ${esc(errText(usageErr))}</div>`)
   setLine('line-supabase', state, label, parts.join(''))
 }
@@ -317,15 +323,15 @@ function renderClaude(alerts) {
   const parts = [
     stat('Credit left', hasBal ? usd(remaining) : 'Not set', hasBal ? `${usd(Number(settings.claudeBal))} on ${nice(settings.claudeAsOf)}, minus spend since` : 'enter it below'),
     stat('Spend per day', usd(b), '7-day average'),
-    stat('This month', usd(sumSince(cost, ms)), `${int(tokensIn)} in · ${int(tokensOut)} out tokens`),
-    stat('Runs out', when ? nice(when) : '—', days != null ? `in about ${Math.round(days)} days` : hasBal ? 'no spend yet' : 'needs a balance'),
+    stat('This month', cost.length ? usd(sumSince(cost, ms)) : '—', cost.length ? `${int(tokensIn)} in · ${int(tokensOut)} out tokens` : 'not tracked yet'),
+    stat('Runs out', when ? nice(when) : '—', days != null ? `in about ${Math.round(days)} days` : hasBal ? 'needs spend tracking' : 'needs a balance'),
   ]
-  if (!cost.length) parts.push('<div class="note">No Claude numbers yet. They start after the first usage-snapshot run with ANTHROPIC_ADMIN_KEY set.</div>')
+  if (!cost.length) parts.push('<div class="note">Spend isn\'t tracked yet: the Anthropic account is an individual plan, which can\'t report usage. Daily spend and a run-out date arrive once the SMS bot counts its own calls. Until then, re-enter the balance after each top-up.</div>')
   else parts.push(spark(cost, usd))
-  const state = hasBal ? runwayState(days ?? 999) : 'idle'
+  const state = !hasBal || !cost.length ? 'idle' : runwayState(days ?? 999)
   if (days != null && days <= LOW_DAYS) alerts.push(['bad', `Claude credit runs out around ${nice(when)}. When it does, crew texts fail to parse. Top up at console.anthropic.com.`])
   if (remaining != null && remaining < 1) alerts.push(['bad', `Claude credit is down to ${usd(remaining)}.`])
-  setLine('line-claude', state, state === 'ok' ? 'Healthy' : state === 'warn' ? 'Top up soon' : state === 'bad' ? 'Low credit' : 'Balance not set', parts.join(''))
+  setLine('line-claude', state, state === 'ok' ? 'Healthy' : state === 'warn' ? 'Top up soon' : state === 'bad' ? 'Low credit' : hasBal ? 'Spend not tracked yet' : 'Balance not set', parts.join(''))
 }
 
 function render() {
