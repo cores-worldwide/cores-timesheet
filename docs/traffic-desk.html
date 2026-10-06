@@ -99,6 +99,11 @@ footer { font-size: 12px; color: var(--muted); }
         <p>Haiku reading crew texts in the SMS bot. Prepaid credit.</p></div>
       <div class="stats"></div>
     </article>
+    <article class="line" id="line-resend">
+      <div class="who"><h2>Resend email</h2><span class="pill idle">Loading</span>
+        <p>Low-stock alerts from the bot. Free plan: 3,000 a month, 100 a day.</p></div>
+      <div class="stats"></div>
+    </article>
   </div>
 
   <form class="settings" id="settings">
@@ -114,9 +119,9 @@ footer { font-size: 12px; color: var(--muted); }
   </form>
 
   <footer>
-    Twilio and Claude count by UTC day, Supabase by Atlantic day. Supabase egress is an estimate from the logs.
+    Twilio counts by UTC day; Supabase, Claude and Resend by Atlantic day. Supabase egress is an estimate from the logs.
     Nightly numbers come from the usage-snapshot job; "last 24 h" for Supabase is read live.
-    Not tracked yet: Resend emails, Google Drive space.
+    Not tracked yet: Google Drive space.
   </footer>
 </div>
 
@@ -320,23 +325,38 @@ function renderClaude(alerts) {
   const days = remaining != null && b > 0 ? remaining / b : null
   const when = days != null ? addDays(localDay(), Math.max(0, Math.floor(days))) : null
   const tokensIn = sumSince(series('claude', 'input_tokens'), ms), tokensOut = sumSince(series('claude', 'output_tokens'), ms)
+  const calls = sumSince(series('claude', 'calls'), ms)
   const parts = [
     stat('Credit left', hasBal ? usd(remaining) : 'Not set', hasBal ? `${usd(Number(settings.claudeBal))} on ${nice(settings.claudeAsOf)}, minus spend since` : 'enter it below'),
     stat('Spend per day', usd(b), '7-day average'),
-    stat('This month', cost.length ? usd(sumSince(cost, ms)) : '—', cost.length ? `${int(tokensIn)} in · ${int(tokensOut)} out tokens` : 'not tracked yet'),
+    stat('This month', cost.length ? usd(sumSince(cost, ms)) : '—', cost.length ? `${int(calls)} calls · ${int(tokensIn)} in · ${int(tokensOut)} out tokens` : 'not tracked yet'),
     stat('Runs out', when ? nice(when) : '—', days != null ? `in about ${Math.round(days)} days` : hasBal ? 'needs spend tracking' : 'needs a balance'),
   ]
-  if (!cost.length) parts.push('<div class="note">Spend isn\'t tracked yet: the Anthropic account is an individual plan, which can\'t report usage. Daily spend and a run-out date arrive once the SMS bot counts its own calls. Until then, re-enter the balance after each top-up.</div>')
-  else parts.push(spark(cost, usd))
+  if (!cost.length) parts.push('<div class="note">No Claude calls counted yet. The SMS bot counts each call as it happens and works out the cost from list prices.</div>')
+  else parts.push(spark(cost, usd), '<div class="note">Counted live by the SMS bot from list prices, so this is close to, but not exactly, what Anthropic bills. Re-enter the balance after each top-up.</div>')
   const state = !hasBal || !cost.length ? 'idle' : runwayState(days ?? 999)
   if (days != null && days <= LOW_DAYS) alerts.push(['bad', `Claude credit runs out around ${nice(when)}. When it does, crew texts fail to parse. Top up at console.anthropic.com.`])
   if (remaining != null && remaining < 1) alerts.push(['bad', `Claude credit is down to ${usd(remaining)}.`])
   setLine('line-claude', state, state === 'ok' ? 'Healthy' : state === 'warn' ? 'Top up soon' : state === 'bad' ? 'Low credit' : hasBal ? 'Spend not tracked yet' : 'Balance not set', parts.join(''))
 }
 
+function renderResend(alerts) {
+  if (!usage) return setLine('line-resend', usageErr ? 'warn' : 'idle', usageErr ? 'Unavailable' : 'Loading',
+    usageErr ? `<div class="note err">${esc(errText(usageErr))}</div>` : '')
+  const sent = series('resend', 'emails'), ms = monthStart()
+  const month = sumSince(sent, ms), today = sumSince(sent, localDay())
+  const state = month > 2400 || today > 80 ? 'warn' : 'ok'
+  if (state === 'warn') alerts.push(['warn', `Resend is near its free limit: ${int(month)} emails this month, ${int(today)} today.`])
+  setLine('line-resend', state, state === 'ok' ? 'Well under' : 'Near limit', [
+    stat('Today', int(today), 'of 100 a day'),
+    stat('This month', int(month), 'of 3,000 a month'),
+    stat('Cost', '$0', 'free plan'),
+  ].join('') + (sent.length ? '' : '<div class="note">No emails counted yet. The SMS bot counts each one it sends.</div>'))
+}
+
 function render() {
   const alerts = []
-  renderSupabase(alerts); renderTwilio(alerts); renderClaude(alerts)
+  renderSupabase(alerts); renderTwilio(alerts); renderClaude(alerts); renderResend(alerts)
   const latest = (usage || []).reduce((m, r) => r.updated_at > m ? r.updated_at : m, '')
   $('asof').textContent = (lastLoaded ? 'Checked ' + lastLoaded.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : 'Not checked yet') +
     (latest ? ' · nightly numbers from ' + new Date(latest).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '')

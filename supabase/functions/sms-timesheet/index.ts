@@ -423,6 +423,7 @@ Answer with the report_supplies tool.`
   })
   if (!res.ok) throw new Error(`Claude supply check failed (${res.status}): ${(await res.text().catch(() => '')).slice(0, 200)}`)
   const data = await res.json()
+  countClaudeCall(data)
   const input = (data.content || []).find((c: any) => c.type === 'tool_use')?.input || {}
   const qty = (v: any) => { const q = Math.round(Number(v)); return q >= 1 && q <= 100 ? q : 1 }
   const byId = new Map(items.map(i => [i.id, i]))
@@ -600,6 +601,53 @@ async function sendTwilioSMS(to: string, body: string): Promise<{ ok: boolean; e
   return { ok: true }
 }
 
+// ── Live usage counters (Traffic Desk) ─────────────────────────────────────
+// Adds to today's totals in Cores.usage_daily for Jim's private cost
+// dashboard: each Claude call and each Resend email. Nothing else reports
+// these (the Anthropic account is an individual plan with no usage API).
+// Runs in the background via waitUntil, and a failure is only logged, so
+// counting can never delay or break a reply to the crew.
+let usageDb: any = null
+type UsageBump = { service: string; metric: string; value: number; unit: string; cost_usd?: number | null }
+function countUsage(rows: UsageBump[]) {
+  const task = (async () => {
+    try {
+      usageDb ??= createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { db: { schema: 'Cores' } })
+      const { error } = await usageDb.rpc('usage_bump', { p_rows: rows })
+      if (error) console.error('countUsage failed:', error.message)
+    } catch (e) {
+      console.error('countUsage failed:', (e as Error).message)
+    }
+  })()
+  try {
+    // @ts-ignore — EdgeRuntime is a Supabase/Deno Deploy global for background tasks, not in the standard lib types.
+    EdgeRuntime.waitUntil(task)
+  } catch { /* outside the edge runtime: the promise still runs */ }
+}
+
+// Claude Haiku 4.5 list prices, USD per million tokens (platform.claude.com
+// pricing page, checked 2026-10-06). Update if the model or prices change.
+const HAIKU_PRICE = { input: 1, cacheWrite: 1.25, cacheRead: 0.10, output: 5 }
+function claudeCallCost(usage: any): number {
+  if (!usage) return 0
+  return ((usage.input_tokens || 0) * HAIKU_PRICE.input +
+    (usage.cache_creation_input_tokens || 0) * HAIKU_PRICE.cacheWrite +
+    (usage.cache_read_input_tokens || 0) * HAIKU_PRICE.cacheRead +
+    (usage.output_tokens || 0) * HAIKU_PRICE.output) / 1e6
+}
+// Call with a successful Messages API response body. No usage = nothing billed.
+function countClaudeCall(data: any) {
+  const u = data?.usage
+  if (!u) return
+  const cost = claudeCallCost(u)
+  countUsage([
+    { service: 'claude', metric: 'calls', value: 1, unit: 'calls' },
+    { service: 'claude', metric: 'cost', value: cost, unit: 'usd', cost_usd: cost },
+    { service: 'claude', metric: 'input_tokens', value: (u.input_tokens || 0) + (u.cache_creation_input_tokens || 0) + (u.cache_read_input_tokens || 0), unit: 'tokens' },
+    { service: 'claude', metric: 'output_tokens', value: u.output_tokens || 0, unit: 'tokens' },
+  ])
+}
+
 // bluelightgin.com is a verified Resend sending domain (as of 2026-08-11) —
 // the shared onboarding@resend.dev sender only ever delivers to the Resend
 // account's own address, so alerts to anyone else (e.g. Tracy) silently
@@ -625,6 +673,7 @@ async function sendResendEmail(to: string, subject: string, text: string): Promi
     const detail = await res.text().catch(() => '')
     return { ok: false, error: `Resend send failed (${res.status}): ${detail.slice(0, 200)}` }
   }
+  countUsage([{ service: 'resend', metric: 'emails', value: 1, unit: 'emails' }])
   return { ok: true }
 }
 
@@ -1063,6 +1112,7 @@ CONTEXT: This shift's start time is already known to be ${knownTimeIn}. If this 
   }
 
   const data = await res.json()
+  if (res.ok) countClaudeCall(data)
   const text = (data.content?.[0]?.text || '').trim()
   const jsonMatch = text.match(/\{[\s\S]*\}/)
   if (!jsonMatch) throw new Error(`No JSON in Claude response (${res.status}): ${text || JSON.stringify(data)}`)
@@ -1187,6 +1237,7 @@ Answer by calling the job_summary tool, with exactly one "periods" item per peri
   }
 
   const data = await res.json()
+  countClaudeCall(data)
   const parsed = (data.content || []).find((c: any) => c.type === 'tool_use')?.input
   const periodTexts: string[] = Array.isArray(parsed?.periods) ? parsed.periods.map((t: any) => String(t || '')) : []
   if (periodTexts.length !== periods.length || periodTexts.some(t => !t.trim())) {

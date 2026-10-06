@@ -482,3 +482,24 @@ CREATE TABLE "Cores".usage_daily (
 CREATE INDEX usage_daily_service_day ON "Cores".usage_daily (service, day DESC);
 ALTER TABLE "Cores".usage_daily ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON "Cores".usage_daily FROM anon, authenticated;
+
+-- supabase/migrations/20261006210000_usage_bump.sql
+CREATE OR REPLACE FUNCTION "Cores".usage_bump(p_rows jsonb)
+RETURNS void
+LANGUAGE sql
+SET search_path = ''
+AS $$
+  INSERT INTO "Cores".usage_daily (day, service, metric, value, unit, cost_usd, source, updated_at)
+  SELECT (now() AT TIME ZONE 'America/Halifax')::date, r.service, r.metric, r.value, r.unit, r.cost_usd, 'counter', now()
+  FROM jsonb_to_recordset(p_rows) AS r(service text, metric text, value numeric, unit text, cost_usd numeric)
+  ON CONFLICT (day, service, metric) DO UPDATE SET
+    value = "Cores".usage_daily.value + excluded.value,
+    cost_usd = CASE WHEN excluded.cost_usd IS NULL THEN "Cores".usage_daily.cost_usd
+                    ELSE coalesce("Cores".usage_daily.cost_usd, 0) + excluded.cost_usd END,
+    updated_at = now();
+$$;
+-- The live project grants this by default; spelled out so a rebuilt or dev
+-- database behaves the same.
+GRANT SELECT, INSERT, UPDATE ON "Cores".usage_daily TO service_role;
+REVOKE ALL ON FUNCTION "Cores".usage_bump(jsonb) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION "Cores".usage_bump(jsonb) TO service_role;
