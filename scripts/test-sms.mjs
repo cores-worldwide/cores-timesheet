@@ -253,9 +253,12 @@ await scenario('day off keyword', TEST_PHONE, [
   ['Day off', ['Got it Test', 'day off']],
 ])
 await cleanupTestTech()
-await scenario('day off keyword — already marked', TEST_PHONE, [
+// Since 2026-09-03 "day off" goes to SMS Review first, so a repeat before the
+// office approves gets the "still needs to approve" reply, not "Already marked"
+// (that one only comes once the day off is approved into timesheet_entries).
+await scenario('day off keyword — already sent', TEST_PHONE, [
   ['day off', ['Got it Test', 'day off']],
-  ['day off', ['Already marked', 'day off']],
+  ['day off', ['Already sent that in', 'still needs to approve', 'day off']],
 ])
 
 // 4. Day-start in-time only: acknowledged, never asks which job
@@ -620,8 +623,9 @@ await scenario('photo tagging', phone(32), [
 // Jardine, 2026-08-28 ("sent a photo... no record of it showed up in the
 // conversation log"). Checked against the still-open submission from the
 // scenario above (a job report was already logged on this phone, so there's
-// something to attach the photo message to).
-{
+// something to attach the photo message to). Only runs when 'photo tagging'
+// did — on a filtered run it had nothing to check and always "failed".
+if (!filters || filters.some(f => 'photo tagging'.includes(f))) {
   console.log(`\n▶ photo logged in conversation`)
   const subRes = await fetch(
     `${SUPABASE_URL}/rest/v1/sms_submissions?from_phone=eq.${phone(32)}&select=raw_messages&order=updated_at.desc&limit=1`,
