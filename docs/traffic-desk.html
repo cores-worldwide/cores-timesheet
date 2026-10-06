@@ -141,10 +141,18 @@ const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;',
 
 // The Supabase connector wraps results in an untrusted-data envelope; pull the JSON out.
 function unwrap(payload) {
+  if (typeof payload === 'string') { try { const p = JSON.parse(payload); if (p && typeof p === 'object') payload = p } catch {} }
   let text = typeof payload === 'string' ? payload : payload?.result ?? JSON.stringify(payload)
   if (typeof text !== 'string') return text
-  const m = text.match(/<untrusted-data-[^>]+>\s*([\s\S]*?)\s*<\/untrusted-data/)
-  const inner = JSON.parse(m ? m[1] : text)
+  // The envelope's preamble names the tag once in prose ("within the below
+  // <untrusted-data-…> boundaries"), so take the LAST opening tag before the close.
+  const close = text.lastIndexOf('</untrusted-data')
+  let body = text
+  if (close !== -1) {
+    const open = text.lastIndexOf('<untrusted-data-', close)
+    body = text.slice(text.indexOf('>', open) + 1, close)
+  }
+  const inner = JSON.parse(body.trim())
   return inner && !Array.isArray(inner) && 'result' in inner ? inner.result : inner
 }
 
