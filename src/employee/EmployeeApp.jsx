@@ -2,7 +2,6 @@ import React, { useState } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import EmployeeLogin from './EmployeeLogin'
 import EmployeeHome from './EmployeeHome'
-import EntryForm from './EntryForm'
 import PendingEntryEdit from './PendingEntryEdit'
 import { recordArrivalIdentity } from '../utils/shortcutVisit'
 import './employee.css'
@@ -37,9 +36,8 @@ export default function EmployeeApp() {
       </header>
       <Routes>
         <Route index element={<EmployeeHome employee={session} />} />
-        <Route path="entry/new" element={<EntryForm employee={session} />} />
         <Route path="pending/:subId/edit" element={<PendingEntryEdit employee={session} />} />
-        <Route path="*" element={<Navigate to="." replace />} />
+        <Route path="*" element={<Navigate to="/my" replace />} />
       </Routes>
     </div>
   )
