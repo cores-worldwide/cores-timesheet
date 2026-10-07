@@ -2,13 +2,42 @@
  * Cores Schema Test Suite — REAL tests, no theater.
  * Exercises the exact client syntax the app uses: supabase.schema('Cores').from(...)
  *
+ * Runs against the DEV database only (cores-timesheets-dev), using the URL and
+ * anon key in .env.development.local. It refuses the live database: sections
+ * 5-6 insert and delete rows, and tests never run in production (Jim, 2026-10-06).
+ * Refresh dev from production first with the "Refresh dev database from
+ * production" GitHub workflow.
+ *
  * Usage: node scripts/test-cores-schema.mjs
  */
 
+import { readFileSync } from 'node:fs'
 import { createClient } from '@supabase/supabase-js'
 
-const SUPABASE_URL = 'https://wgjuflwbkmgirhqoqfgp.supabase.co'
-const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndnanVmbHdia21naXJocW9xZmdwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2MDc0NDUsImV4cCI6MjA5MzE4MzQ0NX0.f-rMGgTZhnlCPhvNTKFU6TzWsVM-d298tfShHte1Nk4'
+const PROD_REF = 'wgjuflwbkmgirhqoqfgp'
+const DEV_REF = 'giwexoouqxioxkjhoxoe'
+
+function readDevEnv() {
+  let text
+  try {
+    text = readFileSync(new URL('../.env.development.local', import.meta.url), 'utf8')
+  } catch {
+    console.error('No .env.development.local: this test only runs against the dev database.')
+    process.exit(1)
+  }
+  return Object.fromEntries(text.split('\n')
+    .map(l => l.match(/^\s*([A-Z_]+)\s*=\s*(.*?)\s*$/))
+    .filter(Boolean)
+    .map(m => [m[1], m[2]]))
+}
+
+const env = readDevEnv()
+const SUPABASE_URL = env.VITE_SUPABASE_URL
+const ANON_KEY = env.VITE_SUPABASE_ANON_KEY
+if (!SUPABASE_URL?.includes(DEV_REF) || SUPABASE_URL.includes(PROD_REF)) {
+  console.error(`Refusing to run: ${SUPABASE_URL || 'no URL'} is not the dev database (${DEV_REF}).`)
+  process.exit(1)
+}
 
 const supabase = createClient(SUPABASE_URL, ANON_KEY)
 const cores = supabase.schema('Cores')

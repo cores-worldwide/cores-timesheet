@@ -29,7 +29,19 @@ const EDGE_URL      = 'https://wgjuflwbkmgirhqoqfgp.supabase.co/functions/v1/sms
 const SUPABASE_URL  = 'https://wgjuflwbkmgirhqoqfgp.supabase.co'
 const ANON_KEY      = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndnanVmbHdia21naXJocW9xZmdwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2MDc0NDUsImV4cCI6MjA5MzE4MzQ0NX0.f-rMGgTZhnlCPhvNTKFU6TzWsVM-d298tfShHte1Nk4'
 const TEST_PHONE    = '9990000099'  // "Test Tech" — seeded in employees table, role=technician
-const RUN_ID        = Date.now().toString().slice(-6)  // unique per run for multi-scenario isolation
+
+// No tests in production (Jim, 2026-10-06): these scenarios write SMS Review
+// rows that the office sees, and the "Test Tech" fixture was removed from the
+// live database. The bot isn't deployed to the dev project yet, so until it is,
+// this suite only runs with Jim's explicit OK for that run.
+if (process.env.ALLOW_PROD_SMS_TEST !== 'yes-jim-approved') {
+  console.error('Refusing to run: this suite targets the LIVE bot and database, and tests no longer run in production.')
+  console.error('It needs the sms-timesheet bot deployed to the dev project first (Security Phase 1 prep).')
+  console.error("For a one-off run with Jim's OK: ALLOW_PROD_SMS_TEST=yes-jim-approved node scripts/test-sms.mjs ...")
+  process.exit(1)
+}
+
+const RUN_ID       = Date.now().toString().slice(-6)  // unique per run for multi-scenario isolation
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
