@@ -124,7 +124,7 @@ export function amPmFixNote(fix) {
 
 // Derives calculated_time_out/delta_minutes for an sms_submissions row from
 // its stated shift times — same math PendingEntryEdit uses, shared here so
-// the mobile self-entry flow (EntryForm.jsx, EmployeeHome.jsx) produces the
+// the mobile self-entry flow (EmployeeHome.jsx) produces the
 // same office-facing delta warning a texted-in day would.
 export function computeSubmissionTiming(timeIn, statedTimeOut, lunchMinutes, totalHours) {
   if (!timeIn || !(totalHours > 0)) return { calculated_time_out: null, delta_minutes: null }
