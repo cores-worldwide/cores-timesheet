@@ -31,6 +31,21 @@ function normalizeWhatsAppPhone(raw) {
   return digits.length > 10 ? digits : digits.slice(-10)
 }
 
+// `phone` is North American only: texts and login codes go to +1 plus these 10
+// digits. An overseas number typed here used to be cut to its last 10 digits,
+// so codes went to a stranger or nowhere. Returns { phone } (10 digits or
+// null), or { error } when the number isn't a North American one.
+function normalizeCellPhone(raw) {
+  const digits = (raw || '').replace(/\D/g, '')
+  if (!digits) return { phone: null }
+  if (digits.length === 10) return { phone: digits }
+  if (digits.length === 11 && digits[0] === '1') return { phone: digits.slice(1) }
+  return {
+    error: `The Cell Number has ${digits.length} digits, but it must be a Canadian or US number (10 digits).\n\n` +
+      'Overseas number? Leave Cell Number empty and put it in WhatsApp Number instead, with its country code (for example +63 917 123 4567).',
+  }
+}
+
 function Modal({ title, onClose, children }) {
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', zIndex: 200, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '2rem 1rem', overflowY: 'auto' }}>
@@ -226,9 +241,11 @@ export default function AdminPanel() {
         if (photoErr) { alert(`Vessel saved but photo link failed to save: ${photoErr.message}`); setSaving(false); return }
       }
     } else if (type === 'employee') {
+      const cell = normalizeCellPhone(payload.phone)
+      if (cell.error) { alert(cell.error); setSaving(false); return }
       const empPayload = {
         name: payload.name.trim(),
-        phone: payload.phone.replace(/\D/g, '').slice(-10) || null,
+        phone: cell.phone,
         whatsapp_phone: normalizeWhatsAppPhone(payload.whatsapp_phone),
         email: (payload.email || '').trim() || null,
         active: payload.active === 'true',
