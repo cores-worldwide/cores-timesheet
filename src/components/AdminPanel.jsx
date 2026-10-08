@@ -5,6 +5,7 @@ import { fmtHours } from '../utils/format'
 import AuditLog from './AuditLog'
 import MediaThumb from './MediaThumb'
 import VesselEngines from './VesselEngines'
+import { callEmployeeAuth } from '../employee/authApi'
 
 const gearPhotoUrl = (path) => supabase.storage.from('gear-photos').getPublicUrl(path).data.publicUrl
 const workOrderDocUrl = (path) => supabase.storage.from('work-order-docs').getPublicUrl(path).data.publicUrl
@@ -44,6 +45,24 @@ function normalizeCellPhone(raw) {
     error: `The Cell Number has ${digits.length} digits, but it must be a Canadian or US number (10 digits).\n\n` +
       'Overseas number? Leave Cell Number empty and put it in WhatsApp Number instead, with its country code (for example +63 917 123 4567).',
   }
+}
+
+// Whether texts from this person's Cell Number actually reach the bot.
+function TextingStatus({ e, onResend }) {
+  const badge = (bg, color, text, title) => (
+    <span title={title} style={{ padding: '0.2rem 0.6rem', borderRadius: '12px', fontSize: '0.8rem', fontWeight: 600, background: bg, color, whiteSpace: 'nowrap' }}>{text}</span>
+  )
+  if (!e.phone) return <span style={{ color: '#bbb' }}>—</span>
+  const when = (t) => new Date(t).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })
+  if (e.phone_verified_at) return badge('#e6f4ea', '#2d6a38', '✓ Works', `Last text from this number reached the bot ${when(e.phone_verified_at)}`)
+  const label = e.phone_check_sent_at ? `⚠ No reply (asked ${when(e.phone_check_sent_at)})` : '⚠ Never texted in'
+  const tip = 'No text from this Cell Number has ever reached the bot. Some phones (internet/VoIP numbers like magicJack or TextNow) can receive texts but not send them to the bot. They can use the app instead.'
+  return (
+    <span style={{ display: 'inline-flex', gap: '0.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+      {badge('#fff4e5', '#a15c00', label, tip)}
+      {e.active && <button onClick={onResend} style={{ background: 'none', border: 'none', color: '#0055aa', cursor: 'pointer', fontSize: '0.8rem', padding: 0, textDecoration: 'underline' }}>Send check</button>}
+    </span>
+  )
 }
 
 function Modal({ title, onClose, children }) {
@@ -255,10 +274,16 @@ export default function AdminPanel() {
       if (!empPayload.email && record?.low_stock_alert_recipient) {
         empPayload.low_stock_alert_recipient = false
       }
-      const { error } = record
-        ? await supabase.schema('Cores').from('employees').update(empPayload).eq('id', record.id)
-        : await supabase.schema('Cores').from('employees').insert(empPayload)
+      // A new Cell Number hasn't been proven to work yet (see sendPhoneCheck).
+      const phoneChanged = !record || (record.phone || null) !== empPayload.phone
+      if (record && phoneChanged) { empPayload.phone_verified_at = null; empPayload.phone_check_sent_at = null }
+      const { data: saved, error } = record
+        ? await supabase.schema('Cores').from('employees').update(empPayload).eq('id', record.id).select('id').single()
+        : await supabase.schema('Cores').from('employees').insert(empPayload).select('id').single()
       if (error) { alert(`Save failed: ${error.message}`); setSaving(false); return }
+      if (phoneChanged && empPayload.phone && empPayload.active && saved?.id) {
+        await sendPhoneCheck({ id: saved.id, name: empPayload.name })
+      }
     } else if (type === 'entry') {
       if (!payload.description?.trim()) {
         alert('Add a note describing what was done')
@@ -327,6 +352,23 @@ export default function AdminPanel() {
     await loadAll()
     setModal(null)
     setSaving(false)
+  }
+
+  // New-hire texting check: the bot texts the hire "reply YES". Some phones
+  // (VoIP numbers like magicJack) receive texts but their own never reach the
+  // bot; a reply proves the number works (sms-timesheet sets phone_verified_at).
+  async function sendPhoneCheck(emp) {
+    const res = await callEmployeeAuth('send_phone_check', { employee_id: emp.id })
+    if (res.already_verified) return
+    if (!res.ok) { alert(`Couldn't send the texting check to ${emp.name}: ${res.error}`); return }
+    alert(res.dry_run
+      ? `TEST DATABASE: no text was actually sent. ${emp.name} would get:\n\n"${res.would_send}"`
+      : `Sent ${emp.name} a text asking them to reply YES. Texting shows ✓ once their reply arrives.`)
+  }
+
+  async function resendPhoneCheck(emp) {
+    await sendPhoneCheck(emp)
+    await loadAll()
   }
 
   async function toggleLowStockRecipient(emp) {
@@ -1105,6 +1147,7 @@ export default function AdminPanel() {
                 <th style={thStyle}>Name</th>
                 <th style={thStyle}>Cell</th>
                 <th style={thStyle}>WhatsApp</th>
+                <th style={thStyle}>Texting</th>
                 <th style={thStyle}>Email</th>
                 <th style={thStyle}>Role</th>
                 <th style={thStyle}>Status</th>
@@ -1128,6 +1171,7 @@ export default function AdminPanel() {
                       <td style={{ ...tdStyle, fontWeight: 600 }}>{e.name}</td>
                       <td style={{ ...tdStyle, color: phone ? '#333' : '#bbb', fontFamily: 'monospace' }}>{phone || 'No number'}</td>
                       <td style={{ ...tdStyle, color: whatsapp ? '#333' : '#bbb', fontFamily: 'monospace' }}>{whatsapp || '—'}</td>
+                      <td style={tdStyle}><TextingStatus e={e} onResend={() => resendPhoneCheck(e)} /></td>
                       <td style={{ ...tdStyle, color: e.email ? '#333' : '#bbb' }}>{e.email || '—'}</td>
                       <td style={tdStyle}>
                         <span style={{ padding: '0.2rem 0.6rem', borderRadius: '12px', fontSize: '0.8rem', fontWeight: 600, background: e.role === 'technician' ? '#e8eef8' : '#f5f0ff', color: e.role === 'technician' ? '#0055aa' : '#6b21a8' }}>

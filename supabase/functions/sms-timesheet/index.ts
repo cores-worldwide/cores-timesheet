@@ -1547,6 +1547,31 @@ Deno.serve(async (req: Request) => {
     if (match) { employeeId = match.id; employeeName = match.name }
   }
 
+  // ── New-hire texting check (Jim, 2026-10-08) ──
+  // Some phones (VoIP numbers like magicJack) get the bot's texts but their own
+  // never reach Twilio, silently. employee-auth's send_phone_check texts a new
+  // hire "reply YES"; ANY plain text arriving from their Cell Number proves it
+  // works, so mark it here. A bare YES answering the check gets a thank-you and
+  // stops, instead of going to the timesheet parser. Separate query with errors
+  // ignored, so this can never break the employee lookup above.
+  if (employeeId && !isWhatsAppChannel) {
+    const { data: chk } = await supabase.from('employees')
+      .select('phone, phone_check_sent_at, phone_verified_at').eq('id', employeeId).maybeSingle()
+    if (chk && !chk.phone_verified_at && chk.phone && normalizePhone(chk.phone) === fromPhone) {
+      await supabase.from('employees').update({ phone_verified_at: new Date().toISOString() }).eq('id', employeeId)
+      // A "yes" could also answer a manual-entry confirmation (handled further
+      // down); if one is waiting, leave the yes for that.
+      const { data: pendingConfirm } = await supabase.from('timesheet_entries').select('id')
+        .eq('employee_id', employeeId).eq('confirmation_status', 'pending')
+        .not('confirmation_requested_at', 'is', null).limit(1)
+      if (chk.phone_check_sent_at && !(pendingConfirm && pendingConfirm.length) && mediaUrls.length === 0 &&
+          /^(yes|y|yep|yeah|ya|ok|okay|confirm(ed)?)[.!]*$/i.test(msgBody.trim())) {
+        const r =`Thanks${employeeName ? ' ' + employeeName.split(' ')[0] : ''}, texting works from this phone. Text your hours here any time (reply HELP for tips).`
+        return isTwilio ? twiML(r) : jsonReply({ reply: r })
+      }
+    }
+  }
+
   // ── Phone directory request ──
   // Accept "phone"/"phones", "phonenum"/"phonenums", "phone#", "phone #", optionally
   // followed by a name filter — the exact "phone#" string was too strict and easy to
