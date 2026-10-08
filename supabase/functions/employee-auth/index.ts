@@ -114,6 +114,7 @@ const MAX_PIN_ATTEMPTS = 5
 const LOCKOUT_MINUTES = 2
 const MAX_OTP_ATTEMPTS = 5
 const OTP_LOCKOUT_MINUTES = 2
+const PHONE_CHECK_COOLDOWN_HOURS = 12
 
 // ── IP-based circuit breaker ──────────────────────────────────────────────
 // Catches attack-shaped traffic the per-employee lockouts above don't: an
@@ -179,6 +180,39 @@ Deno.serve(async (req: Request) => {
     if (throttle?.blocked_until && new Date(throttle.blocked_until) > new Date()) {
       return jsonReply({ ok: false, error: 'Too many attempts. Try again later.' })
     }
+  }
+
+  // ── New-hire texting check (Jim, 2026-10-08) ──
+  // The Admin Panel calls this after saving a hire (or a new Cell Number).
+  // Sends a fixed "reply YES" text so a phone whose texts never reach Twilio
+  // (VoIP numbers like magicJack) is caught on day one; sms-timesheet marks
+  // phone_verified_at when any text from that number arrives. The office has
+  // no real login yet (#14), so this can't be authenticated: the text is
+  // fixed, only goes to an active employee's own Cell Number, and only once
+  // per PHONE_CHECK_COOLDOWN_HOURS per employee.
+  if (json.action === 'send_phone_check') {
+    const { data: emp } = await supabase.from('employees')
+      .select('id, name, phone, active, phone_check_sent_at, phone_verified_at')
+      .eq('id', String(json.employee_id || '')).maybeSingle()
+    if (!emp || !emp.active) return jsonReply({ ok: false, error: 'No active employee with that id.' })
+    if (!emp.phone) return jsonReply({ ok: false, error: 'No Cell Number on file.' })
+    if (emp.phone_verified_at) return jsonReply({ ok: true, already_verified: true })
+    const last = emp.phone_check_sent_at ? new Date(emp.phone_check_sent_at).getTime() : 0
+    if (Date.now() - last < PHONE_CHECK_COOLDOWN_HOURS * 3600 * 1000) {
+      return jsonReply({ ok: false, error: `A check text already went out in the last ${PHONE_CHECK_COOLDOWN_HOURS} hours.` })
+    }
+    const firstName = (emp.name || '').trim().split(/\s+/)[0] || 'there'
+    const msg = `Hi ${firstName}, welcome to Cores timesheets. Reply YES to confirm texting works from this phone. ` +
+      `After that, text your hours to this number any time (reply HELP for tips).`
+    // Dev has no Twilio credentials by design (it holds a copy of real crew
+    // numbers): record the check and report what would have been sent.
+    const hasTwilio = !!(Deno.env.get('TWILIO_ACCOUNT_SID') && Deno.env.get('TWILIO_AUTH_TOKEN'))
+    if (hasTwilio) {
+      const sendResult = await sendTwilioSms(emp.phone, msg)
+      if (!sendResult.ok) return jsonReply({ ok: false, error: `Couldn't send the check text: ${sendResult.error}` })
+    }
+    await supabase.from('employees').update({ phone_check_sent_at: new Date().toISOString() }).eq('id', emp.id)
+    return jsonReply(hasTwilio ? { ok: true } : { ok: true, dry_run: true, would_send: msg })
   }
 
   const phone = normalizePhone(json.phone || '')
