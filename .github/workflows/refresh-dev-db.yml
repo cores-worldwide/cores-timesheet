@@ -1,0 +1,91 @@
+name: Refresh dev database from production
+
+# Copies the live "Cores" schema (tables, data, functions, RLS, grants) into the
+# dev project cores-timesheets-dev, replacing whatever dev had. Exact copy, Jim's
+# choice 2026-10-06, so that tests run against real-looking data and never
+# against production.
+#
+# Production is only READ: pg_dump in a read-only transaction.
+# Dev is replaced in ONE transaction: if anything fails, dev is left as it was.
+# Dev has no Twilio/Resend credentials and no scheduled jobs, so nothing on dev
+# can text or email the real people in this copy. Keep it that way.
+#
+# This repo is PUBLIC and so are these logs: never print rows, never upload the
+# dump. Only sizes and row counts are printed; errors are masked.
+#
+# Secrets: SUPABASE_DB_URL (production, already used by the backups) and
+# DEV_DB_URL (dev project session-pooler URL).
+
+on:
+  workflow_dispatch: {}
+
+concurrency: refresh-dev-db
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    env:
+      PG_IMAGE: ghcr.io/supabase/postgres:17.6.1.143
+    steps:
+      - name: Check the secrets point at the right databases
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          DEV_DB_URL: ${{ secrets.DEV_DB_URL }}
+        run: |
+          [ -n "$SUPABASE_DB_URL" ] || { echo "::error::SUPABASE_DB_URL secret is not set"; exit 1; }
+          [ -n "$DEV_DB_URL" ] || { echo "::error::DEV_DB_URL secret is not set"; exit 1; }
+          case "$DEV_DB_URL" in
+            *wgjuflwbkmgirhqoqfgp*) echo "::error::DEV_DB_URL points at PRODUCTION. Refusing."; exit 1 ;;
+            *giwexoouqxioxkjhoxoe*) echo "DEV_DB_URL is the dev project (cores-timesheets-dev)" ;;
+            *) echo "::error::DEV_DB_URL is not the dev project (giwexoouqxioxkjhoxoe). Refusing."; exit 1 ;;
+          esac
+
+      - name: Dump production "Cores" (read-only)
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          # --no-privileges deliberately NOT used: the GRANTs to anon/authenticated
+          # are what let the app read and write (see backup-cores-schema.yml).
+          docker run --rm -e PGOPTIONS='-c default_transaction_read_only=on' "$PG_IMAGE" \
+            pg_dump "$SUPABASE_DB_URL" --schema='"Cores"' --no-owner > /tmp/cores.sql
+          echo "dump size: $(stat -c %s /tmp/cores.sql) bytes"
+
+      - name: Replace dev "Cores" with the copy (one transaction)
+        env:
+          DEV_DB_URL: ${{ secrets.DEV_DB_URL }}
+        run: |
+          {
+            echo 'BEGIN;'
+            echo 'DROP SCHEMA IF EXISTS "Cores" CASCADE;'
+            cat /tmp/cores.sql
+            echo "NOTIFY pgrst, 'reload schema';"
+            echo 'COMMIT;'
+          } | docker run --rm -i "$PG_IMAGE" \
+                psql "$DEV_DB_URL" -X -q -v ON_ERROR_STOP=1 -v VERBOSITY=terse -v SHOW_CONTEXT=never \
+                > /tmp/restore.out 2> /tmp/restore.err || {
+            echo "::error::Restore failed; dev was left unchanged. First error (numbers masked):"
+            sed -E 's/[0-9]{5,}/#####/g; s/"[^"]{30,}"/"…"/g' /tmp/restore.err | grep -m3 -i 'error' || true
+            exit 1
+          }
+          echo "restore OK"
+
+      - name: Compare row counts (production vs dev)
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          DEV_DB_URL: ${{ secrets.DEV_DB_URL }}
+        run: |
+          q="select string_agg(format('%s=%s', c.relname,
+               (xpath('/row/n/text()', query_to_xml(format('select count(*) as n from %I.%I', n.nspname, c.relname), false, true, '')))[1]::text), ' ' order by c.relname)
+             from pg_class c join pg_namespace n on n.oid = c.relnamespace
+             where n.nspname = 'Cores' and c.relkind in ('r','p')"
+          prod=$(docker run --rm -e PGOPTIONS='-c default_transaction_read_only=on' "$PG_IMAGE" psql "$SUPABASE_DB_URL" -X -tA -c "$q")
+          dev=$(docker run --rm "$PG_IMAGE" psql "$DEV_DB_URL" -X -tA -c "$q")
+          echo "production: $prod" | tr ' ' '\n'
+          if [ "$prod" = "$dev" ]; then
+            echo "Dev matches production table for table."
+          else
+            # Production can change between the dump and this check (a text
+            # arrives), so a small difference is not necessarily a failure.
+            echo "::warning::Row counts differ (production may have changed during the copy):"
+            diff <(echo "$prod" | tr ' ' '\n') <(echo "$dev" | tr ' ' '\n') || true
+          fi

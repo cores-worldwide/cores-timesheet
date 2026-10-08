@@ -30,15 +30,12 @@ jobs:
       # we gate on. The two scripts under scripts/ were deliberately NOT wired in
       # here:
       #   - test:sms drives the sms-timesheet edge function through real Claude
-      #     API calls (~10 min, real per-run cost) — too slow/expensive to run on
-      #     every push. Run it manually (`npm run test:sms`) before merging
-      #     changes that touch the SMS bot.
-      #   - test:cores-schema hits live production data with hardcoded
-      #     row-count baselines, and as of this commit it's actively failing
-      #     (job_tasks/job_status_logs read back 0 rows against baselines of
-      #     19/6) — wiring it in would block every deploy right now for reasons
-      #     unrelated to the change being pushed. Worth fixing/re-baselining
-      #     separately, then reconsidering as a gate.
+      #     API calls (~10 min, real per-run cost). Since 2026-10-06 it refuses
+      #     to run against production (no tests in production) until the bot is
+      #     deployed to the dev project.
+      #   - test:cores-schema runs against the dev database only (reads
+      #     .env.development.local), which this job doesn't have. Refresh dev
+      #     from production with refresh-dev-db.yml, then run it locally.
       - name: Test gate (build must succeed)
         run: npm run build
         env:
