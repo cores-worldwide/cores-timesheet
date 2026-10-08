@@ -127,8 +127,11 @@ const IP_MAX_ATTEMPTS = 20
 const IP_LOCKOUT_MINUTES = 30
 // Jim's own phone — texted once per new IP block (not once per blocked
 // request during the whole cooldown) so he knows about an attack in near
-// real time without getting spammed mid-attack.
-const SECURITY_ALERT_PHONE = '5068667302'
+// real time without getting spammed mid-attack. Jim's magicJack number:
+// it receives the bot's texts (tested 2026-10-08) even though texts FROM it
+// never reach Twilio, which doesn't matter for an alert. The old 506…7302
+// test phone is no longer used.
+const SECURITY_ALERT_PHONE = '9027012005'
 
 function clientIpFrom(req: Request): string {
   const fwd = req.headers.get('x-forwarded-for') || ''
