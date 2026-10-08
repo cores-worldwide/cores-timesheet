@@ -122,12 +122,6 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
   const [adminNoteDrafts, setAdminNoteDrafts] = useState({})
   const [adminNoteStatus, setAdminNoteStatus] = useState({})
 
-  // Test harness
-  const [testOpen, setTestOpen]   = useState(false)
-  const [testPhone, setTestPhone] = useState('5068667302')
-  const [testMsg, setTestMsg]     = useState('')
-  const [testReply, setTestReply] = useState(null)
-  const [testLoading, setTestLoading] = useState(false)
 
   // Edit modal
   const [editModal, setEditModal]   = useState(null)
@@ -249,27 +243,6 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
   }
 
   const toggle = (id) => setExpanded(p => ({ ...p, [id]: !p[id] }))
-
-  // ── Test harness ──────────────────────────────────────────────────────────
-  async function sendTest() {
-    if (!testMsg.trim()) return
-    setTestLoading(true)
-    setTestReply(null)
-    try {
-      const res = await fetch(FUNCTION_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ANON_KEY}` },
-        body: JSON.stringify({ from_phone: testPhone, body: testMsg }),
-      })
-      const data = await res.json()
-      setTestReply(data.reply || JSON.stringify(data))
-      setTestMsg('')
-      await load()
-    } catch (e) {
-      setTestReply('Error: ' + e.message)
-    }
-    setTestLoading(false)
-  }
 
   // ── Approve ───────────────────────────────────────────────────────────────
   async function approve(sub) {
@@ -759,60 +732,6 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div style={{ padding: '1.5rem', maxWidth: 900, margin: '0 auto' }}>
-
-      {/* Test harness — dev builds only, hidden from the client */}
-      {import.meta.env.DEV && (
-      <div style={{ marginBottom: '1.5rem', border: '1px solid #ddd', borderRadius: 8, overflow: 'hidden' }}>
-        <div
-          onClick={() => setTestOpen(p => !p)}
-          style={{ background: '#f5f5f5', padding: '0.6rem 1rem', cursor: 'pointer', fontWeight: 600, display: 'flex', justifyContent: 'space-between' }}
-        >
-          <span>Test SMS Parser</span>
-          <span>{testOpen ? '▲' : '▼'}</span>
-        </div>
-        {testOpen && (
-          <div style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <input
-                value={testPhone}
-                onChange={e => setTestPhone(e.target.value)}
-                placeholder="From phone"
-                style={{ width: 180, padding: '0.4rem 0.6rem', border: '1px solid #ccc', borderRadius: 4, fontFamily: 'monospace' }}
-              />
-              <span style={{ color: '#888', fontSize: '0.85rem', lineHeight: '2' }}>→ simulates inbound SMS</span>
-            </div>
-            <textarea
-              value={testMsg}
-              onChange={e => setTestMsg(e.target.value)}
-              placeholder={'Fill in a test message here (format: In 7:30, 4760 6hrs description, lunch 30, no PD)'}
-              rows={3}
-              style={{ padding: '0.5rem', border: '1px solid #ccc', borderRadius: 4, fontFamily: 'monospace', resize: 'vertical' }}
-            />
-            <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
-              <button
-                onClick={sendTest}
-                disabled={testLoading || !testMsg.trim()}
-                style={{
-                  padding: '0.4rem 1.2rem',
-                  background: (testLoading || !testMsg.trim()) ? '#ccc' : '#0066cc',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: 4,
-                  cursor: (testLoading || !testMsg.trim()) ? 'default' : 'pointer',
-                }}
-              >
-                {testLoading ? 'Sending…' : (testReply && !testMsg.trim() ? 'Sent ✓' : 'Send')}
-              </button>
-              {testReply && (
-                <div style={{ background: '#e8f4e8', border: '1px solid #9c9', borderRadius: 6, padding: '0.5rem 0.75rem', fontFamily: 'monospace', fontSize: '0.85rem', whiteSpace: 'pre-wrap', flex: 1 }}>
-                  {testReply}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-      )}
 
       {/* Filter + title */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
