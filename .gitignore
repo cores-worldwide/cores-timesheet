@@ -12,3 +12,6 @@ supabase/.temp/
 
 # Local Netlify folder
 .netlify
+
+# Weekly office bulletin issues + logs (built by scripts/whats-new-weekly.sh; internal, kept out of the public repo)
+docs/whats-new/
