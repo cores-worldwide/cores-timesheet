@@ -461,6 +461,21 @@ export default function Reports() {
     downloadCSV(rows, filename)
   }
 
+  // Job report "Full Work Log" table as-is: one row per entry, photo count
+  // scoped to that employee/day/job (same as the table).
+  function exportWorkLog(job, jobEntriesToExport) {
+    const q = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`
+    const rows = ['Date,Employee,Hours,Description,Photos']
+    ;[...jobEntriesToExport]
+      .sort((a, b) => a.work_date.localeCompare(b.work_date) || (a.sort_order ?? 1) - (b.sort_order ?? 1))
+      .forEach(e => {
+        const photoCount = gearPhotos.filter(p =>
+          p.job_id === job.id && p.employee_id === e.employee_id && p.work_date === e.work_date).length
+        rows.push([e.work_date, q(e.employees?.name), fmtHours(e.hours), q(e.description), photoCount].join(','))
+      })
+    downloadCSV(rows, `${job.job_number}-work-log-${dateFileSuffix}.csv`)
+  }
+
   const exportBtn = (entriesToExport, title, filename) => (
     <button onClick={() => exportEntries(entriesToExport, title, filename)}
       style={{ marginLeft: 'auto', padding: '0.35rem 0.9rem', background: '#2d6a38', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.85rem' }}>
@@ -801,7 +816,13 @@ export default function Reports() {
           ))}
         </div>
 
-        <h4 style={{ color: '#555', marginBottom: '0.75rem' }}>Full Work Log</h4>
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: '0.75rem' }}>
+          <h4 style={{ color: '#555', margin: 0 }}>Full Work Log</h4>
+          <button onClick={() => exportWorkLog(job, jobEntries)}
+            style={{ marginLeft: 'auto', padding: '0.3rem 0.7rem', border: '1px solid #2d6a38', borderRadius: 4, background: '#fff', color: '#2d6a38', cursor: 'pointer', fontSize: '0.8rem' }}>
+            Export Work Log CSV
+          </button>
+        </div>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ background: '#f5f5f5', borderBottom: '2px solid #ddd' }}>
