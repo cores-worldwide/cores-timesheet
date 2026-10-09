@@ -89,7 +89,15 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
   // acts as a single-day filter rather than an open-ended range.
   const [dateFrom, setDateFrom]       = useState('')
   const [dateTo, setDateTo]           = useState('')
-  const [sortBy, setSortBy]           = useState('recent')
+  // Sort choice sticks per person (keyed by the office-login name) in this browser.
+  const sortKey = `cores_sms_review_sort:${getAdminName().toLowerCase()}`
+  const [sortBy, setSortByState]      = useState(() => {
+    try { return localStorage.getItem(sortKey) || 'recent' } catch { return 'recent' }
+  })
+  const setSortBy = v => {
+    setSortByState(v)
+    try { localStorage.setItem(sortKey, v) } catch { /* storage unavailable — sort just won't stick */ }
+  }
   const [loading, setLoading]         = useState(true)
   const [expanded, setExpanded]       = useState({})
   const [acting, setActing]           = useState(null)
