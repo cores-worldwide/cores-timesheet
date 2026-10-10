@@ -57,6 +57,12 @@ def load(path):
 e = html.escape
 
 
+def issued_label(d):
+    import datetime
+    t = datetime.date.fromisoformat(d['issued'])
+    return f"{t.strftime('%b')} {t.day}, {t.year}"
+
+
 # ─────────────────────────── page HTML ───────────────────────────
 PAGE_CSS = r'''
 /* Layout: one narrow reading column, like a printed office bulletin. Two audience bands (crew / office), each item = what changed + what to do. */
@@ -81,7 +87,7 @@ body { background: var(--bg); color: var(--ink); font: 16px/1.5 var(--body); }
 .paper { background: var(--paper); border: 1px solid var(--rule); border-top: 6px solid var(--accent); padding: 28px clamp(16px, 4vw, 40px) 36px; }
 .mast { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 4px 16px; border-bottom: 2px solid var(--ink); padding-bottom: 10px; }
 .mast h1 { font-family: var(--display); font-stretch: 80%; font-weight: 800; font-size: 2.1rem; line-height: 1; letter-spacing: .01em; margin: 0; text-transform: uppercase; }
-.mast .issue { font-family: var(--mono); font-size: .8rem; color: var(--muted); }
+.mast .issue { font-family: var(--mono); font-size: .8rem; color: var(--muted); text-align: right; line-height: 1.5; }
 .for { margin: 10px 0 0; color: var(--muted); font-size: .95rem; }
 .intro { margin: 18px 0 0; max-width: 62ch; }
 .band { margin-top: 30px; }
@@ -96,7 +102,7 @@ body { background: var(--bg); color: var(--ink); font: 16px/1.5 var(--body); }
 .item { padding: 12px 0; border-bottom: 1px solid var(--rule); break-inside: avoid; }
 .item:last-child { border-bottom: 0; }
 .item h3 { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; margin: 0 0 4px; font-size: 1.05rem; font-weight: 700; line-height: 1.3; text-wrap: balance; }
-.date { font-family: var(--mono); font-size: .72rem; font-weight: 500; color: var(--muted); white-space: nowrap; }
+.date { font-family: var(--mono); font-size: .72rem; font-weight: 500; color: var(--ink); background: var(--bg); border: 1px solid var(--rule); border-radius: 3px; padding: 1px 6px; white-space: nowrap; }
 .item p { margin: 0 0 6px; max-width: 64ch; }
 .item p:last-child { margin-bottom: 0; }
 .say { margin: 8px 0 0; padding: 8px 12px; background: var(--say-bg); border-left: 3px solid var(--say-rule); font-size: .95rem; max-width: 64ch; }
@@ -124,14 +130,14 @@ def page_html(d):
            f'<style>{PAGE_CSS}</style>',
            '<main class="sheet"><article class="paper">',
            '<header class="mast"><h1>What\'s New</h1>'
-           f'<span class="issue">Cores Timesheet · {e(d["period"])}</span></header>',
+           f'<span class="issue">Cores Timesheet · {e(d["period"])}<br>Issued {e(issued_label(d))}</span></header>',
            f'<p class="for">{e(d["audience"])}</p>']
     if d['intro']:
         out.append(f'<p class="intro">{e(d["intro"])}</p>')
 
     def item(it):
         s = [f'<div class="item"><h3>{e(it["title"])}'
-             + (f' <span class="date">{e(it["date"])}</span>' if it.get('date') else '') + '</h3>',
+             + (f' <span class="date">In effect {e(it["date"])}</span>' if it.get('date') else '') + '</h3>',
              f'<p>{e(it.get("body", ""))}</p>']
         if it.get('say'):
             s.append(f'<div class="say"><span class="lbl">{e(it.get("say_label") or "Say to the crew")}</span>'
@@ -201,7 +207,7 @@ def build_pdf(d, path):
     def item(it, last=False):
         head = pdf_text(it['title'])
         if it.get('date'):
-            head += f'&nbsp;&nbsp;<font name="Helvetica" size="8" color="{MUTED}">{pdf_text(it["date"])}</font>'
+            head += f'&nbsp;&nbsp;<font name="Helvetica" size="8" color="{MUTED}">In effect {pdf_text(it["date"])}</font>'
         parts = [Spacer(1, 6), Paragraph(head, title), Paragraph(pdf_text(it.get('body', '')), body)]
         if it.get('say'):
             box = Table([[[Paragraph(pdf_text((it.get('say_label') or 'Say to the crew').upper()), lbl),
@@ -220,7 +226,7 @@ def build_pdf(d, path):
     mast = ParagraphStyle('mast', parent=body, fontName='Helvetica-Bold', fontSize=20, leading=24)
     top = Table([[Paragraph('WHAT\'S NEW', mast),
                   Paragraph(f'<para alignment="right"><font size="8.5" color="{MUTED}">Cores Timesheet · '
-                            f'{pdf_text(d["period"])}</font></para>', body)]],
+                            f'{pdf_text(d["period"])}<br/>Issued {pdf_text(issued_label(d))}</font></para>', body)]],
                 colWidths=[W * 0.45, W * 0.55])
     top.setStyle(TableStyle([('LINEABOVE', (0, 0), (-1, 0), 4, C(ACCENT)), ('LINEBELOW', (0, 0), (-1, -1), 1.4, C(INK)),
                              ('VALIGN', (0, 0), (-1, -1), 'BOTTOM'), ('LEFTPADDING', (0, 0), (-1, -1), 0),
