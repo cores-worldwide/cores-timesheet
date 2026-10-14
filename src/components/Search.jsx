@@ -10,8 +10,13 @@ import MediaThumb from './MediaThumb'
 // (Cores.search_everything): every word must appear in the row or in the
 // job/vessel/customer/person it belongs to, so "andrew barge" works.
 //
-// The query lives in the URL (?q=) so Back from a job report or photo comes
-// straight back to the same results.
+// The query and date range live in the URL (?q=&from=&to=) so Back from a
+// job report or photo comes straight back to the same results.
+//
+// The date range (Jim, 2026-10-14) only narrows dated work — hours, texts,
+// photos, supplies, job notes. Jobs, vessels, customers, engines and contacts
+// always show ("no need to hide anything"). It's applied in the database so
+// older matches aren't lost behind the 300-row cap.
 
 const MAX_ROWS = 300
 
@@ -34,6 +39,34 @@ const linkStyle = { color: '#0066cc', fontWeight: 600, cursor: 'pointer' }
 const chip = (color, bg) => ({ display: 'inline-block', padding: '0.1rem 0.45rem', borderRadius: '4px', fontSize: '0.78rem', fontWeight: 600, color, background: bg, whiteSpace: 'nowrap' })
 const publicUrl = (path) => supabase.storage.from('gear-photos').getPublicUrl(path).data.publicUrl
 const fmtDate = (ymd) => ymd ? new Date(ymd + 'T12:00:00').toLocaleDateString('en-CA', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }) : ''
+
+// Local calendar date — toISOString() is UTC and rolls to tomorrow after 9pm Atlantic
+const toYMD = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+// Pay week runs Thursday–Wednesday (same as Job Reports)
+function getPayWeekStart(date) {
+  const d = new Date(date)
+  d.setDate(d.getDate() - (d.getDay() - 4 + 7) % 7)
+  d.setHours(0, 0, 0, 0)
+  return d
+}
+function presetRange(key) {
+  const today = new Date(); today.setHours(0, 0, 0, 0)
+  const y = today.getFullYear()
+  const plus = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x }
+  switch (key) {
+    case 'this-week': { const s = getPayWeekStart(today); return [toYMD(s), toYMD(plus(s, 6))] }
+    case 'last-week': { const s = plus(getPayWeekStart(today), -7); return [toYMD(s), toYMD(plus(s, 6))] }
+    case 'this-month': return [toYMD(new Date(y, today.getMonth(), 1)), toYMD(new Date(y, today.getMonth() + 1, 0))]
+    case 'last-30': return [toYMD(plus(today, -30)), toYMD(today)]
+    case 'this-year': return [`${y}-01-01`, `${y}-12-31`]
+    case 'last-year': return [`${y - 1}-01-01`, `${y - 1}-12-31`]
+    default: return ['', '']
+  }
+}
+const PRESETS = [
+  ['all', 'All time'], ['this-week', 'This pay week'], ['last-week', 'Last pay week'],
+  ['this-month', 'This month'], ['last-30', 'Last 30 days'], ['this-year', 'This year'], ['last-year', 'Last year'],
+]
 
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 const splitWords = (q) => q.trim().toLowerCase().split(/\s+/).filter(Boolean)
@@ -59,6 +92,8 @@ export default function Search() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const q = searchParams.get('q') || ''
+  const from = searchParams.get('from') || ''
+  const to = searchParams.get('to') || ''
   const [draft, setDraft] = useState(q)
   const [results, setResults] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -66,17 +101,25 @@ export default function Search() {
   const [kindFilter, setKindFilter] = useState('all')
   const [expanded, setExpanded] = useState(new Set())
   const inputRef = useRef(null)
+  // Date boxes are left uncontrolled so a half-typed date isn't wiped while
+  // typing; quick picks and Back/Forward push the URL's dates into them here.
+  const fromRef = useRef(null)
+  const toRef = useRef(null)
   const words = splitWords(q)
 
   useEffect(() => { inputRef.current?.focus() }, [])
   useEffect(() => { setDraft(q) }, [q])
+  useEffect(() => {
+    if (fromRef.current && fromRef.current.value !== from) fromRef.current.value = from
+    if (toRef.current && toRef.current.value !== to) toRef.current.value = to
+  }, [from, to])
 
   useEffect(() => {
     if (!words.length) { setResults(null); return }
     let cancelled = false
     setLoading(true)
     setError('')
-    supabase.schema('Cores').rpc('search_everything', { q, max_rows: MAX_ROWS }).then(({ data, error }) => {
+    supabase.schema('Cores').rpc('search_everything', { q, max_rows: MAX_ROWS, from_date: from || null, to_date: to || null }).then(({ data, error }) => {
       if (cancelled) return
       setLoading(false)
       if (error) { setError(error.message); setResults([]); return }
@@ -85,14 +128,30 @@ export default function Search() {
       setExpanded(new Set())
     })
     return () => { cancelled = true }
-  }, [q])
+  }, [q, from, to])
+
+  // Empty values are left out of the URL so it stays short
+  function setParams({ q: nq = q, from: nf = from, to: nt = to }) {
+    const p = {}
+    if (nq) p.q = nq
+    if (nf) p.from = nf
+    if (nt) p.to = nt
+    setSearchParams(p)
+  }
 
   function submit(e) {
     e.preventDefault()
-    const next = draft.trim()
-    if (next) setSearchParams({ q: next })
-    else setSearchParams({})
+    setParams({ q: draft.trim() })
   }
+
+  // A date change re-runs the search with whatever is typed in the box.
+  // Typing a date fires a change at every keystroke once all three parts
+  // have a value (year "2" → 0002-09-10), so half-typed years are ignored.
+  const setRange = (f, t) => setParams({ q: draft.trim(), from: f, to: t })
+  const okDate = (v) => !v || /^20\d{2}-\d{2}-\d{2}$/.test(v)
+  const DATE_MIN = '2000-01-01', DATE_MAX = '2099-12-31'
+  const activePreset = PRESETS.find(([k]) => { const [f, t] = presetRange(k); return f === from && t === to })?.[0] || 'custom'
+  const rangeLabel = from && to ? `${fmtDate(from)} – ${fmtDate(to)}` : from ? `from ${fmtDate(from)}` : to ? `up to ${fmtDate(to)}` : ''
 
   const openJob = (jobId) => navigate(`/reports?job=${jobId}`)
   const toggle = (id) => setExpanded(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s })
@@ -103,11 +162,13 @@ export default function Search() {
   // "Which job was that?" — the jobs the results point at, most hits first.
   const jobHits = Object.values((results || []).reduce((acc, r) => {
     if (!r.job_id || !r.job_number) return acc
-    const j = acc[r.job_id] || (acc[r.job_id] = { job_id: r.job_id, job_number: r.job_number, vessel: r.vessel, customer: r.customer, n: 0, people: new Set(), first: r.work_date, last: r.work_date })
+    const j = acc[r.job_id] || (acc[r.job_id] = { job_id: r.job_id, job_number: r.job_number, vessel: r.vessel, customer: r.customer, n: 0, people: new Set(), first: null, last: null })
     j.n++
     if (r.employee) j.people.add(r.employee)
-    if (r.work_date && (!j.first || r.work_date < j.first)) j.first = r.work_date
-    if (r.work_date && (!j.last || r.work_date > j.last)) j.last = r.work_date
+    // Dates = when the work happened, not when the job was created
+    const worked = r.kind !== 'job' && r.work_date
+    if (worked && (!j.first || r.work_date < j.first)) j.first = r.work_date
+    if (worked && (!j.last || r.work_date > j.last)) j.last = r.work_date
     return acc
   }, {})).sort((a, b) => b.n - a.n)
 
@@ -119,8 +180,29 @@ export default function Search() {
           style={{ flex: 1, minWidth: 0, padding: '0.65rem 0.9rem', fontSize: '1rem', border: '1px solid #bbb', borderRadius: '4px' }} />
         <button type="submit" style={{ padding: '0.6rem 1.4rem', background: '#0066cc', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 600, fontSize: '1rem' }}>Search</button>
       </form>
+      <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', alignItems: 'center', margin: '0.75rem 0 0.5rem' }}>
+        {PRESETS.map(([key, label]) => (
+          <button key={key} type="button" onClick={() => setRange(...presetRange(key))} style={{
+            padding: '0.35rem 0.85rem', fontSize: '0.85rem', border: '1px solid',
+            borderColor: activePreset === key ? '#0066cc' : '#ddd',
+            borderRadius: '20px', cursor: 'pointer',
+            background: activePreset === key ? '#e6f0ff' : '#fff',
+            color: activePreset === key ? '#0066cc' : '#555',
+            fontWeight: activePreset === key ? 600 : 400,
+          }}>{label}</button>
+        ))}
+        <span style={{ display: 'inline-flex', gap: '0.35rem', alignItems: 'center', fontSize: '0.85rem', color: '#555', marginLeft: '0.25rem' }}>
+          From <input ref={fromRef} type="date" defaultValue={from} min={DATE_MIN} max={to || DATE_MAX}
+            onChange={e => okDate(e.target.value) && setRange(e.target.value, to)}
+            style={{ padding: '0.3rem 0.4rem', border: '1px solid #ccc', borderRadius: '4px', fontSize: '0.85rem' }} />
+          to <input ref={toRef} type="date" defaultValue={to} min={from || DATE_MIN} max={DATE_MAX}
+            onChange={e => okDate(e.target.value) && setRange(from, e.target.value)}
+            style={{ padding: '0.3rem 0.4rem', border: '1px solid #ccc', borderRadius: '4px', fontSize: '0.85rem' }} />
+        </span>
+      </div>
       <div style={{ color: '#777', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
         Looks through hours, texts, photo notes, supplies, jobs, vessels, customers, engines and contacts. Every word must match somewhere — a person's name, job #, vessel, customer, month or anything they wrote. Not case sensitive.
+        {' '}The dates narrow hours, texts, photos, supplies and job notes; jobs, vessels, customers, engines and contacts always show.
       </div>
 
       {loading && <div style={{ color: '#888' }}>Searching…</div>}
@@ -128,12 +210,12 @@ export default function Search() {
 
       {!loading && results && !error && (
         results.length === 0 ? (
-          <div style={{ ...card, color: '#666' }}>Nothing found for <strong>{q}</strong>. Try fewer words, or part of a word (e.g. "detroit" instead of "detroits").</div>
+          <div style={{ ...card, color: '#666' }}>Nothing found for <strong>{q}</strong>{rangeLabel && <> ({rangeLabel})</>}. Try fewer words, part of a word (e.g. "detroit" instead of "detroits"){rangeLabel ? ', or a wider date range' : ''}.</div>
         ) : (
           <>
             {results.length >= MAX_ROWS && (
               <div style={{ ...card, background: '#fff8e6', borderColor: '#f0d48a', marginBottom: '1rem', fontSize: '0.9rem' }}>
-                Showing the newest {MAX_ROWS} matches only — add another word to narrow it down.
+                Showing the newest {MAX_ROWS} matches only — add another word or a date range to narrow it down.
               </div>
             )}
 
@@ -158,7 +240,7 @@ export default function Search() {
                           <td style={{ padding: '0.35rem 0.5rem' }}><span style={linkStyle} onClick={() => openJob(j.job_id)}>{j.job_number}</span></td>
                           <td style={{ padding: '0.35rem 0.5rem' }}>{j.vessel || '—'}</td>
                           <td style={{ padding: '0.35rem 0.5rem' }}>{j.customer || '—'}</td>
-                          <td style={{ padding: '0.35rem 0.5rem', whiteSpace: 'nowrap' }}>{j.first === j.last ? fmtDate(j.first) : `${fmtDate(j.first)} – ${fmtDate(j.last)}`}</td>
+                          <td style={{ padding: '0.35rem 0.5rem', whiteSpace: 'nowrap' }}>{!j.first ? '—' : j.first === j.last ? fmtDate(j.first) : `${fmtDate(j.first)} – ${fmtDate(j.last)}`}</td>
                           <td style={{ padding: '0.35rem 0.5rem' }}>{[...j.people].sort().join(', ') || '—'}</td>
                           <td style={{ padding: '0.35rem 0.5rem', textAlign: 'right' }}>{j.n}</td>
                         </tr>
