@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
 import MultiSelectDropdown from './MultiSelectDropdown'
 import { computeOTMap } from '../utils/otCalc'
@@ -149,6 +149,24 @@ export default function Reports() {
   }
 
   useEffect(() => { loadAll() }, [])
+
+  // Deep link from the Search tab: /reports?job=<id> opens that job's report
+  // with "All time" and any status, so an old or closed job isn't filtered
+  // down to nothing by the default "this pay week, open jobs" view.
+  const [searchParams] = useSearchParams()
+  const deepLinkJobId = searchParams.get('job')
+  const deepLinkDone = useRef(null)
+  useEffect(() => {
+    if (!deepLinkJobId || loading || deepLinkDone.current === deepLinkJobId) return
+    const job = jobs.find(j => j.id === deepLinkJobId)
+    if (!job) return
+    deepLinkDone.current = deepLinkJobId
+    applyPreset('all')
+    setJobStatus('all')
+    setNavHistory([])
+    setSelectedEmployee(null)
+    setSelectedJob(job)
+  }, [deepLinkJobId, loading, jobs])
 
   // Default the By Employee tab's filter — pre-populate with everyone so
   // "Clear" unambiguously means "show no one" instead of overloading an empty
@@ -396,6 +414,8 @@ export default function Reports() {
     setSelectedEmployee(emp)
   }
   function goBack() {
+    // Opened straight from the Search tab: Back returns to the results
+    if (!navHistory.length && deepLinkJobId && selectedJob?.id === deepLinkJobId) { navigate(-1); return }
     if (!navHistory.length) return
     const prev = navHistory[navHistory.length - 1]
     setNavHistory(h => h.slice(0, -1))
@@ -412,7 +432,7 @@ export default function Reports() {
   }
 
   function backLabel() {
-    if (!navHistory.length) return '← Back'
+    if (!navHistory.length) return deepLinkJobId && selectedJob?.id === deepLinkJobId ? '← Search results' : '← Back'
     const prev = navHistory[navHistory.length - 1]
     if (prev.selectedJob) return `← ${prev.selectedJob.job_number}`
     if (prev.selectedEmployee) return `← ${prev.selectedEmployee.name}`
