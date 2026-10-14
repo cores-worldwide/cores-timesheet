@@ -507,8 +507,9 @@ GRANT SELECT, INSERT, UPDATE ON "Cores".usage_daily TO service_role;
 REVOKE ALL ON FUNCTION "Cores".usage_bump(jsonb) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION "Cores".usage_bump(jsonb) TO service_role;
 
--- Search tab (2026-10-14), from migration 20261014120000_search_everything.sql
-CREATE OR REPLACE FUNCTION "Cores".search_everything(q text, max_rows integer DEFAULT 300)
+-- Search tab (2026-10-14), from migrations 20261014120000_search_everything.sql
+-- and 20261014220000_search_date_range.sql
+CREATE OR REPLACE FUNCTION "Cores".search_everything(q text, max_rows integer DEFAULT 300, from_date date DEFAULT NULL, to_date date DEFAULT NULL)
  RETURNS TABLE(kind text, id uuid, work_date date, employee text, job_id uuid,
                job_number text, vessel text, customer text, title text, body text, extra jsonb)
  LANGUAGE sql
@@ -629,8 +630,13 @@ select r.kind, r.id, r.work_date, r.employee, r.job_id, r.job_number, r.vessel, 
 from rows r
 where exists (select 1 from words)
   and not exists (select 1 from words w where lower(r.hay) not like w.pat)
+  -- the date range only narrows dated work (hours, texts, photos, supplies,
+  -- job notes); jobs, vessels, customers, engines and contacts always show
+  and (r.kind not in ('entry', 'text', 'photo', 'supply', 'job_note')
+       or ((from_date is null or r.work_date >= from_date)
+           and (to_date is null or r.work_date <= to_date)))
 order by r.work_date desc nulls last, r.kind
 limit greatest(1, least(coalesce(max_rows, 300), 1000));
 $function$;
 
-GRANT EXECUTE ON FUNCTION "Cores".search_everything(text, integer) TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION "Cores".search_everything(text, integer, date, date) TO anon, authenticated, service_role;
