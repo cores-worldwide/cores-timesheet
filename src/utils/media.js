@@ -92,6 +92,19 @@ export async function addTechPhoto(supabase, { employeeId, ymd, job, file }) {
   return { error }
 }
 
+// Several picked at once: one after another (phones on a job-site signal
+// choke on parallel uploads), reporting progress as onProgress(n, total).
+// Stops at the first failure — the ones before it are already saved.
+// Returns { error, saved }.
+export async function addTechPhotos(supabase, { employeeId, ymd, job, files, onProgress }) {
+  for (let i = 0; i < files.length; i++) {
+    onProgress?.(i + 1, files.length)
+    const { error } = await addTechPhoto(supabase, { employeeId, ymd, job, file: files[i] })
+    if (error) return { error, saved: i }
+  }
+  return { error: null, saved: files.length }
+}
+
 // Forces a real save-to-disk instead of a bare `<a href download>` — Supabase
 // Storage URLs are cross-origin, and browsers don't reliably honor the
 // `download` attribute (or the suggested filename) on a cross-origin link;

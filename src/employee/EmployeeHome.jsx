@@ -5,7 +5,7 @@ import { payWeekRange } from '../utils/statPay'
 import { computeOTMap } from '../utils/otCalc'
 import { fmtHours } from '../utils/format'
 import { fetchDailyOTContext, computeDailyOTSplit, computeSubmissionTiming, fixShiftAmPm, amPmFixNote } from '../utils/entrySave'
-import { addTechPhoto } from '../utils/media'
+import { addTechPhotos } from '../utils/media'
 import JobPicker from './JobPicker'
 import AutoGrowTextarea from './AutoGrowTextarea'
 import PhotoEditSheet, { PhotoThumbs } from './PhotoEditSheet'
@@ -341,11 +341,14 @@ export default function EmployeeHome({ employee }) {
   // Uploaded straight to the gear-photos bucket — photo or video, the
   // bucket/UI don't care which. Job is optional (see addTechPhoto in
   // utils/media.js for the pending_context convention).
-  async function uploadPhoto(ymd, file) {
-    setUploadingPhoto(true); setError('')
+  async function uploadPhotos(ymd, files) {
+    setUploadingPhoto('Uploading…'); setError('')
     const job = photoJobId ? jobs.find(j => j.id === photoJobId) || null : null
-    const { error: err } = await addTechPhoto(supabase, { employeeId: employee.id, ymd, job, file })
-    if (err) { setError(err.message); setUploadingPhoto(false); return }
+    const { error: err, saved } = await addTechPhotos(supabase, {
+      employeeId: employee.id, ymd, job, files,
+      onProgress: (n, total) => setUploadingPhoto(total > 1 ? `Uploading ${n} of ${total}…` : 'Uploading…'),
+    })
+    if (err) { setError(`${err.message} (${saved} of ${files.length} saved)`); await load({ silent: true }); setUploadingPhoto(false); return }
     await load({ silent: true })
     setUploadingPhoto(false)
     setPhotoFor(null)
@@ -671,15 +674,15 @@ export default function EmployeeHome({ employee }) {
                 </div>
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
                   <label className="emp-btn" style={{ position: 'relative', overflow: 'hidden', opacity: uploadingPhoto ? 0.5 : 1, cursor: uploadingPhoto ? 'not-allowed' : 'pointer' }}>
-                    {uploadingPhoto ? 'Uploading…' : 'Take / choose photo or video'}
+                    {uploadingPhoto || 'Take / choose photos or videos'}
                     {/* display:none (or visibility:hidden) on a file input silently blocks the
                         native picker from opening on iOS Safari when triggered via a wrapping
                         label — has to stay "visible" (just invisible/off-screen) for tapping the
                         label to work. capture="environment" is left off so the OS offers both
                         camera and library, matching what "Take / choose photo or video" promises. */}
-                    <input type="file" accept="image/*,video/*" disabled={uploadingPhoto}
+                    <input type="file" accept="image/*,video/*" multiple disabled={!!uploadingPhoto}
                       style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', opacity: 0, cursor: uploadingPhoto ? 'not-allowed' : 'pointer' }}
-                      onChange={e => { const f = e.target.files?.[0]; if (f) uploadPhoto(ymd, f) }} />
+                      onChange={e => { const fs = [...(e.target.files || [])]; e.target.value = ''; if (fs.length) uploadPhotos(ymd, fs) }} />
                   </label>
                   <button className="emp-btn emp-btn-secondary" onClick={() => { setPhotoFor(null); setPhotoJobId('') }}>Cancel</button>
                 </div>

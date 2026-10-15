@@ -5,7 +5,7 @@ import { fetchDailyOTContext, computeDailyOTSplit, fixShiftAmPm, amPmFixNote } f
 import JobPicker from './JobPicker'
 import AutoGrowTextarea from './AutoGrowTextarea'
 import PhotoEditSheet, { PhotoThumbs } from './PhotoEditSheet'
-import { addTechPhoto } from '../utils/media'
+import { addTechPhotos } from '../utils/media'
 import './employee.css'
 
 const blankEntry = () => ({ job_number: '', hours: '', description: '' })
@@ -89,12 +89,16 @@ export default function PendingEntryEdit({ employee }) {
   // Save/Cancel below don't touch it. Job defaults to the day's only job.
   const entryJobNumbers = [...new Set(entries.map(e => e.job_number.trim()).filter(Boolean))]
   const photoJob = photoJobNumber ?? (entryJobNumbers.length === 1 ? entryJobNumbers[0] : '')
-  async function uploadPhoto(file) {
-    setUploadingPhoto(true); setError('')
+  async function uploadPhotos(files) {
+    setUploadingPhoto('Uploading…'); setError('')
     const job = photoJob ? jobs.find(j => j.job_number === photoJob) || null : null
-    const { error: err } = await addTechPhoto(supabase, { employeeId: employee.id, ymd: sub.work_date, job, file })
-    if (err) setError(err.message)
-    else { await loadPhotos(sub.work_date); setAddingPhoto(false); setPhotoJobNumber(null) }
+    const { error: err, saved } = await addTechPhotos(supabase, {
+      employeeId: employee.id, ymd: sub.work_date, job, files,
+      onProgress: (n, total) => setUploadingPhoto(total > 1 ? `Uploading ${n} of ${total}…` : 'Uploading…'),
+    })
+    await loadPhotos(sub.work_date)
+    if (err) setError(`${err.message} (${saved} of ${files.length} saved)`)
+    else { setAddingPhoto(false); setPhotoJobNumber(null) }
     setUploadingPhoto(false)
   }
 
@@ -270,12 +274,12 @@ export default function PendingEntryEdit({ employee }) {
               {/* Same visible-but-transparent file input as the day card's "+ Photo"
                   — display:none blocks the native picker on iOS Safari. */}
               <label className="emp-btn" style={{ position: 'relative', overflow: 'hidden', opacity: uploadingPhoto ? 0.5 : 1 }}>
-                {uploadingPhoto ? 'Uploading…' : 'Take / choose photo or video'}
-                <input type="file" accept="image/*,video/*" disabled={uploadingPhoto}
+                {uploadingPhoto || 'Take / choose photos or videos'}
+                <input type="file" accept="image/*,video/*" multiple disabled={!!uploadingPhoto}
                   style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', opacity: 0 }}
-                  onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) uploadPhoto(f) }} />
+                  onChange={e => { const fs = [...(e.target.files || [])]; e.target.value = ''; if (fs.length) uploadPhotos(fs) }} />
               </label>
-              <button className="emp-btn emp-btn-secondary" disabled={uploadingPhoto}
+              <button className="emp-btn emp-btn-secondary" disabled={!!uploadingPhoto}
                 onClick={() => { setAddingPhoto(false); setPhotoJobNumber(null) }}>Cancel</button>
             </div>
           </div>
