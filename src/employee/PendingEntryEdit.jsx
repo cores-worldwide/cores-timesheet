@@ -92,12 +92,12 @@ export default function PendingEntryEdit({ employee }) {
   async function uploadPhotos(files) {
     setUploadingPhoto('Uploading…'); setError('')
     const job = photoJob ? jobs.find(j => j.job_number === photoJob) || null : null
-    const { error: err, saved } = await addTechPhotos(supabase, {
+    const { error: err } = await addTechPhotos(supabase, {
       employeeId: employee.id, ymd: sub.work_date, job, files,
       onProgress: (n, total) => setUploadingPhoto(total > 1 ? `Uploading ${n} of ${total}…` : 'Uploading…'),
     })
     await loadPhotos(sub.work_date)
-    if (err) setError(`${err.message} (${saved} of ${files.length} saved)`)
+    if (err) setError(err.message)
     else { setAddingPhoto(false); setPhotoJobNumber(null) }
     setUploadingPhoto(false)
   }

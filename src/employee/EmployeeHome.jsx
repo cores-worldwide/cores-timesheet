@@ -344,11 +344,11 @@ export default function EmployeeHome({ employee }) {
   async function uploadPhotos(ymd, files) {
     setUploadingPhoto('Uploading…'); setError('')
     const job = photoJobId ? jobs.find(j => j.id === photoJobId) || null : null
-    const { error: err, saved } = await addTechPhotos(supabase, {
+    const { error: err } = await addTechPhotos(supabase, {
       employeeId: employee.id, ymd, job, files,
       onProgress: (n, total) => setUploadingPhoto(total > 1 ? `Uploading ${n} of ${total}…` : 'Uploading…'),
     })
-    if (err) { setError(`${err.message} (${saved} of ${files.length} saved)`); await load({ silent: true }); setUploadingPhoto(false); return }
+    if (err) { setError(err.message); await load({ silent: true }); setUploadingPhoto(false); return }
     await load({ silent: true })
     setUploadingPhoto(false)
     setPhotoFor(null)

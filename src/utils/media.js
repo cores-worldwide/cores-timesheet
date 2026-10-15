@@ -92,17 +92,41 @@ export async function addTechPhoto(supabase, { employeeId, ymd, job, file }) {
   return { error }
 }
 
+// What the gear-photos bucket accepts (allowed_mime_types and the 100MB
+// file_size_limit, see the 20260711184340 and 20260818120000 migrations).
+// Checked here first so a tech gets a plain-English reason instead of the
+// storage API's error. Extensions cover phones that leave file.type blank.
+const ALLOWED_MEDIA_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif',
+  'video/mp4', 'video/quicktime', 'video/webm', 'video/3gpp']
+const ALLOWED_MEDIA_EXTS = ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif', 'mp4', 'mov', 'webm', '3gp']
+const MAX_MEDIA_BYTES = 100 * 1024 * 1024
+
+function mediaProblem(file) {
+  const ext = (file.name.split('.').pop() || '').toLowerCase()
+  const typeOk = file.type ? ALLOWED_MEDIA_TYPES.includes(file.type) : ALLOWED_MEDIA_EXTS.includes(ext)
+  if (!typeOk) return `"${file.name}" isn't a photo or video type we can take — use a regular photo or video (JPEG, PNG, HEIC, MP4 or MOV)`
+  if (file.size > MAX_MEDIA_BYTES) return `"${file.name}" is too big (over 100 MB) — try a shorter video`
+  return null
+}
+
 // Several picked at once: one after another (phones on a job-site signal
 // choke on parallel uploads), reporting progress as onProgress(n, total).
-// Stops at the first failure — the ones before it are already saved.
-// Returns { error, saved }.
+// Files the bucket would refuse are skipped up front with a plain reason;
+// the rest still go up. An upload failure stops there — the ones before it
+// are already saved. Returns { error, saved } with error.message ready to show.
 export async function addTechPhotos(supabase, { employeeId, ymd, job, files, onProgress }) {
-  for (let i = 0; i < files.length; i++) {
-    onProgress?.(i + 1, files.length)
-    const { error } = await addTechPhoto(supabase, { employeeId, ymd, job, file: files[i] })
-    if (error) return { error, saved: i }
+  const problems = files.map(mediaProblem).filter(Boolean)
+  const good = files.filter(f => !mediaProblem(f))
+  let saved = 0
+  for (let i = 0; i < good.length; i++) {
+    onProgress?.(i + 1, good.length)
+    const { error } = await addTechPhoto(supabase, { employeeId, ymd, job, file: good[i] })
+    if (error) { problems.push(`Upload stopped on "${good[i].name}" (${error.message}) — check your signal and try that one again`); break }
+    saved++
   }
-  return { error: null, saved: files.length }
+  if (problems.length === 0) return { error: null, saved }
+  const tally = files.length > 1 ? ` (${saved} of ${files.length} saved)` : ''
+  return { error: { message: problems.join('. ') + tally }, saved }
 }
 
 // Forces a real save-to-disk instead of a bare `<a href download>` — Supabase
