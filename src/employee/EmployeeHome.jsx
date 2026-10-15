@@ -7,6 +7,7 @@ import { fmtHours } from '../utils/format'
 import { fetchDailyOTContext, computeDailyOTSplit, computeSubmissionTiming, fixShiftAmPm, amPmFixNote } from '../utils/entrySave'
 import { uploadGearPhoto, deleteGearPhoto } from '../utils/media'
 import JobPicker from './JobPicker'
+import AutoGrowTextarea from './AutoGrowTextarea'
 import MediaThumb from '../components/MediaThumb'
 import MediaViewer from '../components/MediaViewer'
 import './employee.css'
@@ -626,7 +627,7 @@ export default function EmployeeHome({ employee }) {
                     </div>
                     <div className="emp-field">
                       <label>Notes</label>
-                      <input type="text" value={line.description}
+                      <AutoGrowTextarea value={line.description}
                         onChange={e => setDraftLines(lines => lines.map((l, idx) => idx === i ? { ...l, description: e.target.value } : l))}
                         onBlur={() => autosaveLog(ymd)} />
                     </div>
@@ -891,7 +892,7 @@ export default function EmployeeHome({ employee }) {
               <div style={{ marginTop: '0.5rem' }}>
                 <div className="emp-field">
                   <label>Note (not tied to a job)</label>
-                  <input type="text" value={noteDraft} placeholder="Fill in your note here"
+                  <AutoGrowTextarea value={noteDraft} placeholder="Fill in your note here"
                     onChange={e => setNoteDraft(e.target.value)} />
                 </div>
                 <div style={{ display: 'flex', gap: '0.5rem' }}>

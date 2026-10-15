@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
 import { fetchDailyOTContext, computeDailyOTSplit, fixShiftAmPm, amPmFixNote } from '../utils/entrySave'
 import JobPicker from './JobPicker'
+import AutoGrowTextarea from './AutoGrowTextarea'
 import './employee.css'
 
 const blankEntry = () => ({ job_number: '', hours: '', description: '' })
@@ -213,7 +214,7 @@ export default function PendingEntryEdit({ employee }) {
             </div>
             <div className="emp-field">
               <label>Notes</label>
-              <textarea rows={2} value={line.description} onChange={e => setEntryField(i, 'description', e.target.value)} />
+              <AutoGrowTextarea value={line.description} onChange={e => setEntryField(i, 'description', e.target.value)} />
             </div>
           </div>
         ))}
