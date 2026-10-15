@@ -99,3 +99,33 @@ export async function downloadMedia(url, filename) {
 export function mediaFilename(path) {
   return (path || '').split('/').pop().split('?')[0] || 'photo'
 }
+
+// Deletes a gear photo for good: file, thumbnail and row. Shared by the
+// office's Gear Photos delete and a tech's own delete in the mobile app, so
+// the supply clean-up rule lives in one place.
+//
+// job_supplies.source_photo_id is ON DELETE SET NULL, not CASCADE — deleting
+// just the photo silently detaches (not removes) any supply line it produced,
+// including ones already applied to the timesheet, leaving an orphaned charge
+// with no photo and no timesheet entry behind it (confirmed in production,
+// Jim Jardine, 2026-08-28). Clean those up too, same as everywhere else this
+// codebase touches job_supplies: unbilled ones are safe to delete outright;
+// a billed one is real billing history, so it's left alone (still linked to
+// this photo id — harmless once the photo record is gone).
+//
+// Returns { error } where error.message is ready to show as-is.
+export async function deleteGearPhoto(supabase, photo) {
+  const { data: linkedSupplies, error: lookupError } = await supabase.schema('Cores').from('job_supplies')
+    .select('id, billed_at').eq('source_photo_id', photo.id)
+  if (lookupError) return { error: { message: 'Error checking linked supplies: ' + lookupError.message } }
+  const unbilledIds = (linkedSupplies || []).filter(s => !s.billed_at).map(s => s.id)
+  if (unbilledIds.length > 0) {
+    const { error: supplyError } = await supabase.schema('Cores').from('job_supplies').delete().in('id', unbilledIds)
+    if (supplyError) return { error: { message: 'Error removing linked supply lines: ' + supplyError.message } }
+  }
+  const { error: storageError } = await supabase.storage.from('gear-photos').remove([photo.storage_path, photo.thumb_path].filter(Boolean))
+  if (storageError) return { error: { message: 'Error deleting file: ' + storageError.message } }
+  const { error } = await supabase.schema('Cores').from('gear_photos').delete().eq('id', photo.id)
+  if (error) return { error: { message: 'File removed but record delete failed: ' + error.message } }
+  return { error: null }
+}
