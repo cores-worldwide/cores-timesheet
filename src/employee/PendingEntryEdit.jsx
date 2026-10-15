@@ -3,6 +3,9 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
 import { fetchDailyOTContext, computeDailyOTSplit, fixShiftAmPm, amPmFixNote } from '../utils/entrySave'
 import JobPicker from './JobPicker'
+import AutoGrowTextarea from './AutoGrowTextarea'
+import PhotoEditSheet, { PhotoThumbs } from './PhotoEditSheet'
+import { addTechPhotos } from '../utils/media'
 import './employee.css'
 
 const blankEntry = () => ({ job_number: '', hours: '', description: '' })
@@ -37,6 +40,11 @@ export default function PendingEntryEdit({ employee }) {
   const [perDiemLocation, setPerDiemLocation] = useState('')
   const [entries, setEntries] = useState([blankEntry()])
   const [supplies, setSupplies] = useState([blankSupply()])
+  const [photos, setPhotos] = useState([])
+  const [photoJobNumber, setPhotoJobNumber] = useState(null)
+  const [uploadingPhoto, setUploadingPhoto] = useState(false)
+  const [addingPhoto, setAddingPhoto] = useState(false)
+  const [openPhoto, setOpenPhoto] = useState(null)
 
   useEffect(() => {
     supabase.schema('Cores').from('jobs').select('id, job_number, description, vessels(name)').order('job_number').then(({ data }) => setJobs(data || []))
@@ -62,11 +70,37 @@ export default function PendingEntryEdit({ employee }) {
       setSupplies((data.supplies || []).length > 0 ? data.supplies.map(s => ({
         job_number: s.job_number || '', supply_name: s.supply_name || '', quantity: s.quantity != null ? String(s.quantity) : '1',
       })) : [blankSupply()])
+      loadPhotos(data.work_date)
       setLoading(false)
     }
     load()
     return () => { cancelled = true }
   }, [subId, employee.id])
+
+  async function loadPhotos(ymd) {
+    const { data } = await supabase.schema('Cores').from('gear_photos')
+      .select('*').eq('employee_id', employee.id).eq('work_date', ymd)
+      .order('created_at', { ascending: false })
+    setPhotos(data || [])
+  }
+
+  // Adding a photo here saves it straight away, same as "+ Photo" on the day
+  // card — it's its own gear_photos row, not part of this day's text, so
+  // Save/Cancel below don't touch it. Job defaults to the day's only job.
+  const entryJobNumbers = [...new Set(entries.map(e => e.job_number.trim()).filter(Boolean))]
+  const photoJob = photoJobNumber ?? (entryJobNumbers.length === 1 ? entryJobNumbers[0] : '')
+  async function uploadPhotos(files) {
+    setUploadingPhoto('Uploading…'); setError('')
+    const job = photoJob ? jobs.find(j => j.job_number === photoJob) || null : null
+    const { error: err } = await addTechPhotos(supabase, {
+      employeeId: employee.id, ymd: sub.work_date, job, files,
+      onProgress: (n, total) => setUploadingPhoto(total > 1 ? `Uploading ${n} of ${total}…` : 'Uploading…'),
+    })
+    await loadPhotos(sub.work_date)
+    if (err) setError(err.message)
+    else { setAddingPhoto(false); setPhotoJobNumber(null) }
+    setUploadingPhoto(false)
+  }
 
   const setEntryField = (i, field, value) => setEntries(rows => rows.map((r, j) => j === i ? { ...r, [field]: value } : r))
   const setSupplyField = (i, field, value) => setSupplies(rows => rows.map((r, j) => j === i ? { ...r, [field]: value } : r))
@@ -213,16 +247,49 @@ export default function PendingEntryEdit({ employee }) {
             </div>
             <div className="emp-field">
               <label>Notes</label>
-              <textarea rows={2} value={line.description} onChange={e => setEntryField(i, 'description', e.target.value)} />
+              <AutoGrowTextarea value={line.description} onChange={e => setEntryField(i, 'description', e.target.value)} />
             </div>
           </div>
         ))}
-        <button className="emp-btn emp-btn-secondary emp-btn-small" onClick={() => setEntries(rows => [...rows, blankEntry()])}>+ Add another job</button>
+        {/* "+ Photo" sits beside "+ Add another job", same as a new day on the
+            home screen; its job picker opens underneath. */}
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <button className="emp-btn emp-btn-secondary emp-btn-small" onClick={() => setEntries(rows => [...rows, blankEntry()])}>+ Add another job</button>
+          {!addingPhoto && (
+            <button className="emp-btn emp-btn-secondary emp-btn-small"
+              onClick={() => { setAddingPhoto(true); setError('') }}>+ Photo</button>
+          )}
+        </div>
+        {addingPhoto && (
+          <div style={{ marginTop: '0.5rem' }}>
+            <div className="emp-field">
+              <label>Job this photo is for (optional)</label>
+              <JobPicker jobs={jobs} value={photoJob} onChange={(job) => setPhotoJobNumber(job.job_number)} placeholder="No job — office will sort it out" />
+              {photoJob && (
+                <button type="button" className="emp-inline-link" style={{ marginTop: '0.3rem', fontSize: '0.8rem' }}
+                  onClick={() => setPhotoJobNumber('')}>Clear job</button>
+              )}
+            </div>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              {/* Same visible-but-transparent file input as the day card's "+ Photo"
+                  — display:none blocks the native picker on iOS Safari. */}
+              <label className="emp-btn" style={{ position: 'relative', overflow: 'hidden', opacity: uploadingPhoto ? 0.5 : 1 }}>
+                {uploadingPhoto || 'Take / choose photos or videos'}
+                <input type="file" accept="image/*,video/*" multiple disabled={!!uploadingPhoto}
+                  style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', opacity: 0 }}
+                  onChange={e => { const fs = [...(e.target.files || [])]; e.target.value = ''; if (fs.length) uploadPhotos(fs) }} />
+              </label>
+              <button className="emp-btn emp-btn-secondary" disabled={!!uploadingPhoto}
+                onClick={() => { setAddingPhoto(false); setPhotoJobNumber(null) }}>Cancel</button>
+            </div>
+          </div>
+        )}
+        <PhotoThumbs photos={photos} onOpen={setOpenPhoto} style={{ marginTop: '0.5rem' }} />
+        {photos.length > 0 && <div className="emp-hint">Tap a photo to change its job or caption, or delete it. Photo changes save straight away.</div>}
 
         <div style={{ marginTop: '1rem' }}>
           <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#444' }}>Supplies used (optional)</label>
           {supplies.map((line, i) => {
-            const entryJobNumbers = [...new Set(entries.map(e => e.job_number.trim()).filter(Boolean))]
             return (
               <div key={i} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginTop: '0.4rem' }}>
                 <div className="emp-row-2" style={{ flex: 1 }}>
@@ -248,6 +315,7 @@ export default function PendingEntryEdit({ employee }) {
 
         <div style={{ marginTop: '1.5rem', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
           <button className="emp-btn" disabled={saving} onClick={saveEdit}>{saving ? 'Saving…' : 'Save'}</button>
+          <button className="emp-btn emp-btn-secondary" disabled={saving} onClick={() => navigate('..')}>Cancel</button>
           {confirmDiscard ? (
             <div style={{ textAlign: 'center', fontSize: '0.9rem' }}>
               Discard this day's text?{' '}
@@ -260,6 +328,10 @@ export default function PendingEntryEdit({ employee }) {
           )}
         </div>
       </div>
+      {openPhoto && (
+        <PhotoEditSheet photo={openPhoto} jobs={jobs} employeeId={employee.id}
+          onClose={() => setOpenPhoto(null)} onChanged={() => loadPhotos(sub.work_date)} />
+      )}
     </div>
   )
 }

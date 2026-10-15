@@ -73,6 +73,62 @@ export async function uploadGearPhoto(bucket, path, file) {
   return { thumb_path, sha256 }
 }
 
+// A tech's own photo from the mobile app (day card or the edit screen):
+// upload, then the gear_photos row. Job is optional — same pending_context
+// convention the SMS/MMS path uses (see sms-timesheet index.ts): a job sets
+// job_id/ship_or_job and clears pending_context; no job marks it pending so
+// it shows up in Gear Photos' "needs ship/job" triage queue for the office.
+// `job` is a jobs row ({ id, job_number }) or null. Returns { error }.
+export async function addTechPhoto(supabase, { employeeId, ymd, job, file }) {
+  const ext = (file.name.split('.').pop() || 'jpg').toLowerCase()
+  const path = `${ymd}/${employeeId}/${Date.now()}.${ext}`
+  const { error: upErr, thumb_path, sha256 } = await uploadGearPhoto(supabase.storage.from('gear-photos'), path, file)
+  if (upErr) return { error: upErr }
+  const { error } = await supabase.schema('Cores').from('gear_photos').insert({
+    employee_id: employeeId, work_date: ymd, from_phone: 'mobile-app',
+    storage_path: path, job_id: job?.id || null, ship_or_job: job?.job_number || null,
+    pending_context: !job, file_size_bytes: file.size, thumb_path, sha256,
+  })
+  return { error }
+}
+
+// What the gear-photos bucket accepts (allowed_mime_types and the 100MB
+// file_size_limit, see the 20260711184340 and 20260818120000 migrations).
+// Checked here first so a tech gets a plain-English reason instead of the
+// storage API's error. Extensions cover phones that leave file.type blank.
+const ALLOWED_MEDIA_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif',
+  'video/mp4', 'video/quicktime', 'video/webm', 'video/3gpp']
+const ALLOWED_MEDIA_EXTS = ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif', 'mp4', 'mov', 'webm', '3gp']
+const MAX_MEDIA_BYTES = 100 * 1024 * 1024
+
+function mediaProblem(file) {
+  const ext = (file.name.split('.').pop() || '').toLowerCase()
+  const typeOk = file.type ? ALLOWED_MEDIA_TYPES.includes(file.type) : ALLOWED_MEDIA_EXTS.includes(ext)
+  if (!typeOk) return `"${file.name}" isn't a photo or video type we can take — use a regular photo or video (JPEG, PNG, HEIC, MP4 or MOV)`
+  if (file.size > MAX_MEDIA_BYTES) return `"${file.name}" is too big (over 100 MB) — try a shorter video`
+  return null
+}
+
+// Several picked at once: one after another (phones on a job-site signal
+// choke on parallel uploads), reporting progress as onProgress(n, total).
+// Files the bucket would refuse are skipped up front with a plain reason;
+// the rest still go up. An upload failure stops there — the ones before it
+// are already saved. Returns { error, saved } with error.message ready to show.
+export async function addTechPhotos(supabase, { employeeId, ymd, job, files, onProgress }) {
+  const problems = files.map(mediaProblem).filter(Boolean)
+  const good = files.filter(f => !mediaProblem(f))
+  let saved = 0
+  for (let i = 0; i < good.length; i++) {
+    onProgress?.(i + 1, good.length)
+    const { error } = await addTechPhoto(supabase, { employeeId, ymd, job, file: good[i] })
+    if (error) { problems.push(`Upload stopped on "${good[i].name}" (${error.message}) — check your signal and try that one again`); break }
+    saved++
+  }
+  if (problems.length === 0) return { error: null, saved }
+  const tally = files.length > 1 ? ` (${saved} of ${files.length} saved)` : ''
+  return { error: { message: problems.join('. ') + tally }, saved }
+}
+
 // Forces a real save-to-disk instead of a bare `<a href download>` — Supabase
 // Storage URLs are cross-origin, and browsers don't reliably honor the
 // `download` attribute (or the suggested filename) on a cross-origin link;
@@ -98,4 +154,34 @@ export async function downloadMedia(url, filename) {
 // UUID/query string.
 export function mediaFilename(path) {
   return (path || '').split('/').pop().split('?')[0] || 'photo'
+}
+
+// Deletes a gear photo for good: file, thumbnail and row. Shared by the
+// office's Gear Photos delete and a tech's own delete in the mobile app, so
+// the supply clean-up rule lives in one place.
+//
+// job_supplies.source_photo_id is ON DELETE SET NULL, not CASCADE — deleting
+// just the photo silently detaches (not removes) any supply line it produced,
+// including ones already applied to the timesheet, leaving an orphaned charge
+// with no photo and no timesheet entry behind it (confirmed in production,
+// Jim Jardine, 2026-08-28). Clean those up too, same as everywhere else this
+// codebase touches job_supplies: unbilled ones are safe to delete outright;
+// a billed one is real billing history, so it's left alone (still linked to
+// this photo id — harmless once the photo record is gone).
+//
+// Returns { error } where error.message is ready to show as-is.
+export async function deleteGearPhoto(supabase, photo) {
+  const { data: linkedSupplies, error: lookupError } = await supabase.schema('Cores').from('job_supplies')
+    .select('id, billed_at').eq('source_photo_id', photo.id)
+  if (lookupError) return { error: { message: 'Error checking linked supplies: ' + lookupError.message } }
+  const unbilledIds = (linkedSupplies || []).filter(s => !s.billed_at).map(s => s.id)
+  if (unbilledIds.length > 0) {
+    const { error: supplyError } = await supabase.schema('Cores').from('job_supplies').delete().in('id', unbilledIds)
+    if (supplyError) return { error: { message: 'Error removing linked supply lines: ' + supplyError.message } }
+  }
+  const { error: storageError } = await supabase.storage.from('gear-photos').remove([photo.storage_path, photo.thumb_path].filter(Boolean))
+  if (storageError) return { error: { message: 'Error deleting file: ' + storageError.message } }
+  const { error } = await supabase.schema('Cores').from('gear_photos').delete().eq('id', photo.id)
+  if (error) return { error: { message: 'File removed but record delete failed: ' + error.message } }
+  return { error: null }
 }

@@ -23,7 +23,10 @@ const MAX_SCALE = 4
 // transform, which is exactly the "zooms in but I can't get it back"
 // symptom this was built to fix. Wheel/touch listeners are therefore
 // attached manually with { passive: false } instead of via JSX props.
-export default function MediaViewer({ src, alt = '', style }) {
+// maxMediaHeight lets a caller that shows more than the media (the tech
+// app's photo edit sheet) keep it short enough to leave room below; every
+// other lightbox keeps the full-viewport default.
+export default function MediaViewer({ src, alt = '', style, maxMediaHeight = 'calc(100vh - 3rem)' }) {
   const [scale, setScale] = useState(1)
   const [pos, setPos] = useState({ x: 0, y: 0 })
   const [dragging, setDragging] = useState(false)
@@ -158,8 +161,8 @@ export default function MediaViewer({ src, alt = '', style }) {
     // Bounded in viewport units, not percentages — see the img case below
     // for why a percentage here has nothing definite to resolve against.
     return (
-      <div style={{ position: 'relative', display: 'inline-block', maxWidth: 'calc(100vw - 3rem)', maxHeight: 'calc(100vh - 3rem)' }}>
-        <video src={src} controls autoPlay style={{ ...style, maxWidth: 'calc(100vw - 3rem)', maxHeight: 'calc(100vh - 3rem)' }} />
+      <div style={{ position: 'relative', display: 'inline-block', maxWidth: 'calc(100vw - 3rem)', maxHeight: maxMediaHeight }}>
+        <video src={src} controls autoPlay style={{ ...style, maxWidth: 'calc(100vw - 3rem)', maxHeight: maxMediaHeight }} />
         <DownloadButton src={src} />
       </div>
     )
@@ -206,7 +209,7 @@ export default function MediaViewer({ src, alt = '', style }) {
           // image's native pixel size — a full-resolution phone photo blown
           // up far past the screen, which reads as "the photo won't open."
           width: 'auto', height: 'auto',
-          maxWidth: 'calc(100vw - 3rem)', maxHeight: 'calc(100vh - 3rem)',
+          maxWidth: 'calc(100vw - 3rem)', maxHeight: maxMediaHeight,
           objectFit: 'contain', userSelect: 'none',
           transform: `translate(${pos.x}px, ${pos.y}px) scale(${scale})`,
           transition: dragging || pinchRef.current ? 'none' : 'transform 0.15s ease-out',

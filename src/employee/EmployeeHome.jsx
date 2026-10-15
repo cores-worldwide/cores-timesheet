@@ -5,10 +5,10 @@ import { payWeekRange } from '../utils/statPay'
 import { computeOTMap } from '../utils/otCalc'
 import { fmtHours } from '../utils/format'
 import { fetchDailyOTContext, computeDailyOTSplit, computeSubmissionTiming, fixShiftAmPm, amPmFixNote } from '../utils/entrySave'
-import { uploadGearPhoto } from '../utils/media'
+import { addTechPhotos } from '../utils/media'
 import JobPicker from './JobPicker'
-import MediaThumb from '../components/MediaThumb'
-import MediaViewer from '../components/MediaViewer'
+import AutoGrowTextarea from './AutoGrowTextarea'
+import PhotoEditSheet, { PhotoThumbs } from './PhotoEditSheet'
 import './employee.css'
 
 const blankDraftLine = () => ({ job_id: '', hours: '', description: '' })
@@ -33,8 +33,6 @@ const fmtTimeShort = (t) => {
   const h12 = h % 12 === 0 ? 12 : h % 12
   return `${h12}:${String(m).padStart(2, '0')} ${period}`
 }
-
-const gearPhotoUrl = (path) => supabase.storage.from('gear-photos').getPublicUrl(path).data.publicUrl
 
 export default function EmployeeHome({ employee }) {
   const navigate = useNavigate()
@@ -65,6 +63,7 @@ export default function EmployeeHome({ employee }) {
   const [markingDayOffFor, setMarkingDayOffFor] = useState(null)
   const [noteFor, setNoteFor] = useState(null)
   const [noteDraft, setNoteDraft] = useState('')
+  const [editingNote, setEditingNote] = useState(false)
   const [savingNote, setSavingNote] = useState(false)
   const [photos, setPhotos] = useState([])
   const [photoFor, setPhotoFor] = useState(null)
@@ -340,25 +339,16 @@ export default function EmployeeHome({ employee }) {
   }
 
   // Uploaded straight to the gear-photos bucket — photo or video, the
-  // bucket/UI don't care which (see utils/media.js for how display decides
-  // which to render). Job is optional — same pending_context convention the
-  // SMS/MMS path uses (see sms-timesheet index.ts): picking a job sets
-  // job_id/ship_or_job and clears pending_context; leaving it blank marks
-  // pending_context true so it shows up in Gear Photos' "needs ship/job"
-  // triage queue for the office.
-  async function uploadPhoto(ymd, file) {
-    setUploadingPhoto(true); setError('')
-    const jobNumber = photoJobId ? jobs.find(j => j.id === photoJobId)?.job_number || '' : ''
-    const ext = (file.name.split('.').pop() || 'jpg').toLowerCase()
-    const path = `${ymd}/${employee.id}/${Date.now()}.${ext}`
-    const { error: upErr, thumb_path, sha256 } = await uploadGearPhoto(supabase.storage.from('gear-photos'), path, file)
-    if (upErr) { setError(upErr.message); setUploadingPhoto(false); return }
-    const { error: insErr } = await supabase.schema('Cores').from('gear_photos').insert({
-      employee_id: employee.id, work_date: ymd, from_phone: 'mobile-app',
-      storage_path: path, job_id: photoJobId || null, ship_or_job: jobNumber || null,
-      pending_context: !photoJobId, file_size_bytes: file.size, thumb_path, sha256,
+  // bucket/UI don't care which. Job is optional (see addTechPhoto in
+  // utils/media.js for the pending_context convention).
+  async function uploadPhotos(ymd, files) {
+    setUploadingPhoto('Uploading…'); setError('')
+    const job = photoJobId ? jobs.find(j => j.id === photoJobId) || null : null
+    const { error: err } = await addTechPhotos(supabase, {
+      employeeId: employee.id, ymd, job, files,
+      onProgress: (n, total) => setUploadingPhoto(total > 1 ? `Uploading ${n} of ${total}…` : 'Uploading…'),
     })
-    if (insErr) { setError(insErr.message); setUploadingPhoto(false); return }
+    if (err) { setError(err.message); await load({ silent: true }); setUploadingPhoto(false); return }
     await load({ silent: true })
     setUploadingPhoto(false)
     setPhotoFor(null)
@@ -373,9 +363,31 @@ export default function EmployeeHome({ employee }) {
   // (no job entries) just to carry the note.
   async function saveNote(ymd) {
     const text = noteDraft.trim()
-    if (!text) return
+    if (!text && !editingNote) return
     setSavingNote(true); setError('')
     const daySub = submissions.find(s => s.work_date === ymd)
+    // Editing rewrites the whole note as the tech left it (clearing it removes
+    // the note) — same field the office edits in SMS Review. Only reachable
+    // while the day is still waiting on the office (daySub excludes approved).
+    // A day that was only ever this app note (no jobs, supplies or texts) has
+    // nothing left once it's cleared — remove it rather than leave an empty
+    // item in Niki's SMS Review. Anything texted keeps its row so "What I
+    // texted" stays visible.
+    if (editingNote && daySub) {
+      const emptyAfter = !text && daySub.from_phone === 'mobile-app' && !(daySub.entries || []).length
+        && !(daySub.supplies || []).length && !(daySub.raw_messages || []).length
+      const { error: err } = emptyAfter
+        ? await supabase.schema('Cores').from('sms_submissions').delete().eq('id', daySub.id).eq('employee_id', employee.id)
+        : await supabase.schema('Cores').from('sms_submissions')
+          .update({ admin_note: text || null, updated_at: new Date().toISOString() }).eq('id', daySub.id)
+      if (err) { setError(err.message); setSavingNote(false); return }
+      await load({ silent: true })
+      setSavingNote(false)
+      setNoteFor(null)
+      setNoteDraft('')
+      setEditingNote(false)
+      return
+    }
     const firstName = (employee.name || '').split(' ')[0] || ''
     const stamp = `[${shortDate(ymd)}${firstName ? ' ' + firstName : ''}]`
     const combined = daySub?.admin_note ? `${daySub.admin_note}\n${stamp} ${text}` : `${stamp} ${text}`
@@ -527,7 +539,7 @@ export default function EmployeeHome({ employee }) {
                     </div>
                     <div className="emp-field">
                       <label>Notes</label>
-                      <input type="text" value={line.description}
+                      <AutoGrowTextarea value={line.description}
                         onChange={e => setDraftLines(lines => lines.map((l, idx) => idx === i ? { ...l, description: e.target.value } : l))}
                         onBlur={() => autosaveLog(ymd)} />
                     </div>
@@ -662,15 +674,15 @@ export default function EmployeeHome({ employee }) {
                 </div>
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
                   <label className="emp-btn" style={{ position: 'relative', overflow: 'hidden', opacity: uploadingPhoto ? 0.5 : 1, cursor: uploadingPhoto ? 'not-allowed' : 'pointer' }}>
-                    {uploadingPhoto ? 'Uploading…' : 'Take / choose photo or video'}
+                    {uploadingPhoto || 'Take / choose photos or videos'}
                     {/* display:none (or visibility:hidden) on a file input silently blocks the
                         native picker from opening on iOS Safari when triggered via a wrapping
                         label — has to stay "visible" (just invisible/off-screen) for tapping the
                         label to work. capture="environment" is left off so the OS offers both
                         camera and library, matching what "Take / choose photo or video" promises. */}
-                    <input type="file" accept="image/*,video/*" disabled={uploadingPhoto}
+                    <input type="file" accept="image/*,video/*" multiple disabled={!!uploadingPhoto}
                       style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', opacity: 0, cursor: uploadingPhoto ? 'not-allowed' : 'pointer' }}
-                      onChange={e => { const f = e.target.files?.[0]; if (f) uploadPhoto(ymd, f) }} />
+                      onChange={e => { const fs = [...(e.target.files || [])]; e.target.value = ''; if (fs.length) uploadPhotos(ymd, fs) }} />
                   </label>
                   <button className="emp-btn emp-btn-secondary" onClick={() => { setPhotoFor(null); setPhotoJobId('') }}>Cancel</button>
                 </div>
@@ -707,16 +719,7 @@ export default function EmployeeHome({ employee }) {
               </div>
             )}
 
-            {dayPhotos.length > 0 && (
-              <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
-                {dayPhotos.map(p => (
-                  <div key={p.id} onClick={() => setPhotoLightbox(p)} style={{ cursor: 'pointer' }}>
-                    <MediaThumb src={gearPhotoUrl(p.thumb_path || p.storage_path)} alt={p.ship_or_job || 'photo'}
-                      style={{ width: '3.2rem', height: '3.2rem', objectFit: 'cover', borderRadius: '4px', border: '1px solid #ddd', display: 'block' }} />
-                  </div>
-                ))}
-              </div>
-            )}
+            <PhotoThumbs photos={dayPhotos} onOpen={setPhotoLightbox} style={{ marginTop: '0.5rem' }} />
 
             {daySub && (
               <div style={{ marginTop: '0.75rem', borderTop: '1px solid #eee', paddingTop: '0.75rem' }}>
@@ -772,6 +775,10 @@ export default function EmployeeHome({ employee }) {
                 {daySub.admin_note && (
                   <div className="emp-hint" style={{ whiteSpace: 'pre-line' }}>
                     Note: {daySub.admin_note}
+                    {noteFor !== ymd && (
+                      <button className="emp-inline-link" style={{ marginLeft: '0.5rem' }}
+                        onClick={() => { setNoteFor(ymd); setEditingNote(true); setNoteDraft(daySub.admin_note); setError('') }}>Edit note</button>
+                    )}
                   </div>
                 )}
                 {(daySub.entries || []).length > 0 && (
@@ -784,15 +791,15 @@ export default function EmployeeHome({ employee }) {
             {noteFor === ymd ? (
               <div style={{ marginTop: '0.5rem' }}>
                 <div className="emp-field">
-                  <label>Note (not tied to a job)</label>
-                  <input type="text" value={noteDraft} placeholder="Fill in your note here"
+                  <label>{editingNote ? 'Day note (clear it to remove the note)' : 'Note (not tied to a job)'}</label>
+                  <AutoGrowTextarea value={noteDraft} placeholder="Fill in your note here"
                     onChange={e => setNoteDraft(e.target.value)} />
                 </div>
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
-                  <button className="emp-btn" disabled={savingNote || !noteDraft.trim()} onClick={() => saveNote(ymd)}>
+                  <button className="emp-btn" disabled={savingNote || (!editingNote && !noteDraft.trim())} onClick={() => saveNote(ymd)}>
                     {savingNote ? 'Saving…' : 'Save note'}
                   </button>
-                  <button className="emp-btn emp-btn-secondary" onClick={() => { setNoteFor(null); setNoteDraft('') }}>Cancel</button>
+                  <button className="emp-btn emp-btn-secondary" onClick={() => { setNoteFor(null); setNoteDraft(''); setEditingNote(false) }}>Cancel</button>
                 </div>
               </div>
             ) : (
@@ -800,7 +807,7 @@ export default function EmployeeHome({ employee }) {
               // "+ Add Job Info" made this read as another way to add a job,
               // so the guys kept tapping it by mistake instead of the real button.
               <button className="emp-inline-link" style={{ display: 'block', marginTop: '0.5rem', marginLeft: '0.5rem', color: '#888', fontWeight: 400 }}
-                onClick={() => { setNoteFor(ymd); setNoteDraft(''); setError('') }}>Add a note (not a job)</button>
+                onClick={() => { setNoteFor(ymd); setEditingNote(false); setNoteDraft(''); setError('') }}>Add a note (not a job)</button>
             )}
 
           </div>
@@ -808,21 +815,8 @@ export default function EmployeeHome({ employee }) {
       })}
 
       {photoLightbox && (
-        <div
-          onClick={() => setPhotoLightbox(null)}
-          style={{
-            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 1000,
-            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1.5rem', cursor: 'zoom-out',
-          }}
-        >
-          <div onClick={e => e.stopPropagation()} style={{ maxWidth: '100%', maxHeight: '100%' }}>
-            <MediaViewer
-              src={gearPhotoUrl(photoLightbox.storage_path)}
-              alt={photoLightbox.ship_or_job || 'photo'}
-              style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', borderRadius: 4 }}
-            />
-          </div>
-        </div>
+        <PhotoEditSheet photo={photoLightbox} jobs={jobs} employeeId={employee.id}
+          onClose={() => setPhotoLightbox(null)} onChanged={() => load({ silent: true })} />
       )}
 
     </div>
