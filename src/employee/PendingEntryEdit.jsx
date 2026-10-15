@@ -4,14 +4,12 @@ import { supabase } from '../supabaseClient'
 import { fetchDailyOTContext, computeDailyOTSplit, fixShiftAmPm, amPmFixNote } from '../utils/entrySave'
 import JobPicker from './JobPicker'
 import AutoGrowTextarea from './AutoGrowTextarea'
-import MediaThumb from '../components/MediaThumb'
+import PhotoEditSheet, { PhotoThumbs } from './PhotoEditSheet'
 import { addTechPhoto } from '../utils/media'
 import './employee.css'
 
 const blankEntry = () => ({ job_number: '', hours: '', description: '' })
 const blankSupply = () => ({ job_number: '', supply_name: '', quantity: '1' })
-
-const gearPhotoUrl = (path) => supabase.storage.from('gear-photos').getPublicUrl(path).data.publicUrl
 
 function friendlyDate(d) {
   if (!d) return ''
@@ -45,6 +43,8 @@ export default function PendingEntryEdit({ employee }) {
   const [photos, setPhotos] = useState([])
   const [photoJobNumber, setPhotoJobNumber] = useState(null)
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
+  const [addingPhoto, setAddingPhoto] = useState(false)
+  const [openPhoto, setOpenPhoto] = useState(null)
 
   useEffect(() => {
     supabase.schema('Cores').from('jobs').select('id, job_number, description, vessels(name)').order('job_number').then(({ data }) => setJobs(data || []))
@@ -94,7 +94,7 @@ export default function PendingEntryEdit({ employee }) {
     const job = photoJob ? jobs.find(j => j.job_number === photoJob) || null : null
     const { error: err } = await addTechPhoto(supabase, { employeeId: employee.id, ymd: sub.work_date, job, file })
     if (err) setError(err.message)
-    else await loadPhotos(sub.work_date)
+    else { await loadPhotos(sub.work_date); setAddingPhoto(false); setPhotoJobNumber(null) }
     setUploadingPhoto(false)
   }
 
@@ -277,31 +277,35 @@ export default function PendingEntryEdit({ employee }) {
 
         <div style={{ marginTop: '1rem' }}>
           <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#444' }}>Photos</label>
-          {photos.length > 0 && (
-            <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginTop: '0.4rem' }}>
-              {photos.map(p => (
-                <MediaThumb key={p.id} src={gearPhotoUrl(p.thumb_path || p.storage_path)} alt={p.ship_or_job || 'photo'}
-                  style={{ width: '3.2rem', height: '3.2rem', objectFit: 'cover', borderRadius: '4px', border: '1px solid #ddd', display: 'block' }} />
-              ))}
+          <PhotoThumbs photos={photos} onOpen={setOpenPhoto} style={{ marginTop: '0.4rem' }} />
+          {addingPhoto ? (
+            <div style={{ marginTop: '0.5rem' }}>
+              <div className="emp-field">
+                <label>Job this photo is for (optional)</label>
+                <JobPicker jobs={jobs} value={photoJob} onChange={(job) => setPhotoJobNumber(job.job_number)} placeholder="No job — office will sort it out" />
+                {photoJob && (
+                  <button type="button" className="emp-inline-link" style={{ marginTop: '0.3rem', fontSize: '0.8rem' }}
+                    onClick={() => setPhotoJobNumber('')}>Clear job</button>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                {/* Same visible-but-transparent file input as the day card's "+ Photo"
+                    — display:none blocks the native picker on iOS Safari. */}
+                <label className="emp-btn" style={{ position: 'relative', overflow: 'hidden', opacity: uploadingPhoto ? 0.5 : 1 }}>
+                  {uploadingPhoto ? 'Uploading…' : 'Take / choose photo or video'}
+                  <input type="file" accept="image/*,video/*" disabled={uploadingPhoto}
+                    style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', opacity: 0 }}
+                    onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) uploadPhoto(f) }} />
+                </label>
+                <button className="emp-btn emp-btn-secondary" disabled={uploadingPhoto}
+                  onClick={() => { setAddingPhoto(false); setPhotoJobNumber(null) }}>Cancel</button>
+              </div>
             </div>
+          ) : (
+            <button className="emp-btn emp-btn-secondary emp-btn-small" style={{ marginTop: '0.5rem' }}
+              onClick={() => { setAddingPhoto(true); setError('') }}>+ Photo</button>
           )}
-          <div className="emp-field" style={{ marginTop: '0.5rem' }}>
-            <label>Job this photo is for (optional)</label>
-            <JobPicker jobs={jobs} value={photoJob} onChange={(job) => setPhotoJobNumber(job.job_number)} placeholder="No job — office will sort it out" />
-            {photoJob && (
-              <button type="button" className="emp-inline-link" style={{ marginTop: '0.3rem', fontSize: '0.8rem' }}
-                onClick={() => setPhotoJobNumber('')}>Clear job</button>
-            )}
-          </div>
-          {/* Same visible-but-transparent file input as the day card's "+ Photo"
-              — display:none blocks the native picker on iOS Safari. */}
-          <label className="emp-btn emp-btn-secondary emp-btn-small" style={{ position: 'relative', overflow: 'hidden', display: 'inline-block', opacity: uploadingPhoto ? 0.5 : 1 }}>
-            {uploadingPhoto ? 'Uploading…' : '+ Add photo or video'}
-            <input type="file" accept="image/*,video/*" disabled={uploadingPhoto}
-              style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', opacity: 0 }}
-              onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) uploadPhoto(f) }} />
-          </label>
-          <div className="emp-hint">Photos save as soon as they upload. To change or delete one, tap it on the home screen.</div>
+          {photos.length > 0 && <div className="emp-hint">Tap a photo to change its job or caption, or delete it. Photo changes save straight away.</div>}
         </div>
 
         <div style={{ marginTop: '1.5rem', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
@@ -319,6 +323,10 @@ export default function PendingEntryEdit({ employee }) {
           )}
         </div>
       </div>
+      {openPhoto && (
+        <PhotoEditSheet photo={openPhoto} jobs={jobs} employeeId={employee.id}
+          onClose={() => setOpenPhoto(null)} onChanged={() => loadPhotos(sub.work_date)} />
+      )}
     </div>
   )
 }

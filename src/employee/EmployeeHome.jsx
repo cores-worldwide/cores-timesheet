@@ -5,11 +5,10 @@ import { payWeekRange } from '../utils/statPay'
 import { computeOTMap } from '../utils/otCalc'
 import { fmtHours } from '../utils/format'
 import { fetchDailyOTContext, computeDailyOTSplit, computeSubmissionTiming, fixShiftAmPm, amPmFixNote } from '../utils/entrySave'
-import { addTechPhoto, deleteGearPhoto } from '../utils/media'
+import { addTechPhoto } from '../utils/media'
 import JobPicker from './JobPicker'
 import AutoGrowTextarea from './AutoGrowTextarea'
-import MediaThumb from '../components/MediaThumb'
-import MediaViewer from '../components/MediaViewer'
+import PhotoEditSheet, { PhotoThumbs } from './PhotoEditSheet'
 import './employee.css'
 
 const blankDraftLine = () => ({ job_id: '', hours: '', description: '' })
@@ -34,8 +33,6 @@ const fmtTimeShort = (t) => {
   const h12 = h % 12 === 0 ? 12 : h % 12
   return `${h12}:${String(m).padStart(2, '0')} ${period}`
 }
-
-const gearPhotoUrl = (path) => supabase.storage.from('gear-photos').getPublicUrl(path).data.publicUrl
 
 export default function EmployeeHome({ employee }) {
   const navigate = useNavigate()
@@ -73,13 +70,6 @@ export default function EmployeeHome({ employee }) {
   const [photoJobId, setPhotoJobId] = useState('')
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
   const [photoLightbox, setPhotoLightbox] = useState(null)
-  // Edit sheet for the open photo (job + caption), see openPhotoEdit.
-  const [photoEdit, setPhotoEdit] = useState({ job_id: '', note: '' })
-  const [savingPhotoEdit, setSavingPhotoEdit] = useState(false)
-  const [confirmPhotoDelete, setConfirmPhotoDelete] = useState(false)
-  const [photoEditError, setPhotoEditError] = useState('')
-  // Photos with a supply line the office has applied or billed — see isPhotoLocked.
-  const [supplyLockedPhotoIds, setSupplyLockedPhotoIds] = useState(new Set())
   const [error, setError] = useState('')
 
   const weekEnd = addDays(weekStart, 6)
@@ -119,17 +109,6 @@ export default function EmployeeHome({ employee }) {
       .gte('work_date', weekStart).lte('work_date', weekEnd)
       .order('created_at', { ascending: false })
     setPhotos(gp || [])
-    // Supply lines the office made from these photos and already put on the
-    // timesheet or billed — either one locks the photo (see isPhotoLocked).
-    const photoIds = (gp || []).map(p => p.id)
-    if (photoIds.length > 0) {
-      const { data: linked } = await supabase.schema('Cores').from('job_supplies')
-        .select('source_photo_id').in('source_photo_id', photoIds)
-        .or('applied_at.not.is.null,billed_at.not.is.null')
-      setSupplyLockedPhotoIds(new Set((linked || []).map(r => r.source_photo_id)))
-    } else {
-      setSupplyLockedPhotoIds(new Set())
-    }
     if (!silent) setLoading(false)
   }, [employee.id, weekStart, weekEnd])
 
@@ -371,87 +350,6 @@ export default function EmployeeHome({ employee }) {
     setUploadingPhoto(false)
     setPhotoFor(null)
     setPhotoJobId('')
-  }
-
-  // A tech can fix their own photo (wrong or missing job, caption) or delete
-  // it for good, until the office has approved it (Jim, 2026-10-15 —
-  // Nikolai sent one with no job and had no way to add it; Corey wanted to
-  // delete blurry ones). "Approved" = that day already has approved
-  // timesheet_entries (every row there came through SMS Review approval, see
-  // the entry rows below), or the office has applied/billed a supply line
-  // made from this photo. Past that point it's the office's record, so the
-  // sheet just says to ask Niki.
-  const isPhotoLocked = (p) => entries.some(e => e.work_date === p.work_date) || supplyLockedPhotoIds.has(p.id)
-
-  // Same check, but fresh from the database right before a write — the office
-  // may have approved the day since this screen last loaded.
-  async function photoLockedNow(p) {
-    const { count } = await supabase.schema('Cores').from('timesheet_entries')
-      .select('id', { count: 'exact', head: true })
-      .eq('employee_id', employee.id).eq('work_date', p.work_date)
-    if (count > 0) return true
-    const { data: linked } = await supabase.schema('Cores').from('job_supplies')
-      .select('id').eq('source_photo_id', p.id)
-      .or('applied_at.not.is.null,billed_at.not.is.null').limit(1)
-    return (linked || []).length > 0
-  }
-
-  function openPhotoEdit(p) {
-    setPhotoLightbox(p)
-    setPhotoEdit({ job_id: p.job_id || '', note: p.note || '' })
-    setConfirmPhotoDelete(false)
-    setPhotoEditError('')
-  }
-
-  function closePhotoEdit() {
-    setPhotoLightbox(null)
-    setConfirmPhotoDelete(false)
-    setPhotoEditError('')
-  }
-
-  // Job fields mirror GearPhotos' saveContext (job_id, ship_or_job = job #,
-  // pending_context = no job) and are only written when the job actually
-  // changed, so saving just a caption never wipes a free-text ship name the
-  // SMS path left in ship_or_job. Linked supply lines aren't moved: GearPhotos
-  // doesn't either, and any applied/billed one locks the photo anyway.
-  async function savePhotoEdit() {
-    const p = photoLightbox
-    setSavingPhotoEdit(true); setPhotoEditError('')
-    if (await photoLockedNow(p)) {
-      setPhotoEditError('The office has just approved this one — ask Niki to change it.')
-      setSavingPhotoEdit(false)
-      await load({ silent: true })
-      return
-    }
-    const note = photoEdit.note.trim() || null
-    const update = { note }
-    if ((photoEdit.job_id || null) !== (p.job_id || null)) {
-      const jobNumber = photoEdit.job_id ? jobs.find(j => j.id === photoEdit.job_id)?.job_number || null : null
-      Object.assign(update, { job_id: photoEdit.job_id || null, ship_or_job: jobNumber, pending_context: !photoEdit.job_id })
-    }
-    const { error: err } = await supabase.schema('Cores').from('gear_photos').update(update).eq('id', p.id)
-    if (err) { setPhotoEditError(err.message); setSavingPhotoEdit(false); return }
-    await load({ silent: true })
-    setSavingPhotoEdit(false)
-    closePhotoEdit()
-  }
-
-  // Gone for good — file, thumbnail and row — same as the office's delete
-  // (shared helper, so linked-supply clean-up stays identical).
-  async function deletePhoto() {
-    const p = photoLightbox
-    setSavingPhotoEdit(true); setPhotoEditError('')
-    if (await photoLockedNow(p)) {
-      setPhotoEditError('The office has just approved this one — ask Niki to change it.')
-      setSavingPhotoEdit(false); setConfirmPhotoDelete(false)
-      await load({ silent: true })
-      return
-    }
-    const { error: err } = await deleteGearPhoto(supabase, p)
-    if (err) { setPhotoEditError(err.message); setSavingPhotoEdit(false); return }
-    await load({ silent: true })
-    setSavingPhotoEdit(false)
-    closePhotoEdit()
   }
 
   // General note for the day, not tied to any job (e.g. "took the truck home
@@ -818,23 +716,7 @@ export default function EmployeeHome({ employee }) {
               </div>
             )}
 
-            {dayPhotos.length > 0 && (
-              <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
-                {dayPhotos.map(p => (
-                  <div key={p.id} onClick={() => openPhotoEdit(p)} style={{ cursor: 'pointer', position: 'relative' }}>
-                    <MediaThumb src={gearPhotoUrl(p.thumb_path || p.storage_path)} alt={p.ship_or_job || 'photo'}
-                      style={{ width: '3.2rem', height: '3.2rem', objectFit: 'cover', borderRadius: '4px', border: '1px solid #ddd', display: 'block' }} />
-                    {/* So a tech can spot which photos still need a job (tap to add one). */}
-                    {!p.job_id && (
-                      <span style={{
-                        position: 'absolute', left: 0, right: 0, bottom: 0, background: 'rgba(160,107,0,0.9)', color: '#fff',
-                        fontSize: '0.6rem', fontWeight: 600, textAlign: 'center', borderRadius: '0 0 4px 4px', lineHeight: 1.5,
-                      }}>No job</span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
+            <PhotoThumbs photos={dayPhotos} onOpen={setPhotoLightbox} style={{ marginTop: '0.5rem' }} />
 
             {daySub && (
               <div style={{ marginTop: '0.75rem', borderTop: '1px solid #eee', paddingTop: '0.75rem' }}>
@@ -929,81 +811,10 @@ export default function EmployeeHome({ employee }) {
         )
       })}
 
-      {photoLightbox && (() => {
-        const locked = isPhotoLocked(photoLightbox)
-        const dirty = (photoEdit.job_id || '') !== (photoLightbox.job_id || '') || photoEdit.note.trim() !== (photoLightbox.note || '')
-        return (
-          <div
-            onClick={closePhotoEdit}
-            style={{
-              position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 1000, overflowY: 'auto',
-              display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '1.5rem 1rem', gap: '0.75rem',
-            }}
-          >
-            <div onClick={e => e.stopPropagation()} style={{ maxWidth: '100%' }}>
-              <MediaViewer
-                src={gearPhotoUrl(photoLightbox.storage_path)}
-                alt={photoLightbox.ship_or_job || 'photo'}
-                maxMediaHeight={locked ? 'calc(100vh - 12rem)' : '50vh'}
-                style={{ maxWidth: '100%', objectFit: 'contain', borderRadius: 4 }}
-              />
-            </div>
-            <div onClick={e => e.stopPropagation()}
-              style={{ background: '#fff', borderRadius: 10, padding: '1rem', width: '100%', maxWidth: '28rem', boxSizing: 'border-box' }}>
-              {locked ? (
-                <>
-                  <div style={{ fontSize: '0.9rem', color: '#555', marginBottom: '0.4rem' }}>
-                    {photoLightbox.ship_or_job ? `Job ${photoLightbox.ship_or_job}` : 'No job'}
-                    {photoLightbox.note ? ` — ${photoLightbox.note}` : ''}
-                  </div>
-                  <div className="emp-hint" style={{ marginBottom: '0.75rem' }}>🔒 Approved by the office — ask Niki to change it.</div>
-                  <button className="emp-btn emp-btn-secondary" onClick={closePhotoEdit}>Close</button>
-                </>
-              ) : (
-                <>
-                  <div className="emp-field">
-                    <label>Job</label>
-                    <JobPicker jobs={jobs} value={photoEdit.job_id} onChange={(job) => setPhotoEdit(f => ({ ...f, job_id: job.id }))}
-                      placeholder="No job — office will sort it out" />
-                    {photoEdit.job_id && (
-                      <button type="button" className="emp-inline-link" style={{ marginTop: '0.3rem', fontSize: '0.8rem' }}
-                        onClick={() => setPhotoEdit(f => ({ ...f, job_id: '' }))}>No job</button>
-                    )}
-                  </div>
-                  <div className="emp-field">
-                    <label>Caption</label>
-                    <textarea value={photoEdit.note} placeholder="What's in this photo (optional)"
-                      onChange={e => setPhotoEdit(f => ({ ...f, note: e.target.value }))} />
-                  </div>
-                  {photoEditError && <div className="emp-error">{photoEditError}</div>}
-                  <div style={{ display: 'flex', gap: '0.5rem' }}>
-                    <button className="emp-btn" disabled={savingPhotoEdit || !dirty} onClick={savePhotoEdit} style={{ opacity: dirty ? 1 : 0.5 }}>
-                      {savingPhotoEdit && !confirmPhotoDelete ? 'Saving…' : 'Save'}
-                    </button>
-                    <button className="emp-btn emp-btn-secondary" disabled={savingPhotoEdit} onClick={closePhotoEdit}>Close</button>
-                  </div>
-                  {/* Two taps, in the app itself — no browser confirm() popup. */}
-                  <div style={{ marginTop: '1rem', borderTop: '1px solid #eee', paddingTop: '0.75rem' }}>
-                    {confirmPhotoDelete ? (
-                      <>
-                        <div style={{ fontSize: '0.9rem', color: '#c0392b', marginBottom: '0.5rem' }}>Delete this photo for good? It can't be undone.</div>
-                        <div style={{ display: 'flex', gap: '0.5rem' }}>
-                          <button className="emp-btn" style={{ background: '#c0392b' }} disabled={savingPhotoEdit} onClick={deletePhoto}>
-                            {savingPhotoEdit ? 'Deleting…' : 'Delete for good'}
-                          </button>
-                          <button className="emp-btn emp-btn-secondary" disabled={savingPhotoEdit} onClick={() => setConfirmPhotoDelete(false)}>Cancel</button>
-                        </div>
-                      </>
-                    ) : (
-                      <button className="emp-btn emp-btn-danger" disabled={savingPhotoEdit} onClick={() => setConfirmPhotoDelete(true)}>Delete photo</button>
-                    )}
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-        )
-      })()}
+      {photoLightbox && (
+        <PhotoEditSheet photo={photoLightbox} jobs={jobs} employeeId={employee.id}
+          onClose={() => setPhotoLightbox(null)} onChanged={() => load({ silent: true })} />
+      )}
 
     </div>
   )
