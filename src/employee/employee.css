@@ -198,6 +198,16 @@
 
 .emp-field textarea { min-height: 70px; resize: vertical; }
 
+/* AutoGrowTextarea sets its own height to fit the text: no inner scrollbar,
+   no drag handle, and long words wrap instead of scrolling sideways. */
+.emp-field textarea.emp-autogrow {
+  min-height: 0;
+  resize: none;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  line-height: 1.4;
+}
+
 .emp-row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.7rem; }
 
 .emp-job-line {
