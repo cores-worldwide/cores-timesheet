@@ -249,6 +249,7 @@ export default function PendingEntryEdit({ employee }) {
 
         <div style={{ marginTop: '1.5rem', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
           <button className="emp-btn" disabled={saving} onClick={saveEdit}>{saving ? 'Saving…' : 'Save'}</button>
+          <button className="emp-btn emp-btn-secondary" disabled={saving} onClick={() => navigate('..')}>Cancel</button>
           {confirmDiscard ? (
             <div style={{ textAlign: 'center', fontSize: '0.9rem' }}>
               Discard this day's text?{' '}

@@ -66,6 +66,7 @@ export default function EmployeeHome({ employee }) {
   const [markingDayOffFor, setMarkingDayOffFor] = useState(null)
   const [noteFor, setNoteFor] = useState(null)
   const [noteDraft, setNoteDraft] = useState('')
+  const [editingNote, setEditingNote] = useState(false)
   const [savingNote, setSavingNote] = useState(false)
   const [photos, setPhotos] = useState([])
   const [photoFor, setPhotoFor] = useState(null)
@@ -473,9 +474,23 @@ export default function EmployeeHome({ employee }) {
   // (no job entries) just to carry the note.
   async function saveNote(ymd) {
     const text = noteDraft.trim()
-    if (!text) return
+    if (!text && !editingNote) return
     setSavingNote(true); setError('')
     const daySub = submissions.find(s => s.work_date === ymd)
+    // Editing rewrites the whole note as the tech left it (clearing it removes
+    // the note) — same field the office edits in SMS Review. Only reachable
+    // while the day is still waiting on the office (daySub excludes approved).
+    if (editingNote && daySub) {
+      const { error: err } = await supabase.schema('Cores').from('sms_submissions')
+        .update({ admin_note: text || null, updated_at: new Date().toISOString() }).eq('id', daySub.id)
+      if (err) { setError(err.message); setSavingNote(false); return }
+      await load({ silent: true })
+      setSavingNote(false)
+      setNoteFor(null)
+      setNoteDraft('')
+      setEditingNote(false)
+      return
+    }
     const firstName = (employee.name || '').split(' ')[0] || ''
     const stamp = `[${shortDate(ymd)}${firstName ? ' ' + firstName : ''}]`
     const combined = daySub?.admin_note ? `${daySub.admin_note}\n${stamp} ${text}` : `${stamp} ${text}`
@@ -879,6 +894,10 @@ export default function EmployeeHome({ employee }) {
                 {daySub.admin_note && (
                   <div className="emp-hint" style={{ whiteSpace: 'pre-line' }}>
                     Note: {daySub.admin_note}
+                    {noteFor !== ymd && (
+                      <button className="emp-inline-link" style={{ marginLeft: '0.5rem' }}
+                        onClick={() => { setNoteFor(ymd); setEditingNote(true); setNoteDraft(daySub.admin_note); setError('') }}>Edit note</button>
+                    )}
                   </div>
                 )}
                 {(daySub.entries || []).length > 0 && (
@@ -891,15 +910,15 @@ export default function EmployeeHome({ employee }) {
             {noteFor === ymd ? (
               <div style={{ marginTop: '0.5rem' }}>
                 <div className="emp-field">
-                  <label>Note (not tied to a job)</label>
+                  <label>{editingNote ? 'Day note (clear it to remove the note)' : 'Note (not tied to a job)'}</label>
                   <AutoGrowTextarea value={noteDraft} placeholder="Fill in your note here"
                     onChange={e => setNoteDraft(e.target.value)} />
                 </div>
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
-                  <button className="emp-btn" disabled={savingNote || !noteDraft.trim()} onClick={() => saveNote(ymd)}>
+                  <button className="emp-btn" disabled={savingNote || (!editingNote && !noteDraft.trim())} onClick={() => saveNote(ymd)}>
                     {savingNote ? 'Saving…' : 'Save note'}
                   </button>
-                  <button className="emp-btn emp-btn-secondary" onClick={() => { setNoteFor(null); setNoteDraft('') }}>Cancel</button>
+                  <button className="emp-btn emp-btn-secondary" onClick={() => { setNoteFor(null); setNoteDraft(''); setEditingNote(false) }}>Cancel</button>
                 </div>
               </div>
             ) : (
@@ -907,7 +926,7 @@ export default function EmployeeHome({ employee }) {
               // "+ Add Job Info" made this read as another way to add a job,
               // so the guys kept tapping it by mistake instead of the real button.
               <button className="emp-inline-link" style={{ display: 'block', marginTop: '0.5rem', marginLeft: '0.5rem', color: '#888', fontWeight: 400 }}
-                onClick={() => { setNoteFor(ymd); setNoteDraft(''); setError('') }}>Add a note (not a job)</button>
+                onClick={() => { setNoteFor(ymd); setEditingNote(false); setNoteDraft(''); setError('') }}>Add a note (not a job)</button>
             )}
 
           </div>
