@@ -73,6 +73,25 @@ export async function uploadGearPhoto(bucket, path, file) {
   return { thumb_path, sha256 }
 }
 
+// A tech's own photo from the mobile app (day card or the edit screen):
+// upload, then the gear_photos row. Job is optional — same pending_context
+// convention the SMS/MMS path uses (see sms-timesheet index.ts): a job sets
+// job_id/ship_or_job and clears pending_context; no job marks it pending so
+// it shows up in Gear Photos' "needs ship/job" triage queue for the office.
+// `job` is a jobs row ({ id, job_number }) or null. Returns { error }.
+export async function addTechPhoto(supabase, { employeeId, ymd, job, file }) {
+  const ext = (file.name.split('.').pop() || 'jpg').toLowerCase()
+  const path = `${ymd}/${employeeId}/${Date.now()}.${ext}`
+  const { error: upErr, thumb_path, sha256 } = await uploadGearPhoto(supabase.storage.from('gear-photos'), path, file)
+  if (upErr) return { error: upErr }
+  const { error } = await supabase.schema('Cores').from('gear_photos').insert({
+    employee_id: employeeId, work_date: ymd, from_phone: 'mobile-app',
+    storage_path: path, job_id: job?.id || null, ship_or_job: job?.job_number || null,
+    pending_context: !job, file_size_bytes: file.size, thumb_path, sha256,
+  })
+  return { error }
+}
+
 // Forces a real save-to-disk instead of a bare `<a href download>` — Supabase
 // Storage URLs are cross-origin, and browsers don't reliably honor the
 // `download` attribute (or the suggested filename) on a cross-origin link;

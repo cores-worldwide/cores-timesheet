@@ -5,7 +5,7 @@ import { payWeekRange } from '../utils/statPay'
 import { computeOTMap } from '../utils/otCalc'
 import { fmtHours } from '../utils/format'
 import { fetchDailyOTContext, computeDailyOTSplit, computeSubmissionTiming, fixShiftAmPm, amPmFixNote } from '../utils/entrySave'
-import { uploadGearPhoto, deleteGearPhoto } from '../utils/media'
+import { addTechPhoto, deleteGearPhoto } from '../utils/media'
 import JobPicker from './JobPicker'
 import AutoGrowTextarea from './AutoGrowTextarea'
 import MediaThumb from '../components/MediaThumb'
@@ -360,25 +360,13 @@ export default function EmployeeHome({ employee }) {
   }
 
   // Uploaded straight to the gear-photos bucket — photo or video, the
-  // bucket/UI don't care which (see utils/media.js for how display decides
-  // which to render). Job is optional — same pending_context convention the
-  // SMS/MMS path uses (see sms-timesheet index.ts): picking a job sets
-  // job_id/ship_or_job and clears pending_context; leaving it blank marks
-  // pending_context true so it shows up in Gear Photos' "needs ship/job"
-  // triage queue for the office.
+  // bucket/UI don't care which. Job is optional (see addTechPhoto in
+  // utils/media.js for the pending_context convention).
   async function uploadPhoto(ymd, file) {
     setUploadingPhoto(true); setError('')
-    const jobNumber = photoJobId ? jobs.find(j => j.id === photoJobId)?.job_number || '' : ''
-    const ext = (file.name.split('.').pop() || 'jpg').toLowerCase()
-    const path = `${ymd}/${employee.id}/${Date.now()}.${ext}`
-    const { error: upErr, thumb_path, sha256 } = await uploadGearPhoto(supabase.storage.from('gear-photos'), path, file)
-    if (upErr) { setError(upErr.message); setUploadingPhoto(false); return }
-    const { error: insErr } = await supabase.schema('Cores').from('gear_photos').insert({
-      employee_id: employee.id, work_date: ymd, from_phone: 'mobile-app',
-      storage_path: path, job_id: photoJobId || null, ship_or_job: jobNumber || null,
-      pending_context: !photoJobId, file_size_bytes: file.size, thumb_path, sha256,
-    })
-    if (insErr) { setError(insErr.message); setUploadingPhoto(false); return }
+    const job = photoJobId ? jobs.find(j => j.id === photoJobId) || null : null
+    const { error: err } = await addTechPhoto(supabase, { employeeId: employee.id, ymd, job, file })
+    if (err) { setError(err.message); setUploadingPhoto(false); return }
     await load({ silent: true })
     setUploadingPhoto(false)
     setPhotoFor(null)
@@ -480,9 +468,17 @@ export default function EmployeeHome({ employee }) {
     // Editing rewrites the whole note as the tech left it (clearing it removes
     // the note) — same field the office edits in SMS Review. Only reachable
     // while the day is still waiting on the office (daySub excludes approved).
+    // A day that was only ever this app note (no jobs, supplies or texts) has
+    // nothing left once it's cleared — remove it rather than leave an empty
+    // item in Niki's SMS Review. Anything texted keeps its row so "What I
+    // texted" stays visible.
     if (editingNote && daySub) {
-      const { error: err } = await supabase.schema('Cores').from('sms_submissions')
-        .update({ admin_note: text || null, updated_at: new Date().toISOString() }).eq('id', daySub.id)
+      const emptyAfter = !text && daySub.from_phone === 'mobile-app' && !(daySub.entries || []).length
+        && !(daySub.supplies || []).length && !(daySub.raw_messages || []).length
+      const { error: err } = emptyAfter
+        ? await supabase.schema('Cores').from('sms_submissions').delete().eq('id', daySub.id).eq('employee_id', employee.id)
+        : await supabase.schema('Cores').from('sms_submissions')
+          .update({ admin_note: text || null, updated_at: new Date().toISOString() }).eq('id', daySub.id)
       if (err) { setError(err.message); setSavingNote(false); return }
       await load({ silent: true })
       setSavingNote(false)
