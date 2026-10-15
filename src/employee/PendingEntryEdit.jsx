@@ -247,7 +247,41 @@ export default function PendingEntryEdit({ employee }) {
             </div>
           </div>
         ))}
-        <button className="emp-btn emp-btn-secondary emp-btn-small" onClick={() => setEntries(rows => [...rows, blankEntry()])}>+ Add another job</button>
+        {/* "+ Photo" sits beside "+ Add another job", same as a new day on the
+            home screen; its job picker opens underneath. */}
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <button className="emp-btn emp-btn-secondary emp-btn-small" onClick={() => setEntries(rows => [...rows, blankEntry()])}>+ Add another job</button>
+          {!addingPhoto && (
+            <button className="emp-btn emp-btn-secondary emp-btn-small"
+              onClick={() => { setAddingPhoto(true); setError('') }}>+ Photo</button>
+          )}
+        </div>
+        {addingPhoto && (
+          <div style={{ marginTop: '0.5rem' }}>
+            <div className="emp-field">
+              <label>Job this photo is for (optional)</label>
+              <JobPicker jobs={jobs} value={photoJob} onChange={(job) => setPhotoJobNumber(job.job_number)} placeholder="No job — office will sort it out" />
+              {photoJob && (
+                <button type="button" className="emp-inline-link" style={{ marginTop: '0.3rem', fontSize: '0.8rem' }}
+                  onClick={() => setPhotoJobNumber('')}>Clear job</button>
+              )}
+            </div>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              {/* Same visible-but-transparent file input as the day card's "+ Photo"
+                  — display:none blocks the native picker on iOS Safari. */}
+              <label className="emp-btn" style={{ position: 'relative', overflow: 'hidden', opacity: uploadingPhoto ? 0.5 : 1 }}>
+                {uploadingPhoto ? 'Uploading…' : 'Take / choose photo or video'}
+                <input type="file" accept="image/*,video/*" disabled={uploadingPhoto}
+                  style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', opacity: 0 }}
+                  onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) uploadPhoto(f) }} />
+              </label>
+              <button className="emp-btn emp-btn-secondary" disabled={uploadingPhoto}
+                onClick={() => { setAddingPhoto(false); setPhotoJobNumber(null) }}>Cancel</button>
+            </div>
+          </div>
+        )}
+        <PhotoThumbs photos={photos} onOpen={setOpenPhoto} style={{ marginTop: '0.5rem' }} />
+        {photos.length > 0 && <div className="emp-hint">Tap a photo to change its job or caption, or delete it. Photo changes save straight away.</div>}
 
         <div style={{ marginTop: '1rem' }}>
           <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#444' }}>Supplies used (optional)</label>
@@ -273,39 +307,6 @@ export default function PendingEntryEdit({ employee }) {
           })}
           <button className="emp-btn emp-btn-secondary emp-btn-small" style={{ marginTop: '0.5rem' }}
             onClick={() => setSupplies(rows => [...rows, blankSupply()])}>+ Add supply</button>
-        </div>
-
-        <div style={{ marginTop: '1rem' }}>
-          <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#444' }}>Photos</label>
-          <PhotoThumbs photos={photos} onOpen={setOpenPhoto} style={{ marginTop: '0.4rem' }} />
-          {addingPhoto ? (
-            <div style={{ marginTop: '0.5rem' }}>
-              <div className="emp-field">
-                <label>Job this photo is for (optional)</label>
-                <JobPicker jobs={jobs} value={photoJob} onChange={(job) => setPhotoJobNumber(job.job_number)} placeholder="No job — office will sort it out" />
-                {photoJob && (
-                  <button type="button" className="emp-inline-link" style={{ marginTop: '0.3rem', fontSize: '0.8rem' }}
-                    onClick={() => setPhotoJobNumber('')}>Clear job</button>
-                )}
-              </div>
-              <div style={{ display: 'flex', gap: '0.5rem' }}>
-                {/* Same visible-but-transparent file input as the day card's "+ Photo"
-                    — display:none blocks the native picker on iOS Safari. */}
-                <label className="emp-btn" style={{ position: 'relative', overflow: 'hidden', opacity: uploadingPhoto ? 0.5 : 1 }}>
-                  {uploadingPhoto ? 'Uploading…' : 'Take / choose photo or video'}
-                  <input type="file" accept="image/*,video/*" disabled={uploadingPhoto}
-                    style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', opacity: 0 }}
-                    onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) uploadPhoto(f) }} />
-                </label>
-                <button className="emp-btn emp-btn-secondary" disabled={uploadingPhoto}
-                  onClick={() => { setAddingPhoto(false); setPhotoJobNumber(null) }}>Cancel</button>
-              </div>
-            </div>
-          ) : (
-            <button className="emp-btn emp-btn-secondary emp-btn-small" style={{ marginTop: '0.5rem' }}
-              onClick={() => { setAddingPhoto(true); setError('') }}>+ Photo</button>
-          )}
-          {photos.length > 0 && <div className="emp-hint">Tap a photo to change its job or caption, or delete it. Photo changes save straight away.</div>}
         </div>
 
         <div style={{ marginTop: '1.5rem', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
