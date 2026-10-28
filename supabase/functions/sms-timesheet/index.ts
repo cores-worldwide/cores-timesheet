@@ -1981,11 +1981,17 @@ Deno.serve(async (req: Request) => {
   // vesselFilter "4926.  5hrs tech work", matched no vessel, and replied "No
   // open jobs found" — silently dropping the whole report before it ever
   // reached Claude. Confirmed in production, Jim Jardine, 2026-08-27.
-  const isJobsRequest = msgLower === 'jobs'
+  //
+  // Other ways of asking for the whole list, taken only as the entire text:
+  // "job", "job number(s)", "job #", "job list", "list jobs", "open jobs".
+  // Bare "job" used to reach Claude and get tacked onto the day's job note,
+  // and "jobs number" was read as a boat called "number" (Jim, 2026-10-28).
+  const isJobsListPhrase = /^(?:list\s+)?(?:open\s+)?jobs?(?:\s*(?:numbers?|nums?|no\.?s?|#s?|list))?[\s?.!]*$/.test(msgLower)
+  const isJobsRequest = isJobsListPhrase
     || (msgLower.startsWith('jobs ') && !/^\d/.test(msgLower.slice(5).trim()))
   if (isJobsRequest) {
     // Extract vessel name filter if present (e.g., "jobs wave master")
-    const vesselFilter = msgLower === 'jobs' ? null : msgLower.slice(5).trim()
+    const vesselFilter = isJobsListPhrase ? null : msgLower.slice(5).trim()
 
     // vessel name lives on the vessels table — join it (inner join when filtering so
     // non-matching and no-vessel jobs drop out)
