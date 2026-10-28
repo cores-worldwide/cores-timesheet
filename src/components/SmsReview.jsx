@@ -615,6 +615,13 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
         description: e.description.trim(),
       }))
 
+    // Removing every row and saving used to write entries: [] and leave a
+    // submitted day with no jobs on it (Jim's Oct 26, wiped 2026-10-28).
+    // Day-off and stat-pay rows legitimately have none.
+    if (cleaned.length === 0 && !editModal.is_day_off && !editModal.is_stat_grant) {
+      alert('Add at least one job. To get rid of the whole day, close this and use Reject instead.')
+      return
+    }
     if (cleaned.some(e => !e.job_number)) { alert('Every entry needs a job number'); return }
     if (cleaned.some(e => !((e.reg_hours + e.ot_hours) > 0))) { alert('Every entry needs Reg + OT hours greater than 0'); return }
     if (cleaned.some(e => !e.description)) { alert('Every entry needs a note describing what was done'); return }

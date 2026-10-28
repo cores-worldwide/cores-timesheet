@@ -781,7 +781,10 @@ export default function EmployeeHome({ employee }) {
                     )}
                   </div>
                 )}
-                {(daySub.entries || []).length > 0 && (
+                {/* Not gated on having jobs — a texted-in day whose jobs were all
+                    removed (or that only has an "In 7:15" so far) still needs a
+                    way in to add them (Jim, 2026-10-28). */}
+                {!daySub.is_day_off && (
                   <button className="emp-btn emp-btn-secondary emp-btn-small" style={{ marginTop: '0.5rem' }}
                     onClick={() => navigate(`pending/${daySub.id}/edit`)}>Edit</button>
                 )}
