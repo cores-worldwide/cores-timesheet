@@ -1987,11 +1987,13 @@ Deno.serve(async (req: Request) => {
   // Bare "job" used to reach Claude and get tacked onto the day's job note,
   // and "jobs number" was read as a boat called "number" (Jim, 2026-10-28).
   const isJobsListPhrase = /^(?:list\s+)?(?:open\s+)?jobs?(?:\s*(?:numbers?|nums?|no\.?s?|#s?|list))?[\s?.!]*$/.test(msgLower)
-  const isJobsRequest = isJobsListPhrase
-    || (msgLower.startsWith('jobs ') && !/^\d/.test(msgLower.slice(5).trim()))
+  // "job <boat>" searches boats the same as "jobs <boat>" (Jim, 2026-10-28:
+  // "job res" got tacked onto his job note instead of finding Resolute etc.).
+  const boatSearch = (msgLower.match(/^jobs?\s+(.+)$/)?.[1] ?? '').replace(/[\s?.!]+$/, '').trim()
+  const isJobsRequest = isJobsListPhrase || (boatSearch !== '' && !/^\d/.test(boatSearch))
   if (isJobsRequest) {
     // Extract vessel name filter if present (e.g., "jobs wave master")
-    const vesselFilter = isJobsListPhrase ? null : msgLower.slice(5).trim()
+    const vesselFilter = isJobsListPhrase ? null : boatSearch
 
     // vessel name lives on the vessels table — join it (inner join when filtering so
     // non-matching and no-vessel jobs drop out)
@@ -2009,15 +2011,16 @@ Deno.serve(async (req: Request) => {
     if (openJobs && openJobs.length > 0) {
       let r: string
       if (vesselFilter) {
-        // JOBS <boat>: one job per line with its description
-        const boatName = openJobs[0]?.vessels?.name || vesselFilter
-        const detail = openJobs
-          .map((j: any) => {
-            const d = j.description ? j.description.replace(/\s+/g, ' ').trim() : ''
-            return `${j.job_number}${d ? ' — ' + d : ''}`
-          })
-          .join('\n')
-        r = `${boatName} jobs:\n${detail}`
+        // JOBS <boat>: one job per line with its description, under each
+        // matching boat's name (a search like "res" can match several boats)
+        const byBoat: Record<string, string[]> = {}
+        for (const j of openJobs as any[]) {
+          const d = j.description ? j.description.replace(/\s+/g, ' ').trim() : ''
+          ;(byBoat[j.vessels?.name || vesselFilter] ||= []).push(`${j.job_number}${d ? ' — ' + d : ''}`)
+        }
+        r = Object.keys(byBoat).sort((a, b) => a.localeCompare(b))
+          .map((n) => `${n} jobs:\n${byBoat[n].join('\n')}`)
+          .join('\n\n')
       } else {
         // bare JOBS: numbers grouped by boat, one line each, Shop last
         const groups: Record<string, string[]> = {}
@@ -2037,7 +2040,7 @@ Deno.serve(async (req: Request) => {
       return isTwilio ? twiML(r) : jsonReply({ reply: r })
     }
     // vesselFilter matched no real vessel — the digit-prefix guard above only
-    // catches "jobs 4926...", not every phrasing a report could start with
+    // catches "jobs 4926..." / "job 4760 ...", not every phrasing a report could start with
     // ("Jobs done today, 4760 6hrs...", a typo'd "jobs shop 6hrs..."). Rather
     // than keep enumerating patterns, treat a non-match as proof this was
     // never really a JOBS command and let it fall through to Claude instead
