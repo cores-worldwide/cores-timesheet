@@ -8,7 +8,7 @@ import MultiSelectDropdown from './MultiSelectDropdown'
 import PersonPicker from './PersonPicker'
 import { getAdminName } from './PasswordGate'
 import MediaThumb from './MediaThumb'
-import MediaViewer from './MediaViewer'
+import PhotoLightbox from './PhotoLightbox'
 import { fetchAll } from '../utils/fetchAll'
 import { useAutoRefresh } from '../utils/useAutoRefresh'
 
@@ -1313,16 +1313,7 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
         )
       })()}
 
-      {photoLightbox && (
-        <div
-          onClick={() => setPhotoLightbox(null)}
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 1300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2rem', cursor: 'zoom-out' }}
-        >
-          <div onClick={e => e.stopPropagation()} style={{ maxWidth: '100%', maxHeight: '100%' }}>
-            <MediaViewer src={gearPhotoUrl(photoLightbox.storage_path)} alt="" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', borderRadius: 4 }} />
-          </div>
-        </div>
-      )}
+      {photoLightbox && <PhotoLightbox photo={photoLightbox} onClose={() => setPhotoLightbox(null)} zIndex={1300} />}
 
       {/* Edit modal */}
       {editModal && (

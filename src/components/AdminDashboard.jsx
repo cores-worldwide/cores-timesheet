@@ -11,7 +11,7 @@ import { ensureStatPay, cleanupStatPay } from '../utils/statPay'
 import { replaceSupplies, submitManualEntry, fetchDailyOTContext, computeDailyOTSplit } from '../utils/entrySave'
 import MultiSelectDropdown from './MultiSelectDropdown'
 import MediaThumb from './MediaThumb'
-import MediaViewer from './MediaViewer'
+import PhotoLightbox from './PhotoLightbox'
 import { computeOTMap } from '../utils/otCalc'
 import { fmtHours } from '../utils/format'
 import { generateWeeklyCompilationPDF, fmtShortDate, fmtHeaderDate, dayName, isWeekend } from '../utils/weeklyCompilationPdf'
@@ -2673,16 +2673,7 @@ export default function AdminDashboard() {
         )
       })()}
 
-      {photoLightbox && (
-        <div
-          onClick={() => setPhotoLightbox(null)}
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2rem', cursor: 'zoom-out' }}
-        >
-          <div onClick={e => e.stopPropagation()} style={{ maxWidth: '100%', maxHeight: '100%' }}>
-            <MediaViewer src={gearPhotoUrl(photoLightbox.storage_path)} alt="" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', borderRadius: 4 }} />
-          </div>
-        </div>
-      )}
+      {photoLightbox && <PhotoLightbox photo={photoLightbox} onClose={() => setPhotoLightbox(null)} zIndex={1100} />}
 
     </div>
   )
