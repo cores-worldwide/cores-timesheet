@@ -484,6 +484,10 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
   async function reject(sub) {
     const reason = (rejectDrafts[sub.id] || '').trim()
     if (!reason) return
+    // A closed or mistyped job number is a reason to Edit, not Delete —
+    // deleting drops the hours entirely instead of moving them to the right job.
+    if (jobNumberBlockers(sub, jobs).length > 0 &&
+        !confirm(`This day is on a closed or wrong job number. Deleting it removes ${employeeName(sub.employee_id)}'s hours completely — they won't be paid or charged anywhere.\n\nTo keep the hours, Cancel, then click Edit and change the job number.\n\nDelete anyway?`)) return
     setActing(sub.id)
     const { error } = await supabase.schema('Cores').from('sms_submissions')
       .update({ status: 'rejected', rejection_reason: reason, updated_at: new Date().toISOString() }).eq('id', sub.id)

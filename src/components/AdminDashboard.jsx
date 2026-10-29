@@ -304,6 +304,8 @@ export default function AdminDashboard() {
   }
 
   async function saveEdit() {
+    // Hours must always land on a job (day-off / stat-pay rows have none by design).
+    if (!editFields.job_id && !editEntry.is_day_off && !editEntry.is_stat_pay) { alert('Pick a job — hours can\'t be saved without one.'); return }
     if (!editFields.description?.trim()) { alert('Add a note describing what was done'); return }
     if (addingNewJob && newJobFields.job_id && newJobFields.hours && !newJobFields.description?.trim()) {
       alert('Add a note describing the new job')
