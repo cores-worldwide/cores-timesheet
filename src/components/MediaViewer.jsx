@@ -25,8 +25,9 @@ const MAX_SCALE = 4
 // attached manually with { passive: false } instead of via JSX props.
 // maxMediaHeight lets a caller that shows more than the media (the tech
 // app's photo edit sheet) keep it short enough to leave room below; every
-// other lightbox keeps the full-viewport default.
-export default function MediaViewer({ src, alt = '', style, maxMediaHeight = 'calc(100vh - 3rem)' }) {
+// other lightbox keeps the full-viewport default. maxMediaWidth is the same
+// for width (the office lightbox's details panel sits beside the photo).
+export default function MediaViewer({ src, alt = '', style, maxMediaHeight = 'calc(100vh - 3rem)', maxMediaWidth = 'calc(100vw - 3rem)' }) {
   const [scale, setScale] = useState(1)
   const [pos, setPos] = useState({ x: 0, y: 0 })
   const [dragging, setDragging] = useState(false)
@@ -161,8 +162,8 @@ export default function MediaViewer({ src, alt = '', style, maxMediaHeight = 'ca
     // Bounded in viewport units, not percentages — see the img case below
     // for why a percentage here has nothing definite to resolve against.
     return (
-      <div style={{ position: 'relative', display: 'inline-block', maxWidth: 'calc(100vw - 3rem)', maxHeight: maxMediaHeight }}>
-        <video src={src} controls autoPlay style={{ ...style, maxWidth: 'calc(100vw - 3rem)', maxHeight: maxMediaHeight }} />
+      <div style={{ position: 'relative', display: 'inline-block', maxWidth: maxMediaWidth, maxHeight: maxMediaHeight }}>
+        <video src={src} controls autoPlay style={{ ...style, maxWidth: maxMediaWidth, maxHeight: maxMediaHeight }} />
         <DownloadButton src={src} />
       </div>
     )
@@ -209,7 +210,7 @@ export default function MediaViewer({ src, alt = '', style, maxMediaHeight = 'ca
           // image's native pixel size — a full-resolution phone photo blown
           // up far past the screen, which reads as "the photo won't open."
           width: 'auto', height: 'auto',
-          maxWidth: 'calc(100vw - 3rem)', maxHeight: maxMediaHeight,
+          maxWidth: maxMediaWidth, maxHeight: maxMediaHeight,
           objectFit: 'contain', userSelect: 'none',
           transform: `translate(${pos.x}px, ${pos.y}px) scale(${scale})`,
           transition: dragging || pinchRef.current ? 'none' : 'transform 0.15s ease-out',

@@ -5,7 +5,8 @@ import MultiSelectDropdown from './MultiSelectDropdown'
 import { computeOTMap } from '../utils/otCalc'
 import { fmtHours } from '../utils/format'
 import MediaThumb from './MediaThumb'
-import MediaViewer, { DownloadButton } from './MediaViewer'
+import { DownloadButton } from './MediaViewer'
+import PhotoLightbox from './PhotoLightbox'
 import { getAdminName } from './PasswordGate'
 import { fetchAll } from '../utils/fetchAll'
 
@@ -658,6 +659,47 @@ export default function Reports() {
     }}>{label}</button>
   )
 
+  // Photo pop-ups, rendered by every view below (job, employee and the tabs)
+  // so a 📷 link opens wherever it appears.
+  const photoModals = (
+    <>
+      {photoGroup && (() => {
+        const groupPhotos = photoGroup.photos
+        return (
+          <div
+            onClick={() => setPhotoGroup(null)}
+            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2rem' }}
+          >
+            <div onClick={e => e.stopPropagation()} style={{ ...card, width: '100%', maxWidth: 700, maxHeight: '80vh', overflowY: 'auto' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                <h3 style={{ margin: 0 }}>{photoGroup.title} — {groupPhotos.length} photo{groupPhotos.length === 1 ? '' : 's'}</h3>
+                <button onClick={() => setPhotoGroup(null)} style={{ border: 'none', background: 'transparent', fontSize: '1.2rem', cursor: 'pointer', color: '#888' }}>✕</button>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '0.75rem' }}>
+                {groupPhotos.map(p => (
+                  <div key={p.id} style={{ borderRadius: 6, overflow: 'hidden', border: '1px solid #eee' }}>
+                    <div
+                      onClick={() => setPhotoLightbox(p)}
+                      style={{ aspectRatio: '4 / 3', background: '#f0f0f0', cursor: 'pointer', overflow: 'hidden', position: 'relative' }}
+                    >
+                      <MediaThumb src={gearPhotoUrl(p.thumb_path || p.storage_path)} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                      <DownloadButton src={gearPhotoUrl(p.storage_path)} />
+                    </div>
+                    <div style={{ padding: '0.35rem 0.5rem', fontSize: '0.75rem', color: '#888' }}>
+                      {jobsById[p.job_id]?.job_number ? `${jobsById[p.job_id].job_number} · ` : ''}{employees.find(e => e.id === p.employee_id)?.name || 'Unknown'} · {new Date(p.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
+      {photoLightbox && <PhotoLightbox photo={photoLightbox} onClose={() => setPhotoLightbox(null)} zIndex={1100} />}
+    </>
+  )
+
   if (loading) return <div style={{ padding: '3rem', textAlign: 'center', color: '#888' }}>Loading reports...</div>
 
   // ── Job Detail ──
@@ -882,6 +924,7 @@ export default function Reports() {
             })}
           </tbody>
         </table>
+        {photoModals}
       </div>
     )
   }
@@ -949,6 +992,7 @@ export default function Reports() {
             </div>
           )
         })}
+        {photoModals}
       </div>
     )
   }
@@ -1397,49 +1441,7 @@ export default function Reports() {
         </div>
       )}
 
-      {photoGroup && (() => {
-        const groupPhotos = photoGroup.photos
-        return (
-          <div
-            onClick={() => setPhotoGroup(null)}
-            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2rem' }}
-          >
-            <div onClick={e => e.stopPropagation()} style={{ ...card, width: '100%', maxWidth: 700, maxHeight: '80vh', overflowY: 'auto' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                <h3 style={{ margin: 0 }}>{photoGroup.title} — {groupPhotos.length} photo{groupPhotos.length === 1 ? '' : 's'}</h3>
-                <button onClick={() => setPhotoGroup(null)} style={{ border: 'none', background: 'transparent', fontSize: '1.2rem', cursor: 'pointer', color: '#888' }}>✕</button>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '0.75rem' }}>
-                {groupPhotos.map(p => (
-                  <div key={p.id} style={{ borderRadius: 6, overflow: 'hidden', border: '1px solid #eee' }}>
-                    <div
-                      onClick={() => setPhotoLightbox(p)}
-                      style={{ aspectRatio: '4 / 3', background: '#f0f0f0', cursor: 'pointer', overflow: 'hidden', position: 'relative' }}
-                    >
-                      <MediaThumb src={gearPhotoUrl(p.thumb_path || p.storage_path)} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-                      <DownloadButton src={gearPhotoUrl(p.storage_path)} />
-                    </div>
-                    <div style={{ padding: '0.35rem 0.5rem', fontSize: '0.75rem', color: '#888' }}>
-                      {jobsById[p.job_id]?.job_number ? `${jobsById[p.job_id].job_number} · ` : ''}{employees.find(e => e.id === p.employee_id)?.name || 'Unknown'} · {new Date(p.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )
-      })()}
-
-      {photoLightbox && (
-        <div
-          onClick={() => setPhotoLightbox(null)}
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2rem', cursor: 'zoom-out' }}
-        >
-          <div onClick={e => e.stopPropagation()} style={{ maxWidth: '100%', maxHeight: '100%' }}>
-            <MediaViewer src={gearPhotoUrl(photoLightbox.storage_path)} alt="" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', borderRadius: 4 }} />
-          </div>
-        </div>
-      )}
+      {photoModals}
 
     </div>
   )

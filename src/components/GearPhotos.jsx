@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
 import MediaThumb from './MediaThumb'
-import MediaViewer from './MediaViewer'
+import PhotoLightbox from './PhotoLightbox'
 import { getAdminName } from './PasswordGate'
 import JobPicker from '../employee/JobPicker'
 import PersonPicker from './PersonPicker'
@@ -761,30 +761,7 @@ export default function GearPhotos() {
         })}
       </div>
 
-      {lightbox && (
-        <div
-          onClick={() => setLightbox(null)}
-          style={{
-            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 1000,
-            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2rem', cursor: 'zoom-out',
-          }}
-        >
-          {/* Click-through blocked for both — video so tapping play/pause/scrub on
-              the native controls doesn't also close the lightbox, images so
-              MediaViewer's own click-drag-to-pan doesn't close it either. Only
-              clicking the surrounding backdrop closes it now. */}
-          <div
-            onClick={e => e.stopPropagation()}
-            style={{ maxWidth: '100%', maxHeight: '100%' }}
-          >
-            <MediaViewer
-              src={publicUrl(lightbox.storage_path)}
-              alt={lightbox.ship_or_job || 'gear photo'}
-              style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', borderRadius: 4 }}
-            />
-          </div>
-        </div>
-      )}
+      {lightbox && <PhotoLightbox photo={lightbox} onClose={() => setLightbox(null)} zIndex={1000} />}
     </div>
   )
 }
