@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../supabaseClient'
 import { ensureStatPay } from '../utils/statPay'
 import { fmtHours } from '../utils/format'
-import { approvalBlockers, logBlockedApproval } from '../utils/entrySave'
+import { approvalBlockers, jobNumberBlockers, jobNumberState, logBlockedApproval } from '../utils/entrySave'
 import { looksLikeSameSupply } from '../utils/supplyMatch'
 import MultiSelectDropdown from './MultiSelectDropdown'
 import PersonPicker from './PersonPicker'
@@ -143,7 +143,11 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
     const ninetyDaysAgo = new Date(); ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90)
     const [{ data: subs }, { data: j }, { data: emps }, { data: photos }, { data: approvedDays }, { data: applied }] = await Promise.all([
       fetchAll(() => supabase.schema('Cores').from('sms_submissions').select('*').order('updated_at', { ascending: false })),
-      supabase.schema('Cores').from('jobs').select('id, job_number, description').eq('status', 'open'),
+      // ALL jobs, closed included. This used to load open jobs only, so every
+      // text on a job that later closed read "✗ not found" (Robin, Oct 6, job
+      // 4974) and approving one saved the hours with no job at all. Closed
+      // and mistyped job numbers are now blocked by approvalBlockers instead.
+      supabase.schema('Cores').from('jobs').select('id, job_number, description, status'),
       supabase.schema('Cores').from('employees').select('id, name, active'),
       fetchAll(() => supabase.schema('Cores').from('gear_photos').select('id, job_id, storage_path, thumb_path, employee_id, work_date, created_at').not('job_id', 'is', null)),
       fetchAll(() => supabase.schema('Cores').from('timesheet_entries').select('employee_id, work_date').gte('work_date', ninetyDaysAgo.toISOString().slice(0, 10))),
@@ -273,7 +277,7 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
       // click is also written to approval_block_log.
       const blockers = []
       if (entries.some(e => !e.description?.trim())) blockers.push('Every job needs a note describing what was done.')
-      blockers.push(...approvalBlockers(sub))
+      blockers.push(...approvalBlockers(sub, jobs))
       if (blockers.length > 0) {
         logBlockedApproval(supabase, sub, blockers, getAdminName())
         alert(`Can't approve yet:\n\n• ${blockers.join('\n• ')}\n\nClick Edit to fix it, then approve.`)
@@ -569,6 +573,9 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
       // blank to auto-split" — see saveEdit().
       entries:           (sub.entries || []).map(e => ({
         job_number:  e.job_number || '',
+        // The number the tech first gave — kept so "was 4974" still shows
+        // after the office changes it (mobile entries have no text to look back at).
+        texted_job_number: e.texted_job_number || e.job_number || '',
         reg_hours:   String(e.reg_hours ?? e.hours ?? ''),
         ot_hours:    String(e.ot_hours ?? 0),
         per_diem:    e.per_diem != null ? String(e.per_diem) : '',
@@ -609,6 +616,7 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
       .filter(e => e.job_number.trim() || e.description.trim() || e.reg_hours !== '' || e.ot_hours !== '')
       .map(e => ({
         job_number:  e.job_number.trim(),
+        texted_job_number: (e.texted_job_number || '').trim(),
         reg_hours:   Number(e.reg_hours) || 0,
         ot_hours:    Number(e.ot_hours) || 0,
         per_diem:    e.per_diem === '' || e.per_diem == null ? null : Number(e.per_diem),
@@ -651,12 +659,14 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
       if (!ok) return
     }
 
-    const entries = cleaned.map(({ job_number, reg_hours, ot_hours, per_diem, description }) => {
+    const entries = cleaned.map(({ job_number, texted_job_number, reg_hours, ot_hours, per_diem, description }) => {
       const reg = Math.round(reg_hours * 100) / 100
       const ot  = Math.round(ot_hours * 100) / 100
       return {
         job_number, hours: Math.round((reg + ot) * 100) / 100, description, reg_hours: reg, ot_hours: ot, ot_override: true,
         per_diem: isSplit ? (per_diem || 0) : null,
+        // Only stored once the job number has actually been changed.
+        ...(texted_job_number && texted_job_number.toUpperCase() !== job_number.toUpperCase() ? { texted_job_number } : {}),
       }
     })
 
@@ -821,7 +831,7 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
         // Same rules approve() enforces, shown up front so it's clear why the
         // Approve button will refuse before she clicks it.
         if (sub.status === 'submitted' || sub.status === 'collecting') {
-          for (const b of approvalBlockers(sub)) flags.push(`⛔ can't approve yet — ${b}`)
+          for (const b of approvalBlockers(sub, jobs)) flags.push(`⛔ can't approve yet — ${b}`)
         }
         if (sub.status === 'collecting' && (sub.pending_questions || []).length > 0) {
           flags.push(`⏳ awaiting reply — ${sub.pending_questions.join(' | ')}`)
@@ -885,6 +895,15 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
             {isExpanded && (
               <div style={{ padding: '1rem' }}>
 
+                {/* Closed / mistyped job numbers — the number stays exactly as
+                    the tech gave it so the office can work out the right job. */}
+                {(sub.status === 'submitted' || sub.status === 'collecting') && jobNumberBlockers(sub, jobs).length > 0 && (
+                  <div style={{ background: '#fff0f0', border: '2px solid #c00', borderRadius: 6, padding: '0.75rem 1rem', marginBottom: '0.75rem', color: '#a00' }}>
+                    <div style={{ fontWeight: 700, fontSize: '1rem', marginBottom: '0.3rem' }}>⛔ Wrong job number — can't approve until it's changed</div>
+                    {jobNumberBlockers(sub, jobs).map(b => <div key={b} style={{ fontSize: '0.9rem' }}>• {b}</div>)}
+                  </div>
+                )}
+
                 {/* Time row — day-off requests and stat-pay grants have none of this */}
                 {!sub.is_day_off && !sub.is_stat_grant && (
                   <div style={{ display: 'flex', gap: '1.5rem', marginBottom: '0.75rem', fontSize: '0.9rem', flexWrap: 'wrap' }}>
@@ -940,14 +959,22 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
                     <tbody>
                       {sub.entries.map((e, i) => {
                         const pd = entryPerDiems(sub)[i]
-                        const matchedJob = jobs.find(j => j.job_number.toUpperCase() === (e.job_number || '').toUpperCase())
+                        const { state: jobState, job: matchedJob } = jobNumberState(e.job_number, jobs)
+                        const pending = sub.status === 'submitted' || sub.status === 'collecting'
                         const reg = e.reg_hours ?? e.hours
                         const ot  = e.ot_hours ?? 0
                         const thisEntryPhotos = matchedJob ? entryPhotos(matchedJob.id, sub.employee_id, sub.work_date) : []
                         const photoCount = thisEntryPhotos.length
                         return (
                           <tr key={i} style={{ borderTop: '1px solid #eee' }}>
-                            <td style={{ padding: '0.4rem 0.6rem', fontWeight: 600 }}>{e.job_number}</td>
+                            <td style={{ padding: '0.4rem 0.6rem', fontWeight: 600 }}>
+                              {e.job_number}
+                              {e.texted_job_number && (
+                                <div style={{ fontSize: '0.7rem', fontWeight: 400, color: '#888' }} title="The job number the tech originally gave, before the office changed it">
+                                  was {e.texted_job_number}
+                                </div>
+                              )}
+                            </td>
                             <td style={{ padding: '0.4rem 0.6rem', textAlign: 'right' }}>{reg}</td>
                             <td style={{ padding: '0.4rem 0.6rem', textAlign: 'right', color: ot > 0 ? '#cc6600' : '#ccc', fontWeight: ot > 0 ? 700 : 400 }}>
                               {ot > 0 ? ot : '—'}
@@ -956,8 +983,13 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
                               {pd > 0 ? `×${pd}` : '—'}
                             </td>
                             <td style={{ padding: '0.4rem 0.6rem', color: '#333' }}>{e.description}</td>
-                            <td style={{ padding: '0.4rem 0.6rem', fontSize: '0.8rem', color: matchedJob ? '#2a7a2a' : '#c00' }}>
-                              {matchedJob ? `✓ ${matchedJob.description?.substring(0, 25) || '—'}` : '✗ not found'}
+                            <td style={{ padding: '0.4rem 0.6rem', fontSize: '0.8rem', color: jobState === 'open' ? '#2a7a2a' : (jobState === 'closed' && !pending) ? '#888' : '#c00', fontWeight: jobState !== 'open' && pending ? 700 : 400 }}>
+                              {jobState === 'open' && `✓ ${matchedJob.description?.substring(0, 25) || '—'}`}
+                              {jobState === 'closed' && (pending
+                                ? `⛔ CLOSED — ${matchedJob.description?.substring(0, 20) || ''}`
+                                : `✓ ${matchedJob.description?.substring(0, 25) || '—'} (closed)`)}
+                              {jobState === 'unknown' && '✗ no such job'}
+                              {jobState === 'blank' && '✗ no job #'}
                             </td>
                             <td style={{ padding: '0.4rem 0.6rem', fontSize: '0.8rem' }}>
                               {photoCount > 0 ? (
@@ -1013,14 +1045,18 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
                     </thead>
                     <tbody>
                       {sub.supplies.map((s, i) => {
-                        const matchedJob = jobs.find(j => j.job_number.toUpperCase() === (s.job_number || '').toUpperCase())
+                        const { state: jobState } = jobNumberState(s.job_number, jobs)
+                        const pending = sub.status === 'submitted' || sub.status === 'collecting'
                         return (
                           <tr key={i} style={{ borderTop: '1px solid #eee' }}>
                             <td style={{ padding: '0.4rem 0.6rem', fontWeight: 600 }}>{s.supply_name}</td>
                             <td style={{ padding: '0.4rem 0.6rem', textAlign: 'right' }}>{s.quantity}</td>
                             <td style={{ padding: '0.4rem 0.6rem' }}>{s.job_number || '—'}</td>
-                            <td style={{ padding: '0.4rem 0.6rem', fontSize: '0.8rem', color: matchedJob ? '#2a7a2a' : '#c00' }}>
-                              {matchedJob ? '✓' : '✗ not found'}
+                            <td style={{ padding: '0.4rem 0.6rem', fontSize: '0.8rem', color: jobState === 'open' ? '#2a7a2a' : jobState === 'blank' || (jobState === 'closed' && !pending) ? '#888' : '#c00', fontWeight: jobState !== 'open' && jobState !== 'blank' && pending ? 700 : 400 }}>
+                              {jobState === 'open' && '✓'}
+                              {jobState === 'closed' && (pending ? '⛔ CLOSED' : '✓ (closed)')}
+                              {jobState === 'unknown' && '✗ no such job'}
+                              {jobState === 'blank' && '—'}
                             </td>
                           </tr>
                         )
@@ -1067,7 +1103,8 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
                                   style={{ ...inp, padding: '0.3rem 0.2rem' }}
                                 >
                                   <option value="">—</option>
-                                  {jobs.map(j => <option key={j.id} value={j.id}>{j.job_number}</option>)}
+                                  {/* Closed jobs only as the current value — never as a new pick. */}
+                                  {jobs.filter(j => j.status !== 'closed' || j.id === (edit.job_id ?? s.job_id)).map(j => <option key={j.id} value={j.id}>{j.job_number}{j.status === 'closed' ? ' (closed)' : ''}</option>)}
                                 </select>
                               </td>
                               <td style={{ padding: '0.35rem 0.6rem' }}>
@@ -1387,7 +1424,8 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
               </thead>
               <tbody>
                 {editFields.entries.map((e, i) => {
-                  const matched = jobs.some(j => j.job_number.toUpperCase() === e.job_number.trim().toUpperCase())
+                  const { state: jobState } = jobNumberState(e.job_number, jobs)
+                  const matched = jobState === 'open'
                   return (
                     <tr key={i}>
                       <td style={{ padding: '0.15rem 0.25rem 0.15rem 0' }}>
@@ -1397,6 +1435,11 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
                           placeholder="Fill in job number"
                           style={{ ...inp, borderColor: e.job_number.trim() && !matched ? '#e08080' : '#ccc' }}
                         />
+                        {jobState === 'closed' && <div style={{ fontSize: '0.7rem', color: '#c00', fontWeight: 700 }}>closed</div>}
+                        {jobState === 'unknown' && <div style={{ fontSize: '0.7rem', color: '#c00', fontWeight: 700 }}>no such job</div>}
+                        {e.texted_job_number && e.texted_job_number.toUpperCase() !== e.job_number.trim().toUpperCase() && (
+                          <div style={{ fontSize: '0.7rem', color: '#888' }}>was {e.texted_job_number}</div>
+                        )}
                       </td>
                       <td style={{ padding: '0.15rem 0.25rem 0.15rem 0' }}>
                         <input
@@ -1449,9 +1492,9 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
               onClick={addEntryRow}
               style={{ marginTop: '0.35rem', padding: '0.25rem 0.7rem', background: '#f5f5f5', border: '1px solid #ccc', borderRadius: 4, cursor: 'pointer', fontSize: '0.8rem' }}
             >+ Add job</button>
-            {editFields.entries.some(e => e.job_number.trim() && !jobs.some(j => j.job_number.toUpperCase() === e.job_number.trim().toUpperCase())) && (
+            {editFields.entries.some(e => e.job_number.trim() && jobNumberState(e.job_number, jobs).state !== 'open') && (
               <div style={{ fontSize: '0.75rem', color: '#c00', marginTop: '0.3rem' }}>
-                Red job numbers don't match any open job — they'll save, but won't link to a job record.
+                Red job numbers are closed or don't exist — they'll save, but the day can't be approved until they're changed to an open job.
               </div>
             )}
             <div style={{ fontSize: '0.75rem', color: '#888', marginTop: '0.3rem' }}>
@@ -1471,7 +1514,7 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
               </thead>
               <tbody>
                 {(editFields.supplies || []).map((s, i) => {
-                  const matched = jobs.some(j => j.job_number.toUpperCase() === s.job_number.trim().toUpperCase())
+                  const matched = jobNumberState(s.job_number, jobs).state === 'open'
                   const entryJobNumbers = [...new Set(
                     editFields.entries.map(e => e.job_number.trim()).filter(Boolean)
                   )]
