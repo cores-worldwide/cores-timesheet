@@ -101,8 +101,9 @@ export function planCells(template, reading) {
           if (lo !== null && (n < lo || n > hi)) outOfSpec.push({ ref, label, value: cell.value, spec: section.spec })
         } else {
           // Not a plain number (e.g. "1.75l0", "-") — kept as written, as text.
-          writes.push({ ref, kind: 'text', text: cell.value, comment })
-          noted.push({ ref, label, value: cell.value, note: 'Not a plain number; written as text' })
+          const why = 'Not a plain number; written as text, exactly as read.'
+          writes.push({ ref, kind: 'text', text: cell.value, comment: comment ? `${comment} ${why}` : why })
+          noted.push({ ref, label, value: cell.value, note: why })
         }
         filled++
       })

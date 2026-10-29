@@ -10,7 +10,8 @@
     "clock-in": "node scripts/timelog.mjs in",
     "clock-out": "node scripts/timelog.mjs out",
     "test:sms": "node scripts/test-sms.mjs",
-    "test:cores-schema": "node scripts/test-cores-schema.mjs"
+    "test:cores-schema": "node scripts/test-cores-schema.mjs",
+    "test:scan-report": "node scripts/test-xlsx-fill.mjs"
   },
   "keywords": [
     "timesheet",
