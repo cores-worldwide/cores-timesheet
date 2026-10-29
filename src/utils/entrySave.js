@@ -160,6 +160,18 @@ export function jobNumberState(jobNumber, jobs) {
   return { state: job.status === 'closed' ? 'closed' : 'open', job }
 }
 
+// A closed job's hours are locked (Jim, 2026-10-29: "Once a job is closed,
+// I'd say it's locked down") — changing, moving or deleting them, even for
+// work done while it was open, means reopening the job first. Returns the
+// first closed job among jobIds, or null.
+export function closedJobAmong(jobIds, jobs) {
+  return jobIds.map(id => id && (jobs || []).find(j => j.id === id)).find(j => j?.status === 'closed') || null
+}
+
+export function closedJobLockMessage(job) {
+  return `Job ${job.job_number} is closed, so its hours are locked. Reopen the job (Admin → Jobs) first if they really need to change.`
+}
+
 // Job numbers that would stop a submission linking to an open job. Approving
 // used to save these silently with no job at all, losing the number the tech
 // gave — now the number stays on the submission and approval waits until the
