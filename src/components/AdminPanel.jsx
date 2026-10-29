@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { marked } from 'marked'
 import { supabase } from '../supabaseClient'
 import { fmtHours } from '../utils/format'
+import { closedJobAmong, closedJobLockMessage } from '../utils/entrySave'
 import AuditLog from './AuditLog'
 import StatHolidays from './StatHolidays'
 import MediaThumb from './MediaThumb'
@@ -286,6 +287,19 @@ export default function AdminPanel() {
         await sendPhoneCheck({ id: saved.id, name: empPayload.name })
       }
     } else if (type === 'entry') {
+      // Hours must always land on a job — clearing the job here used to save
+      // them with none (day-off / stat-pay rows have no job by design).
+      if (!payload.job_id && !record?.is_day_off && !record?.is_stat_pay) {
+        alert('Pick a job — hours can\'t be saved without one.')
+        setSaving(false)
+        return
+      }
+      const lockedJob = closedJobAmong([record?.job_id, payload.job_id], jobs)
+      if (lockedJob) {
+        alert(closedJobLockMessage(lockedJob))
+        setSaving(false)
+        return
+      }
       if (!payload.description?.trim()) {
         alert('Add a note describing what was done')
         setSaving(false)

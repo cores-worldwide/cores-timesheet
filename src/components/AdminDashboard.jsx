@@ -8,7 +8,7 @@ import ConfettiBurst, { CELEBRATION_VARIANTS, pickCelebrationVariant } from './C
 import { getAdminName } from './PasswordGate'
 import { generateDailyTimesheetPDF } from '../utils/timesheetPdf'
 import { ensureStatPay, cleanupStatPay } from '../utils/statPay'
-import { replaceSupplies, submitManualEntry, fetchDailyOTContext, computeDailyOTSplit } from '../utils/entrySave'
+import { replaceSupplies, submitManualEntry, fetchDailyOTContext, computeDailyOTSplit, closedJobAmong, closedJobLockMessage } from '../utils/entrySave'
 import MultiSelectDropdown from './MultiSelectDropdown'
 import MediaThumb from './MediaThumb'
 import PhotoLightbox from './PhotoLightbox'
@@ -304,6 +304,10 @@ export default function AdminDashboard() {
   }
 
   async function saveEdit() {
+    // Hours must always land on a job (day-off / stat-pay rows have none by design).
+    if (!editFields.job_id && !editEntry.is_day_off && !editEntry.is_stat_pay) { alert('Pick a job — hours can\'t be saved without one.'); return }
+    const lockedJob = closedJobAmong([editEntry.job_id, editFields.job_id], jobs)
+    if (lockedJob) { alert(closedJobLockMessage(lockedJob)); return }
     if (!editFields.description?.trim()) { alert('Add a note describing what was done'); return }
     if (addingNewJob && newJobFields.job_id && newJobFields.hours && !newJobFields.description?.trim()) {
       alert('Add a note describing the new job')
@@ -393,6 +397,8 @@ export default function AdminDashboard() {
   }
 
   async function deleteEntry(entry) {
+    const lockedJob = closedJobAmong([entry.job_id], jobs)
+    if (lockedJob) { alert(closedJobLockMessage(lockedJob)); setConfirmDeleteId(null); return }
     const { error } = await supabase.schema('Cores').from('timesheet_entries').delete().eq('id', entry.id)
     if (error) { alert(`Delete failed: ${error.message}`); return }
     // job_supplies has no FK back to timesheet_entries — matched by
@@ -443,6 +449,11 @@ export default function AdminDashboard() {
       alert("This entry isn't linked to a submission — there's nothing to revert it to.")
       return
     }
+    // Every job line from the same text comes back with it, so any closed one locks the lot.
+    const { data: lines } = await supabase.schema('Cores').from('timesheet_entries')
+      .select('job_id').eq('source_submission_id', entry.source_submission_id)
+    const lockedJob = closedJobAmong([entry.job_id, ...(lines || []).map(l => l.job_id)], jobs)
+    if (lockedJob) { alert(closedJobLockMessage(lockedJob)); return }
     // job_supplies logged from the same text (not from a gear photo — those
     // carry source_photo_id instead) get cleaned up along with the entries
     // below. A supply already marked billed is real billing history, though —

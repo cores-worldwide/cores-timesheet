@@ -149,14 +149,63 @@ export const APPROVAL_TIME_TOLERANCE_MINUTES = 15
 const hhmm = (t) => String(t).slice(0, 5)
 const quarterHours = (mins) => Math.round(mins / 15) / 4
 
+// How a texted/picked job number stands against the jobs table: 'open',
+// 'closed', 'unknown' (no such job — usually a typo like 4794 for 4974) or
+// 'blank'. `jobs` must be ALL jobs, closed ones included.
+export function jobNumberState(jobNumber, jobs) {
+  const jn = (jobNumber || '').trim().toUpperCase()
+  if (!jn) return { state: 'blank', job: null }
+  const job = (jobs || []).find(j => j.job_number.toUpperCase() === jn)
+  if (!job) return { state: 'unknown', job: null }
+  return { state: job.status === 'closed' ? 'closed' : 'open', job }
+}
+
+// A closed job's hours are locked (Jim, 2026-10-29: "Once a job is closed,
+// I'd say it's locked down") — changing, moving or deleting them, even for
+// work done while it was open, means reopening the job first. Returns the
+// first closed job among jobIds, or null.
+export function closedJobAmong(jobIds, jobs) {
+  return jobIds.map(id => id && (jobs || []).find(j => j.id === id)).find(j => j?.status === 'closed') || null
+}
+
+export function closedJobLockMessage(job) {
+  return `Job ${job.job_number} is closed, so its hours are locked. Reopen the job (Admin → Jobs) first if they really need to change.`
+}
+
+// Job numbers that would stop a submission linking to an open job. Approving
+// used to save these silently with no job at all, losing the number the tech
+// gave — now the number stays on the submission and approval waits until the
+// office picks the right job (Jim, 2026-10-29: "this job is closed, Niki,
+// what job should it be?"). Supplies with no job number are left alone, as
+// before; a supply naming a closed/unknown job is blocked the same way.
+export function jobNumberBlockers(sub, jobs) {
+  if (!sub || sub.is_day_off || sub.is_stat_grant) return []
+  const blockers = []
+  const seen = new Set()
+  const check = (jobNumber, what, allowBlank) => {
+    const { state, job } = jobNumberState(jobNumber, jobs)
+    const key = `${state}|${(jobNumber || '').trim().toUpperCase()}|${what}`
+    if (state === 'open' || (state === 'blank' && allowBlank) || seen.has(key)) return
+    seen.add(key)
+    const jn = (jobNumber || '').trim()
+    if (state === 'closed') blockers.push(`Job ${jn}${job.description ? ` (${job.description.trim()})` : ''} is CLOSED${what} — what job should it be? Click Edit and change the job number.`)
+    else if (state === 'unknown') blockers.push(`Job ${jn}${what} doesn't exist — probably a typo. Click Edit and change the job number.`)
+    else blockers.push(`A job entry has no job number — click Edit and fill it in.`)
+  }
+  for (const e of sub.entries || []) check(e.job_number, '', false)
+  for (const s of sub.supplies || []) if (s.supply_name?.trim()) check(s.job_number, ` (on the supply "${s.supply_name.trim()}")`, true)
+  return blockers
+}
+
 // Reasons an sms_submissions row must NOT be approved yet — empty array means
 // it's fine. The hours logged to jobs are the record; start/stop are checked
 // against them (never the other way round), so nothing here ever suggests
 // changing job hours to fit the clock. Day-off requests and auto stat-pay
 // grants are exempt: they carry no job hours or shift times by design.
-export function approvalBlockers(sub) {
+// Pass `jobs` (all jobs, closed included) to also check the job numbers.
+export function approvalBlockers(sub, jobs) {
   if (!sub || sub.is_day_off || sub.is_stat_grant) return []
-  const blockers = []
+  const blockers = jobs ? jobNumberBlockers(sub, jobs) : []
   const entries = sub.entries || []
   const totalHours = entries.reduce((s, e) => s + (Number(e.hours) || 0), 0)
 
