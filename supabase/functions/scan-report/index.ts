@@ -50,13 +50,15 @@ function base64ToBytes(b64: string): Uint8Array {
 }
 
 // ── What each read returns (structured output schema) ─────────────────────
-const nullableString = { anyOf: [{ type: 'string' }, { type: 'null' }] }
+// Plain strings, "" for blank: the API caps union-typed (nullable) fields at
+// 16 per schema and the grid alone has far more cells than that.
+const plainString = { type: 'string' }
 const CELL = {
   type: 'object',
   properties: {
-    value: { ...nullableString, description: 'The value exactly as written, or null if blank or not certain.' },
-    unsure_reading: { ...nullableString, description: 'When value is null because you are not certain: your best candidate reading. Otherwise null.' },
-    note: { ...nullableString, description: 'Anything worth flagging about this cell (ink blob, overwrite, neat correction). Otherwise null.' },
+    value: { ...plainString, description: 'The value exactly as written, or "" if blank or not certain.' },
+    unsure_reading: { ...plainString, description: 'When value is "" because you are not certain: your best candidate reading. Otherwise "".' },
+    note: { ...plainString, description: 'Anything worth flagging about this cell (ink blob, overwrite, neat correction). Otherwise "".' },
   },
   required: ['value', 'unsure_reading', 'note'],
   additionalProperties: false,
@@ -100,10 +102,10 @@ ${sections}
 
 Rules — accuracy matters more than completeness. IF YOU DON'T KNOW, DON'T GUESS:
 1. Keep every value exactly as written: same digits, same decimal places, keep trailing zeros (if "2.3450" is written, return "2.3450", not "2.345"). Never round, convert or tidy a value.
-2. If you are not certain of every character of a value, set value to null, put your best candidate in unsure_reading, and say why in note.
-3. If any ink blob, scribble or overwrite touches any digit of a value, set value to null, put the candidate in unsure_reading, and describe it in note — even if you think you can tell what it says.
+2. If you are not certain of every character of a value, set value to "", put your best candidate in unsure_reading, and say why in note.
+3. If any ink blob, scribble or overwrite touches any digit of a value, set value to "", put the candidate in unsure_reading, and describe it in note — even if you think you can tell what it says.
 4. A neat correction (e.g. whiteout with the value rewritten, or rewritten in another ink) may be read normally, but say so in note.
-5. A box with nothing written in it: value, unsure_reading and note all null.
+5. A box with nothing written in it: value, unsure_reading and note all "".
 6. Each row must have exactly ${spec.columns} cells, left to right, matching the column headings. Never shift values between columns to fill a gap.
 7. Only report the fields in the schema. Ignore anything else written on the sheet (e.g. the technician's name).
 8. If the document contains more than one inspection sheet, read only the first one and say so in general_notes.`
@@ -125,8 +127,10 @@ async function readOnce(spec: any, mediaType: string, data: string) {
       model: MODEL,
       max_tokens: 16000,
       fallbacks: 'default',
-      output_config: { effort: EFFORT, format: { type: 'json_schema', schema: buildSchema(spec) } },
-      messages: [{ role: 'user', content: [fileBlock, { type: 'text', text: buildPrompt(spec) }] }],
+      // The schema goes in the prompt, not output_config.format: a full grid of
+      // cell objects compiles to a grammar larger than the API accepts.
+      output_config: { effort: EFFORT },
+      messages: [{ role: 'user', content: [fileBlock, { type: 'text', text: buildPrompt(spec) + '\n\nReply with ONLY a JSON object (no prose, no code fence) matching this JSON schema:\n' + JSON.stringify(buildSchema(spec)) }] }],
     }),
   })
   const body = await res.json().catch(() => null)
@@ -135,7 +139,14 @@ async function readOnce(spec: any, mediaType: string, data: string) {
   if (body.stop_reason === 'max_tokens') throw new Error('Claude ran out of room reading this scan')
   const text = (body.content || []).find((c: any) => c.type === 'text')?.text
   if (!text) throw new Error('Claude returned no reading')
-  return { reading: JSON.parse(text), usage: body.usage || {} }
+  const start = text.indexOf('{'), end = text.lastIndexOf('}')
+  let reading
+  try {
+    reading = JSON.parse(text.slice(start, end + 1))
+  } catch {
+    throw new Error('Claude returned a reading that is not valid JSON')
+  }
+  return { reading, usage: body.usage || {} }
 }
 
 Deno.serve(async (req: Request) => {
