@@ -58,9 +58,10 @@ const CELL = {
   properties: {
     value: { ...plainString, description: 'The value exactly as written, or "" if blank or not certain.' },
     unsure_reading: { ...plainString, description: 'When value is "" because you are not certain: your best candidate reading. Otherwise "".' },
-    note: { ...plainString, description: 'Anything worth flagging about this cell (ink blob, overwrite, neat correction). Otherwise "".' },
+    note: { ...plainString, description: 'Anything worth flagging about this cell (ink blob, overwrite, correction). Otherwise "".' },
+    correction: { type: 'string', enum: ['none', 'neat', 'doubtful'], description: 'Whether the value is a correction (rewritten in another ink, or over whiteout): "neat" if every digit of the correction is clear, "doubtful" if there is any doubt about it, otherwise "none".' },
   },
-  required: ['value', 'unsure_reading', 'note'],
+  required: ['value', 'unsure_reading', 'note', 'correction'],
   additionalProperties: false,
 }
 
@@ -103,9 +104,9 @@ ${sections}
 Rules — accuracy matters more than completeness. IF YOU DON'T KNOW, DON'T GUESS:
 1. Keep every value exactly as written: same digits, same decimal places, keep trailing zeros (if "2.3450" is written, return "2.3450", not "2.345"). Never round, convert or tidy a value.
 2. If you are not certain of every character of a value, set value to "", put your best candidate in unsure_reading, and say why in note.
-3. If any ink blob, scribble or overwrite touches any digit of a value, set value to "", put the candidate in unsure_reading, and describe it in note — even if you think you can tell what it says.
-4. A neat correction (e.g. whiteout with the value rewritten, or rewritten in another ink) may be read normally, but say so in note.
-5. A box with nothing written in it: value, unsure_reading and note all "".
+3. If any ink blob, scribble or overwrite in the same ink touches any digit of a value, set value to "", put the candidate in unsure_reading, and describe it in note — even if you think you can tell what it says.
+4. A correction (the value rewritten in a different ink, e.g. blue over black, or rewritten over whiteout) is the technician's final value. Put the corrected reading in value and leave unsure_reading "". Set correction to "neat" if every digit of the correction is clear, or to "doubtful" if there is any doubt at all about it (ink spill, smudge, an unclear digit, the old digits showing through enough to confuse) and say why in note. Every other cell: correction "none".
+5. A box with nothing written in it: value, unsure_reading and note all "", correction "none".
 6. Each row must have exactly ${spec.columns} cells, left to right, matching the column headings. Never shift values between columns to fill a gap.
 7. Only report the fields in the schema. Ignore anything else written on the sheet (e.g. the technician's name).
 8. If the document contains more than one inspection sheet, read only the first one and say so in general_notes.`
@@ -144,6 +145,7 @@ async function readOnce(spec: any, mediaType: string, data: string) {
   try {
     reading = JSON.parse(text.slice(start, end + 1))
   } catch {
+    console.error('scan-report: unparseable reply', body.stop_reason, text.length, text.slice(0, 300), '…', text.slice(-300))
     throw new Error('Claude returned a reading that is not valid JSON')
   }
   return { reading, usage: body.usage || {} }

@@ -5,17 +5,22 @@
 //
 // Plain JS (no Deno or Node APIs) so scripts/test-xlsx-fill.mjs can unit-test it.
 
-// A cell as one read returns it: { value, unsure_reading, note } (all string|null).
+// A cell as one read returns it: { value, unsure_reading, note } (strings, "" = none)
+// plus correction: 'none' | 'neat' | 'doubtful'.
 const clean = (s) => (typeof s === 'string' && s.trim() !== '' ? s.trim() : null)
 
 function readCell(raw) {
-  if (!raw || typeof raw !== 'object') return { value: null, unsure_reading: null, note: null, missing: true }
-  return { value: clean(raw.value), unsure_reading: clean(raw.unsure_reading), note: clean(raw.note), missing: false }
+  if (!raw || typeof raw !== 'object') return { value: null, unsure_reading: null, note: null, correction: 'none', missing: true }
+  const correction = ['neat', 'doubtful'].includes(raw.correction) ? raw.correction : 'none'
+  return { value: clean(raw.value), unsure_reading: clean(raw.unsure_reading), note: clean(raw.note), correction, missing: false }
 }
 
-// Merged cell: { value, unsure, candidates, note }.
+// Merged cell: { value, unsure, check, corrected, candidates, note }.
 //   value      — the agreed text, or null
 //   unsure     — true when the reads disagreed or either read was unsure
+//   corrected  — the agreed value is a correction on the paper (Jim: read it)
+//   check      — a corrected value either read had any doubt about: filled
+//                but highlighted for the office to check against the paper
 //   candidates — every distinct reading either read offered (only when unsure)
 //   note       — notes from both reads, labelled when they differ
 export function mergeCell(rawA, rawB) {
@@ -35,20 +40,22 @@ export function mergeCell(rawA, rawB) {
   // Agreement: both reads gave a value and it is the same text, character for
   // character (so "1.751" and "1.7510" disagree — decimals are kept as written).
   if (a.value !== null && a.value === b.value && !a.unsure_reading && !b.unsure_reading) {
-    return { value: a.value, unsure: false, candidates: [], note }
+    const corrected = a.correction !== 'none' || b.correction !== 'none'
+    const check = a.correction === 'doubtful' || b.correction === 'doubtful'
+    return { value: a.value, unsure: false, check, corrected, candidates: [], note }
   }
 
   // Both reads saw an empty box and had nothing to say about it.
   const nothing = (c) => c.value === null && c.unsure_reading === null && !c.missing
   if (nothing(a) && nothing(b) && !a.note && !b.note) {
-    return { value: null, unsure: false, candidates: [], note: null }
+    return { value: null, unsure: false, check: false, corrected: false, candidates: [], note: null }
   }
 
   const candidates = []
   for (const s of [a.value, a.unsure_reading, b.value, b.unsure_reading]) {
     if (s !== null && !candidates.includes(s)) candidates.push(s)
   }
-  return { value: null, unsure: true, candidates, note }
+  return { value: null, unsure: true, check: false, corrected: false, candidates, note }
 }
 
 // Merges two whole reads of a sheet, walking the template's read spec (not the

@@ -149,6 +149,7 @@ export default function ScanToReport() {
             {s.unsure.length
               ? <><strong>{s.unsure.length}</strong> left blank (yellow) because the reader wasn't sure{result.notesAdded ? ' — each has a note in Excel with the candidate reading' : ''}.</>
               : 'Nothing was left blank as unsure.'}
+            {s.toCheck.length > 0 && <> <strong>{s.toCheck.length}</strong> filled from a correction on the paper but highlighted yellow to check.</>}
           </p>
 
           {s.unsure.length > 0 && (
@@ -163,6 +164,20 @@ export default function ScanToReport() {
                       <td style={td}>{u.candidates.length ? u.candidates.join(' / ') : '—'}</td>
                       <td style={td}>{u.note || ''}</td>
                     </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
+
+          {s.toCheck.length > 0 && (
+            <>
+              <h4 style={{ marginBottom: '0.3rem' }}>Corrections filled in — please check (yellow)</h4>
+              <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+                <thead><tr><th style={th}>Cell</th><th style={th}>Field</th><th style={th}>Reading</th><th style={th}>Why</th></tr></thead>
+                <tbody>
+                  {s.toCheck.map((c) => (
+                    <tr key={c.ref} style={{ background: '#fffbe0' }}><td style={td}>{c.ref}</td><td style={td}>{c.label}</td><td style={{ ...td, fontWeight: 600 }}>{c.value}</td><td style={td}>{c.note || ''}</td></tr>
                   ))}
                 </tbody>
               </table>

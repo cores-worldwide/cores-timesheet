@@ -40,6 +40,7 @@ function candidatesText(cell) {
 export function planCells(template, reading) {
   const writes = []
   const unsure = []
+  const toCheck = []
   const noted = []
   const outOfSpec = []
   let filled = 0
@@ -49,6 +50,15 @@ export function planCells(template, reading) {
     unsure.push({ ref, label, candidates: cell.candidates || [], note: cell.note || null })
   }
   const addNote = (ref, label, cell) => {
+    // A correction with any doubt: filled, yellow, and listed to check.
+    if (cell.check) {
+      toCheck.push({ ref, label, value: cell.value, note: cell.note || null })
+      return `Correction on the paper — please check this reading against the paper.${cell.note ? ` ${cell.note}` : ''}`
+    }
+    if (cell.corrected && !cell.note) {
+      noted.push({ ref, label, value: cell.value, note: 'Correction on the paper' })
+      return 'Note from the scan reading: correction on the paper.'
+    }
     if (!cell.note) return null
     noted.push({ ref, label, value: cell.value, note: cell.note })
     return `Note from the scan reading: ${cell.note}`
@@ -59,7 +69,7 @@ export function planCells(template, reading) {
     if (!cell) continue
     const prefix = def.prefix || ''
     if (cell.value !== null && cell.value !== undefined) {
-      writes.push({ ref: def.cell, kind: 'text', text: prefix + cell.value, comment: addNote(def.cell, def.label, cell) })
+      writes.push({ ref: def.cell, kind: 'text', text: prefix + cell.value, yellow: !!cell.check, comment: addNote(def.cell, def.label, cell) })
       filled++
     } else if (cell.unsure) {
       // A label sharing the cell (e.g. "Tool- ") stays in place.
@@ -72,7 +82,7 @@ export function planCells(template, reading) {
     const cell = reading.column_headings?.[i]
     const ref = `${col}${headRow}`
     if (cell && cell.value !== null && cell.value !== undefined) {
-      writes.push({ ref, kind: 'text', text: cell.value, comment: addNote(ref, `Column heading ${i + 1}`, cell) })
+      writes.push({ ref, kind: 'text', text: cell.value, yellow: !!cell.check, comment: addNote(ref, `Column heading ${i + 1}`, cell) })
       filled++
       return cell.value
     }
@@ -96,13 +106,13 @@ export function planCells(template, reading) {
         const comment = addNote(ref, label, cell)
         if (NUMBER_RE.test(cell.value)) {
           const decimals = (cell.value.split('.')[1] || '').length
-          writes.push({ ref, kind: 'number', text: cell.value, decimals, comment })
+          writes.push({ ref, kind: 'number', text: cell.value, decimals, yellow: !!cell.check, comment })
           const n = Number(cell.value)
           if (lo !== null && (n < lo || n > hi)) outOfSpec.push({ ref, label, value: cell.value, spec: section.spec })
         } else {
           // Not a plain number (e.g. "1.75l0", "-") — kept as written, as text.
           const why = 'Not a plain number; written as text, exactly as read.'
-          writes.push({ ref, kind: 'text', text: cell.value, comment: comment ? `${comment} ${why}` : why })
+          writes.push({ ref, kind: 'text', text: cell.value, yellow: !!cell.check, comment: comment ? `${comment} ${why}` : why })
           noted.push({ ref, label, value: cell.value, note: why })
         }
         filled++
@@ -110,7 +120,7 @@ export function planCells(template, reading) {
     }
   }
 
-  return { writes, summary: { filled, unsure, noted, outOfSpec, generalNotes: reading.general_notes || [] } }
+  return { writes, summary: { filled, unsure, toCheck, noted, outOfSpec, generalNotes: reading.general_notes || [] } }
 }
 
 // ── Cell references ───────────────────────────────────────────────────────
@@ -328,9 +338,9 @@ export async function fillXlsx(templateBytes, sheetPath, writes) {
 
   for (const w of writes) {
     sheet = putCell(sheet, w.ref, (s) => {
-      if (w.kind === 'number') return `<c r="${w.ref}" s="${styles.derive(s, { decimals: w.decimals })}"><v>${w.text}</v></c>`
+      if (w.kind === 'number') return `<c r="${w.ref}" s="${styles.derive(s, { decimals: w.decimals, yellow: !!w.yellow })}"><v>${w.text}</v></c>`
       if (w.kind === 'unsure') return textCell(w.ref, styles.derive(s, { yellow: true }), w.text)
-      return textCell(w.ref, s, w.text)
+      return textCell(w.ref, w.yellow ? styles.derive(s, { yellow: true }) : s, w.text)
     })
   }
 

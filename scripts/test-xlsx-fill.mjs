@@ -23,7 +23,7 @@ function check(name, ok, detail = '') {
   else { failed++; console.log(`FAIL ${name}${detail ? ` — ${detail}` : ''}`) }
 }
 const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b)
-const cell = (value, unsure_reading = null, note = null) => ({ value, unsure_reading, note })
+const cell = (value, unsure_reading = null, note = null, correction = 'none') => ({ value, unsure_reading, note, correction })
 
 // ── 1. Agreement logic ────────────────────────────────────────────────────
 {
@@ -45,6 +45,12 @@ const cell = (value, unsure_reading = null, note = null) => ({ value, unsure_rea
   check('one read missing the cell -> flagged', m.unsure && /Read 2 left this cell out/.test(m.note))
   m = mergeCell(cell('1.7480', null, 'whiteout, rewritten in blue'), cell('1.7480', null, 'neat correction'))
   check('agree with notes -> value kept, notes kept', m.value === '1.7480' && !m.unsure && /Read 1: whiteout/.test(m.note) && /Read 2: neat/.test(m.note))
+  m = mergeCell(cell('1.7510', null, null, 'neat'), cell('1.7510', null, null, 'neat'))
+  check('neat correction, agreed -> filled, not highlighted', m.value === '1.7510' && m.corrected && !m.check && !m.unsure)
+  m = mergeCell(cell('1.7510', null, 'ink spill', 'doubtful'), cell('1.7510', null, null, 'neat'))
+  check('doubtful correction, agreed -> filled + check', m.value === '1.7510' && m.corrected && m.check && !m.unsure)
+  m = mergeCell(cell('1.7510', null, null, 'doubtful'), cell('1.7516', null, null, 'doubtful'))
+  check('correction, reads disagree -> blank + unsure', m.value === null && m.unsure && !m.check)
   m = mergeCell(cell(null, null, 'smudge'), cell(null))
   check('blank but noted -> flagged', m.value === null && m.unsure)
 
@@ -129,6 +135,7 @@ const reading = {
   general_notes: [],
 }
 reading.grid.exhaust_bushing_id.A1[0] = ok('1.7500', 'Read 1: neat correction')
+reading.grid.exhaust_bushing_id.A1[1] = { ...ok('1.7510', 'Read 1: ink spill'), check: true, corrected: true }
 
 const { writes, summary } = planCells(template, reading)
 const { bytes, notesAdded } = await fillXlsx(templateBytes, template.sheet, writes)
@@ -192,6 +199,8 @@ check('grid: AX21 blank on paper left alone', cellXml('AX21') === (new RegExp('<
 check('grid: exhaust rows 31-38 filled', numOf('O31') === '1.7500' && numOf('AS38') === '1.7476')
 check('grid: AX34 non-number kept as text', textOf('AX34') === '1.75l0')
 check('no yellow on filled cells', !isYellow(styleOf('O19')) && !isYellow(styleOf('AG4')))
+check('doubtful correction T31: number filled, yellow, 0.0000', numOf('T31') === '1.7510' && isYellow(styleOf('T31')) && fmtCode(styleOf('T31')) === '0.0000')
+check('summary lists the correction to check', summary.toCheck.length === 1 && summary.toCheck[0].ref === 'T31')
 check('numFmt 0.0000 added', /formatCode="0\.0000"/.test(styles))
 check('fullCalcOnLoad set', /fullCalcOnLoad="1"/.test(await after.file('xl/workbook.xml').async('string')))
 
