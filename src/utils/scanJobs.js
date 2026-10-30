@@ -7,15 +7,16 @@ import { scanToViews } from './scanViews'
 // elsewhere in the app (Jim, 2026-10-30). Nothing downloads by itself (she
 // wouldn't know where it went): when a report is ready a prompt pops up and
 // "Save as…" opens the save dialog to name it and pick the folder. The top
-// bar shows what's running. Lives only in this browser tab:
-// nothing is stored, so closing or reloading the tab drops running scans
+// bar shows what's running. Lives only in this browser tab (finished
+// reports are stored only when she files them), so closing or reloading the tab drops running scans
 // (the browser asks first).
 
 const FUNCTION_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scan-report`
 const ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
 
 // job: { id, fileName, templateLabel, status: 'reading'|'done'|'failed',
-//        startedAt, finishedAt, error, prompted, savedAs, file (the scan, to reopen),
+//        startedAt, finishedAt, error, prompted, savedAs, filedOn, templateId,
+//        file (the scan, to reopen and file),
 //        result: { bytes, name, usedToday, summary, notesAdded } }
 let jobs = []
 const listeners = new Set()
@@ -49,6 +50,10 @@ export function openScan(id) {
 export function toFillCount(job) {
   const s = job?.result?.summary
   return s ? s.unsure.length + s.toCheck.length : 0
+}
+
+export function markFiled(id, jobNumber) {
+  update(id, { filedOn: jobNumber })
 }
 
 export function dismissPrompt(id) {
@@ -112,7 +117,7 @@ export function startScan(file, templateId) {
   const template = findTemplate(templateId)
   if (!template) throw new Error('Unknown report template')
   const id = nextId++
-  jobs = [{ id, fileName: file.name, file, templateLabel: template.label, status: 'reading', startedAt: Date.now() }, ...jobs]
+  jobs = [{ id, fileName: file.name, file, templateId: template.id, templateLabel: template.label, status: 'reading', startedAt: Date.now() }, ...jobs]
   listeners.forEach((l) => l())
 
   ;(async () => {
