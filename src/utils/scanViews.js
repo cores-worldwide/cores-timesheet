@@ -16,7 +16,15 @@ async function renderPdf(file) {
   const pdfjs = await import('pdfjs-dist')
   const { default: workerUrl } = await import('pdfjs-dist/build/pdf.worker.min.mjs?url')
   pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
-  const pdf = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise
+  // Scanner PDFs hold the page as JPEG 2000 / JBIG2 images; pdf.js needs its
+  // wasm decoders for those or the page renders blank (copied into
+  // public/pdfjs/ by scripts/copy-pdfjs-assets.mjs).
+  const assets = `${import.meta.env.BASE_URL}pdfjs/`
+  const pdf = await pdfjs.getDocument({
+    data: new Uint8Array(await file.arrayBuffer()),
+    wasmUrl: `${assets}wasm/`,
+    standardFontDataUrl: `${assets}standard_fonts/`,
+  }).promise
   if (pdf.numPages > 1) throw new Error(`That PDF has ${pdf.numPages} pages. Scan one sheet at a time.`)
   const page = await pdf.getPage(1)
   const base = page.getViewport({ scale: 1 }) // includes the page's own rotation
@@ -120,8 +128,24 @@ export function buildViews(page, zoom) {
   return { page: toJpeg(page), views_a: viewsA, views_b: viewsB }
 }
 
+// True when the rendered page is (almost) all white: the scan didn't render,
+// and sending it would come back as a report of blanks.
+export function looksBlank(page) {
+  const w = 200, h = Math.max(1, Math.round(200 * page.height / page.width))
+  const small = document.createElement('canvas')
+  small.width = w
+  small.height = h
+  const ctx = small.getContext('2d')
+  ctx.drawImage(page, 0, 0, w, h)
+  const px = ctx.getImageData(0, 0, w, h).data
+  let dark = 0
+  for (let i = 0; i < px.length; i += 4) if (px[i] + px[i + 1] + px[i + 2] < 600) dark++
+  return dark < (w * h) / 500
+}
+
 export async function scanToViews(file, zoom) {
   const page = file.type === 'application/pdf' ? await renderPdf(file) : await renderImage(file)
+  if (looksBlank(page)) throw new Error('The scan came out blank when opened, so it was not sent for reading. Try scanning it again, or tell Jim.')
   // The geometry is for an upright landscape sheet.
   if (page.height > page.width) throw new Error('The scan is in portrait. Please rotate it to landscape (the way the sheet is printed) and try again.')
   return buildViews(page, zoom)

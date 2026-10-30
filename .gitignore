@@ -1,5 +1,6 @@
 node_modules/
 dist/
+public/pdfjs/
 .env.local
 .env*.local
 .DS_Store

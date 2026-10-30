@@ -4,7 +4,9 @@
   "description": "Cores Worldwide Daily Timesheet System",
   "type": "module",
   "scripts": {
+    "predev": "node scripts/copy-pdfjs-assets.mjs",
     "dev": "vite",
+    "prebuild": "node scripts/copy-pdfjs-assets.mjs",
     "build": "vite build",
     "preview": "vite preview",
     "clock-in": "node scripts/timelog.mjs in",
