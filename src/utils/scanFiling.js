@@ -1,7 +1,9 @@
 import JSZip from 'jszip'
 import { supabase } from '../supabaseClient'
 import { getAdminName } from '../components/PasswordGate'
-import { splitRef } from './xlsxFill'
+import { splitRef, matchJob } from './xlsxFill'
+
+export { matchJob }
 
 // Filing finished reports (Jim, 2026-10-30): after Niki fills in the blanks in
 // Excel she drops the finished .xlsx back in, confirms the job, and it's
@@ -31,20 +33,6 @@ export async function readCellText(bytes, sheetPath, ref) {
     return unescape(texts(items[Number(v)] || '')).trim()
   }
   return unescape(v).trim()
-}
-
-// Finds the job the sheet's Job No. points to: an exact match on the job
-// number, or on the digits in it ("#4685 C-Block" → 4685). Never guesses
-// between several; she confirms or picks in the form either way.
-export function matchJob(jobs, written) {
-  const text = (written || '').trim().toLowerCase()
-  if (!text) return null
-  const exact = jobs.filter((j) => j.job_number.toLowerCase() === text)
-  if (exact.length === 1) return exact[0]
-  const digits = (text.match(/\d{3,}/) || [])[0]
-  if (!digits) return null
-  const byDigits = jobs.filter((j) => (j.job_number.match(/\d{3,}/) || [])[0] === digits)
-  return byDigits.length === 1 ? byDigits[0] : null
 }
 
 const safeName = (name) => name.replace(/[^A-Za-z0-9._-]+/g, '_').slice(-80)

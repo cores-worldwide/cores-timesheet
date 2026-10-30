@@ -47,7 +47,24 @@ function implausibleDate(text, today) {
   return year < today.getFullYear() - 2 || year > today.getFullYear()
 }
 
-export function planCells(template, reading, today = new Date()) {
+// Finds the job the sheet's Job No. points to: an exact match on the job
+// number, or on the digits in it ("#4685 C-Block" → 4685). Never guesses
+// between several; she confirms or picks in the form either way.
+export function matchJob(jobs, written) {
+  const text = (written || '').trim().toLowerCase()
+  if (!text) return null
+  const exact = jobs.filter((j) => j.job_number.toLowerCase() === text)
+  if (exact.length === 1) return exact[0]
+  const digits = (text.match(/\d{3,}/) || [])[0]
+  if (!digits) return null
+  const byDigits = jobs.filter((j) => (j.job_number.match(/\d{3,}/) || [])[0] === digits)
+  return byDigits.length === 1 ? byDigits[0] : null
+}
+
+// jobs: the app's jobs ({ job_number }), to check the Job No. against. Two
+// reads were seen agreeing on a job number that doesn't exist (4655 for 4685,
+// 2026-10-30), so a job number that matches no job is left blank and yellow.
+export function planCells(template, reading, today = new Date(), jobs = null) {
   const writes = []
   const unsure = []
   const toCheck = []
@@ -80,6 +97,10 @@ export function planCells(template, reading, today = new Date()) {
     const prefix = def.prefix || ''
     if (def.kind === 'date' && cell.value && implausibleDate(cell.value, today)) {
       flagUnsure(def.cell, def.label, { ...cell, candidates: [cell.value], note: [cell.note, 'The year looks wrong for a recent inspection.'].filter(Boolean).join(' ') }, prefix || null)
+      continue
+    }
+    if (def.kind === 'job' && jobs && cell.value && !matchJob(jobs, cell.value)) {
+      flagUnsure(def.cell, def.label, { ...cell, candidates: [cell.value], note: [cell.note, 'No job with this number in the app. Check the job number on the paper.'].filter(Boolean).join(' ') }, prefix || null)
       continue
     }
     if (cell.value !== null && cell.value !== undefined) {

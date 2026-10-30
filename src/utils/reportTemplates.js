@@ -24,7 +24,7 @@ export const REPORT_TEMPLATES = [
     // Only fields that exist on the template (Jim's rule: never add fields).
     header: {
       customer: { cell: 'G4', label: 'Customer' },
-      job_no: { cell: 'AG4', label: 'Job No.' },
+      job_no: { cell: 'AG4', label: 'Job No.', kind: 'job' }, // checked against the app's jobs
       date: { cell: 'AW4', label: 'Date', kind: 'date' }, // cell has a mmm-yy format; written as text, as on the sheet
       tool: { cell: 'H5', label: 'Tool', prefix: 'Tool- ' }, // label and value share this merged cell
       serial_number: { cell: 'AM5', label: 'Serial Number' },

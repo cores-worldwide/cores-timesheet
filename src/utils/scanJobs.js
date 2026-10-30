@@ -2,6 +2,7 @@ import { useSyncExternalStore } from 'react'
 import { findTemplate, reportFilename } from './reportTemplates'
 import { planCells, fillXlsx } from './xlsxFill'
 import { scanToViews } from './scanViews'
+import { supabase } from '../supabaseClient'
 
 // Scans run here, outside any page, so the office can start one and carry on
 // elsewhere in the app (Jim, 2026-10-30). When a report is ready it opens
@@ -118,7 +119,9 @@ export function startScan(file, templateId) {
 
       const tplRes = await fetch(`${import.meta.env.BASE_URL}${template.file}`)
       if (!tplRes.ok) throw new Error('Could not load the report template')
-      const { writes, summary } = planCells(template, reading)
+      // If the jobs can't be loaded, the job number is left for her to check.
+      const { data: jobList } = await supabase.schema('Cores').from('jobs').select('job_number')
+      const { writes, summary } = planCells(template, reading, new Date(), jobList || [])
       const { bytes, notesAdded } = await fillXlsx(await tplRes.arrayBuffer(), template.sheet, writes)
       const { name, usedToday } = reportFilename(template, reading.header)
       update(id, { status: 'done', finishedAt: Date.now(), result: { bytes, name, usedToday, summary, notesAdded } })

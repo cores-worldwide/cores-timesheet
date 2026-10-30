@@ -14,7 +14,7 @@ import JSZip from 'jszip'
 import { mergeCell, mergeReads } from '../supabase/functions/scan-report/agreement.js'
 import { READ_TEMPLATES } from '../supabase/functions/scan-report/templates.js'
 import { REPORT_TEMPLATES, findTemplate, parseWrittenDate, reportFilename } from '../src/utils/reportTemplates.js'
-import { planCells, fillXlsx, splitRef, UNSURE_FILL } from '../src/utils/xlsxFill.js'
+import { matchJob, planCells, fillXlsx, splitRef, UNSURE_FILL } from '../src/utils/xlsxFill.js'
 
 let passed = 0
 let failed = 0
@@ -207,6 +207,19 @@ check('summary lists the correction to check', summary.toCheck.length === 1 && s
   check('date with an impossible year -> blank + unsure', s2.unsure.some((u) => u.ref === 'AW4' && u.candidates[0] === 'Oct 19/86') && w2.find((w) => w.ref === 'AW4').kind === 'unsure')
   const { summary: s3 } = planCells(template, { ...reading, header: { ...reading.header, date: ok('Oct 19/26') } }, new Date(2026, 9, 30))
   check('recent date is filled', !s3.unsure.some((u) => u.ref === 'AW4'))
+}
+{
+  const jobs = [{ job_number: '4685' }, { job_number: '1234' }]
+  const with4655 = { ...reading, header: { ...reading.header, job_no: ok('#4655 C-Block') } }
+  const { writes: w4, summary: s4 } = planCells(template, with4655, new Date(2027, 0, 10), jobs)
+  check('job number matching no job -> blank + unsure', s4.unsure.some((u) => u.ref === 'AG4' && u.candidates[0] === '#4655 C-Block') && w4.find((w) => w.ref === 'AG4').kind === 'unsure')
+  const { summary: s5 } = planCells(template, reading, new Date(2027, 0, 10), jobs)
+  check('job number matching a job (by digits) is filled', !s5.unsure.some((u) => u.ref === 'AG4'))
+  const { summary: s6 } = planCells(template, reading, new Date(2027, 0, 10), [])
+  check('jobs list unavailable -> job number left to check', s6.unsure.some((u) => u.ref === 'AG4'))
+  check('matchJob: exact, digits, none, ambiguous',
+    matchJob(jobs, '4685')?.job_number === '4685' && matchJob(jobs, '#4685 C-Block')?.job_number === '4685'
+    && matchJob(jobs, '4655') === null && matchJob([{ job_number: '4685A' }, { job_number: '4685B' }], '4685') === null)
 }
 check('numFmt 0.0000 added', /formatCode="0\.0000"/.test(styles))
 check('fullCalcOnLoad set', /fullCalcOnLoad="1"/.test(await after.file('xl/workbook.xml').async('string')))

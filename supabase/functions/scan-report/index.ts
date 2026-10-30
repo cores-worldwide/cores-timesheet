@@ -81,40 +81,76 @@ const CELL = {
   additionalProperties: false,
 }
 
+// A flat shape (lists of rows, not one named property per row and field):
+// small enough for the API to enforce as structured output, so the reply is
+// always valid JSON. The named-property version compiled to a grammar the API
+// rejected as too large, and as a prompt-only schema Claude sometimes closed
+// a bracket too many (Jim's test, 2026-10-30). toNested() turns it back into
+// the per-row shape mergeReads expects.
 function buildSchema(spec: any) {
-  const header: any = { type: 'object', properties: {}, required: [], additionalProperties: false }
-  for (const [key, help] of Object.entries(spec.header)) {
-    header.properties[key] = { ...CELL, description: help }
-    header.required.push(key)
-  }
-  const grid: any = { type: 'object', properties: {}, required: [], additionalProperties: false }
-  for (const section of spec.sections) {
-    const rows: any = { type: 'object', properties: {}, required: [], additionalProperties: false, description: section.label }
-    for (const row of section.rows) {
-      rows.properties[row] = { type: 'array', items: CELL, description: `${section.label} row ${row}: exactly ${spec.columns} cells, left to right.` }
-      rows.required.push(row)
-    }
-    grid.properties[section.key] = rows
-    grid.required.push(section.key)
-  }
+  const field = (extra: any) => ({ ...CELL, properties: { ...extra, ...CELL.properties }, required: [...Object.keys(extra), ...CELL.required] })
+  const rowNames = [...new Set(spec.sections.flatMap((s: any) => s.rows))]
   return {
     type: 'object',
     properties: {
-      header,
+      header: {
+        type: 'array',
+        description: 'One entry per header field, each field exactly once: ' + Object.entries(spec.header).map(([k, help]) => `${k} (${help})`).join('; '),
+        items: field({ field: { type: 'string', enum: Object.keys(spec.header) } }),
+      },
       column_headings: { type: 'array', items: CELL, description: spec.columnHeadingsHelp },
-      grid,
+      rows: {
+        type: 'array',
+        description: `One entry per grid row: every section and row listed in the instructions exactly once, each with exactly ${spec.columns} cells, left to right.`,
+        items: {
+          type: 'object',
+          properties: {
+            section: { type: 'string', enum: spec.sections.map((s: any) => s.key) },
+            row: { type: 'string', enum: rowNames },
+            cells: { type: 'array', items: CELL },
+          },
+          required: ['section', 'row', 'cells'],
+          additionalProperties: false,
+        },
+      },
       general_notes: { type: 'array', items: { type: 'string' }, description: 'Anything about the sheet as a whole worth telling the office. Empty if nothing.' },
     },
-    required: ['header', 'column_headings', 'grid', 'general_notes'],
+    required: ['header', 'column_headings', 'rows', 'general_notes'],
     additionalProperties: false,
   }
 }
 
-function buildPrompt(spec: any): string {
-  const sections = spec.sections.map((s: any) => `- ${s.label} (grid key "${s.key}"): rows ${s.rows.join(', ')}`).join('\n')
-  return `This is a scan of a handwritten "${spec.title}" sheet filled in by a technician. Read it and report the values using the JSON schema below.
+// Flat reply → { header: {key: cell}, column_headings, grid: {section: {row: cells}}, general_notes }.
+// A field or row given twice is dropped (left out = blank and flagged), never guessed between.
+function toNested(flat: any, spec: any) {
+  const header: any = {}
+  const seen = new Set<string>()
+  for (const h of flat.header || []) {
+    if (seen.has(h.field)) { delete header[h.field]; continue }
+    seen.add(h.field)
+    const { field: key, ...cell } = h
+    header[key] = cell
+  }
+  const grid: any = {}
+  const seenRows = new Set<string>(), dupRows = new Set<string>()
+  for (const r of flat.rows || []) {
+    const id = `${r.section}/${r.row}`
+    if (seenRows.has(id)) dupRows.add(id)
+    seenRows.add(id)
+    ;(grid[r.section] ||= {})[r.row] = r.cells
+  }
+  for (const id of dupRows) {
+    const [section, row] = id.split('/')
+    delete grid[section][row]
+  }
+  return { header, column_headings: flat.column_headings || [], grid, general_notes: flat.general_notes || [] }
+}
 
-The measurement grid has ${spec.columns} columns. Sections and rows:
+function buildPrompt(spec: any): string {
+  const sections = spec.sections.map((s: any) => `- ${s.label} (section "${s.key}"): rows ${s.rows.join(', ')}`).join('\n')
+  return `This is a scan of a handwritten "${spec.title}" sheet filled in by a technician. Read it and report the values in the required JSON format.
+
+The measurement grid has ${spec.columns} columns. Sections (section key) and rows:
 ${sections}
 
 Images: the first image is the whole page. After it come zoomed-in crops of parts of the sheet, each introduced by a label saying what it is meant to show. In the crops the row labels (A1, B1, ...) run down the left and the column headings are pasted across the top. Read every digit from the zoomed crops, and use the whole page to confirm where each crop sits. Crop positions are approximate: if a crop is cut off, shows different rows or columns from its label, or disagrees with the whole page, trust the whole page for position and treat any value you can't read clearly as not certain.
@@ -174,10 +210,8 @@ async function readOnce(spec: any, page: any, views: any[]) {
       model: MODEL,
       max_tokens: 16000,
       fallbacks: 'default',
-      // The schema goes in the prompt, not output_config.format: a full grid of
-      // cell objects compiles to a grammar larger than the API accepts.
-      output_config: { effort: EFFORT },
-      messages: [{ role: 'user', content: [...content, { type: 'text', text: buildPrompt(spec) + '\n\nReply with ONLY a JSON object (no prose, no code fence) matching this JSON schema. Inside JSON strings, escape every double-quote character as \\" (for example an inch mark).\n' + JSON.stringify(buildSchema(spec)) }] }],
+      output_config: { effort: EFFORT, format: { type: 'json_schema', schema: buildSchema(spec) } },
+      messages: [{ role: 'user', content: [...content, { type: 'text', text: buildPrompt(spec) }] }],
     }),
   })
   const body = await res.json().catch(() => null)
@@ -199,7 +233,7 @@ async function readOnce(spec: any, page: any, views: any[]) {
     console.error('scan-report: unparseable reply', body.stop_reason, text.length, text.slice(0, 300), '…', text.slice(-300))
     throw new BadReply(`Claude returned a reading that is not valid JSON (${(e as Error).message}; near: ${JSON.stringify(near)})`)
   }
-  return { reading, usage: body.usage || {} }
+  return { reading: toNested(reading, spec), usage: body.usage || {} }
 }
 
 Deno.serve(async (req: Request) => {
