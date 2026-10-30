@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import { useLocation } from 'react-router-dom'
 import { marked } from 'marked'
 import { supabase } from '../supabaseClient'
 import { fmtHours } from '../utils/format'
@@ -92,7 +93,12 @@ function Field({ label, children }) {
 }
 
 export default function AdminPanel() {
-  const [section, setSection] = useState('customers')
+  // The top bar's scan indicator links here with { section: 'scan' }.
+  const location = useLocation()
+  const [section, setSection] = useState(location.state?.section || 'customers')
+  useEffect(() => {
+    if (location.state?.section) setSection(location.state.section)
+  }, [location.state])
   const [customers, setCustomers] = useState([])
   const [vessels, setVessels] = useState([])
   const [jobs, setJobs] = useState([])
