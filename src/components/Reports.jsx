@@ -9,6 +9,7 @@ import { DownloadButton } from './MediaViewer'
 import PhotoLightbox from './PhotoLightbox'
 import { getAdminName } from './PasswordGate'
 import { fetchAll } from '../utils/fetchAll'
+import JobFiles from './JobFiles'
 
 const card = { padding: '1.25rem', background: '#fff', borderRadius: '6px', border: '1px solid #e0e0e0', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }
 const badge = (s) => ({ padding: '0.2rem 0.6rem', borderRadius: '12px', fontSize: '0.8rem', fontWeight: 600, background: s === 'open' ? '#e6f4ea' : '#f0f0f0', color: s === 'open' ? '#2d6a38' : '#666' })
@@ -835,6 +836,8 @@ export default function Reports() {
           </tbody>
         </table>
 
+        <JobFiles job={job} />
+
         <h4 style={{ color: '#555', marginBottom: '0.75rem' }}>Supplies Used</h4>
         {jobSupplies.length > 0 ? (
           <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '2rem' }}>
@@ -864,6 +867,7 @@ export default function Reports() {
         ) : (
           <div style={{ color: '#999', fontSize: '0.9rem', marginBottom: '2rem' }}>No supplies recorded</div>
         )}
+
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginBottom: '2rem' }}>
           {[

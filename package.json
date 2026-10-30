@@ -4,13 +4,16 @@
   "description": "Cores Worldwide Daily Timesheet System",
   "type": "module",
   "scripts": {
+    "predev": "node scripts/copy-pdfjs-assets.mjs",
     "dev": "vite",
+    "prebuild": "node scripts/copy-pdfjs-assets.mjs",
     "build": "vite build",
     "preview": "vite preview",
     "clock-in": "node scripts/timelog.mjs in",
     "clock-out": "node scripts/timelog.mjs out",
     "test:sms": "node scripts/test-sms.mjs",
-    "test:cores-schema": "node scripts/test-cores-schema.mjs"
+    "test:cores-schema": "node scripts/test-cores-schema.mjs",
+    "test:scan-report": "node scripts/test-xlsx-fill.mjs"
   },
   "keywords": [
     "timesheet",
@@ -22,7 +25,9 @@
     "@supabase/supabase-js": "^2.107.0",
     "axios": "^1.16.1",
     "jspdf": "^4.2.1",
+    "jszip": "^3.10.1",
     "marked": "^18.0.6",
+    "pdfjs-dist": "^6.4.299",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-router-dom": "^7.18.1"
