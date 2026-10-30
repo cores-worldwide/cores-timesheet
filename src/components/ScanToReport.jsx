@@ -87,7 +87,7 @@ export default function ScanToReport() {
   const s = result?.summary
 
   return (
-    <div style={{ maxWidth: '900px', margin: '0 auto', padding: '1.5rem 1rem' }}>
+    <div style={{ maxWidth: '900px' }}>
       <h2 style={{ marginTop: 0 }}>Scan to Report</h2>
       <p style={{ color: '#555', marginTop: 0 }}>
         Drop in a scanned inspection sheet and get the filled-in Excel report. Anything the reader isn't sure of is left blank and highlighted yellow for you to fill in.

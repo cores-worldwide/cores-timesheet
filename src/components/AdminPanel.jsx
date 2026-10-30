@@ -7,6 +7,7 @@ import AuditLog from './AuditLog'
 import StatHolidays from './StatHolidays'
 import MediaThumb from './MediaThumb'
 import VesselEngines from './VesselEngines'
+import ScanToReport from './ScanToReport'
 import { callEmployeeAuth } from '../employee/authApi'
 
 const gearPhotoUrl = (path) => supabase.storage.from('gear-photos').getPublicUrl(path).data.publicUrl
@@ -559,7 +560,7 @@ export default function AdminPanel() {
       )}
 
       <div style={{ display: 'flex', borderBottom: '1px solid #ddd', marginBottom: '2rem' }}>
-        {[['customers', 'Customers'], ['vessels', 'Vessels'], ['engines', 'Engines'], ['jobs', 'Jobs'], ['employees', 'Employees'], ['stats', 'Stat Holidays'], ['audit', 'Audit Log']].map(([key, label]) => (
+        {[['customers', 'Customers'], ['vessels', 'Vessels'], ['engines', 'Engines'], ['jobs', 'Jobs'], ['employees', 'Employees'], ['stats', 'Stat Holidays'], ['scan', 'Scan to Report'], ['audit', 'Audit Log']].map(([key, label]) => (
           <button key={key} style={tabStyle(key)} onClick={() => setSection(key)}>{label}</button>
         ))}
       </div>
@@ -569,6 +570,9 @@ export default function AdminPanel() {
 
       {/* ── Stat Holidays ── */}
       {section === 'stats' && <StatHolidays />}
+
+      {/* ── Scan to Report ── */}
+      {section === 'scan' && <ScanToReport />}
 
       {/* ── Jobs ── */}
       {section === 'jobs' && (
