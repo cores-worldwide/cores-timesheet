@@ -25,6 +25,7 @@ const ACCEPT = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp']
 const card = { padding: '1rem 1.25rem', background: '#fff', borderRadius: '6px', border: '1px solid #e0e0e0', boxShadow: '0 1px 3px rgba(0,0,0,0.06)', marginBottom: '1rem' }
 const button = (enabled) => ({ padding: '0.55rem 1.2rem', border: 'none', borderRadius: '4px', fontSize: '0.95rem', fontWeight: 600, cursor: enabled ? 'pointer' : 'default', background: enabled ? '#0066cc' : '#b8c7d9', color: '#fff' })
 const linkButton = { padding: '0.35rem 0.8rem', border: '1px solid #ccc', borderRadius: '4px', background: '#fff', cursor: 'pointer', fontSize: '0.85rem' }
+const removeChip = { ...linkButton, borderLeft: 'none', borderRadius: '0 4px 4px 0', color: '#c0392b', padding: '0.35rem 0.6rem' }
 
 const elapsed = (from, to) => {
   const secs = Math.max(0, Math.round(((to || Date.now()) - from) / 1000))
@@ -60,6 +61,13 @@ function FileReport({ scanFile, defaultTemplateId, jobs, onFiled, onCancel }) {
     }
   }
 
+  const clearReport = () => {
+    setReportFile(null)
+    setWritten('')
+    setJob(null)
+    setError('')
+  }
+
   const file = async () => {
     setError('')
     setBusy(true)
@@ -76,9 +84,15 @@ function FileReport({ scanFile, defaultTemplateId, jobs, onFiled, onCancel }) {
   return (
     <div style={{ marginTop: '0.75rem', padding: '0.75rem', background: '#f7f9fc', borderRadius: '6px', border: '1px solid #dde5f0' }}>
       <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
-        <button onClick={() => reportRef.current?.click()} style={linkButton}>{reportFile ? `Report: ${reportFile.name}` : 'Choose the finished Excel report…'}</button>
+        <span style={{ display: 'inline-flex' }}>
+          <button onClick={() => reportRef.current?.click()} title={reportFile ? 'Choose a different report' : undefined} style={reportFile ? { ...linkButton, borderRadius: '4px 0 0 4px' } : linkButton}>{reportFile ? `Report: ${reportFile.name}` : 'Choose the finished Excel report…'}</button>
+          {reportFile && <button onClick={clearReport} title="Remove this report" aria-label="Remove this report" style={removeChip}>✕</button>}
+        </span>
         <input ref={reportRef} type="file" accept=".xlsx" style={{ display: 'none' }} onChange={(e) => { pickReport(e.target.files?.[0]); e.target.value = '' }} />
-        <button onClick={() => scanRef.current?.click()} style={linkButton}>{scan ? `Scan: ${scan.name}` : 'Choose the original scan…'}</button>
+        <span style={{ display: 'inline-flex' }}>
+          <button onClick={() => scanRef.current?.click()} title={scan ? 'Choose a different scan' : undefined} style={scan ? { ...linkButton, borderRadius: '4px 0 0 4px' } : linkButton}>{scan ? `Scan: ${scan.name}` : 'Choose the original scan…'}</button>
+          {scan && <button onClick={() => setScan(null)} title="Remove this scan" aria-label="Remove this scan" style={removeChip}>✕</button>}
+        </span>
         <input ref={scanRef} type="file" accept={ACCEPT.join(',')} style={{ display: 'none' }} onChange={(e) => { const f = e.target.files?.[0]; if (f) setScan(f); e.target.value = '' }} />
       </div>
       {reportFile && (
