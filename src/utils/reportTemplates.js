@@ -67,7 +67,7 @@ export function parseWrittenDate(text) {
 const fileSafe = (s) => String(s || '').trim().replace(/[^A-Za-z0-9-]+/g, '-').replace(/^-+|-+$/g, '')
 
 // Suggested download name: <job>_<block>_<template-slug>_<YYYYMMDD>.xlsx,
-// e.g. 4685_C-Block_valve-train_20261019.xlsx. The job number is the first
+// e.g. 1234_C-Block_valve-train_20270105.xlsx. The job number is the first
 // run of digits in Job No.; the block is whatever else is written there.
 // Falls back to "job" and today's date when the sheet doesn't give them.
 export function reportFilename(template, header, today = new Date()) {

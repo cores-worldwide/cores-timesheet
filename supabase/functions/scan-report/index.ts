@@ -99,7 +99,7 @@ The measurement grid has ${spec.columns} columns. Sections and rows:
 ${sections}
 
 Rules — accuracy matters more than completeness. IF YOU DON'T KNOW, DON'T GUESS:
-1. Keep every value exactly as written: same digits, same decimal places, keep trailing zeros (write "1.7510", not "1.751"). Never round, convert or tidy a value.
+1. Keep every value exactly as written: same digits, same decimal places, keep trailing zeros (if "2.3450" is written, return "2.3450", not "2.345"). Never round, convert or tidy a value.
 2. If you are not certain of every character of a value, set value to null, put your best candidate in unsure_reading, and say why in note.
 3. If any ink blob, scribble or overwrite touches any digit of a value, set value to null, put the candidate in unsure_reading, and describe it in note — even if you think you can tell what it says.
 4. A neat correction (e.g. whiteout with the value rewritten, or rewritten in another ink) may be read normally, but say so in note.

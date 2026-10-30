@@ -4,6 +4,10 @@
 // scripts/test-xlsx-fill.mjs checks that they do.
 //
 // Plain JS (no Deno or Node APIs) so the Node test scripts can import it too.
+//
+// No sample values in the field descriptions: an example in the prompt can
+// pull both reads toward the same wrong answer, which the two-read check
+// would then accept.
 
 const ROCKER_ROWS_A = ['A1', 'A2', 'A3', 'A4']
 const ROCKER_ROWS_B = ['B1', 'B2', 'B3', 'B4']
@@ -15,9 +19,9 @@ export const READ_TEMPLATES = {
     // the paper (e.g. the technician's name) is ignored (Jim's rule).
     header: {
       customer: 'The value written in the "Customer:" field. null if blank.',
-      job_no: 'The value written in the "Job No.:" field, exactly as written including any block/bank text (e.g. "4685 C-Block").',
-      date: 'The value written in the "Date:" field, exactly as written (e.g. "Oct 19/26"). Do not reformat it.',
-      tool: 'The text written after the printed "Tool-" label (e.g. 1-2" outside). Do not include the "Tool-" label itself.',
+      job_no: 'The value written in the "Job No.:" field, exactly as written, including any block or bank text written with it.',
+      date: 'The value written in the "Date:" field, exactly as written. Do not reformat it.',
+      tool: 'The text written after the printed "Tool-" label, exactly as written. Do not include the "Tool-" label itself.',
       serial_number: 'The value written in the "Serial Number:" field, exactly as written. Do not put a block or bank letter here unless it is written in this field.',
     },
     columns: 8,
