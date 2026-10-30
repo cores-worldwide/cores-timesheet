@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { REPORT_TEMPLATES } from '../utils/reportTemplates'
-import { useScanJobs, startScan, dismissJob, saveReport } from '../utils/scanJobs'
+import { useScanJobs, startScan, dismissJob, saveReport, openScan, toFillCount } from '../utils/scanJobs'
 
 // Scan to Report (Admin tab; Niki, 2026-10-29): drop in a scanned handwritten
 // inspection sheet, pick the report template, and get the filled .xlsx back
@@ -8,8 +8,7 @@ import { useScanJobs, startScan, dismissJob, saveReport } from '../utils/scanJob
 //
 // The scan is read twice by the scan-report edge function and only values
 // both reads agree on are filled (Jim's rule: if you don't know, don't guess).
-// Unsure cells come back empty and yellow, with an Excel note and a line in
-// the summary below. Nothing is kept: no history, no lookups of old reports.
+// Unsure cells come back empty and yellow, with an Excel note. Nothing is kept: no history, no lookups of old reports.
 //
 // Scans run in the background (src/utils/scanJobs.js): start one, go
 // elsewhere in the app, and a prompt pops up to save the report when it's
@@ -21,97 +20,13 @@ const ACCEPT = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp']
 const card = { padding: '1rem 1.25rem', background: '#fff', borderRadius: '6px', border: '1px solid #e0e0e0', boxShadow: '0 1px 3px rgba(0,0,0,0.06)', marginBottom: '1rem' }
 const button = (enabled) => ({ padding: '0.55rem 1.2rem', border: 'none', borderRadius: '4px', fontSize: '0.95rem', fontWeight: 600, cursor: enabled ? 'pointer' : 'default', background: enabled ? '#0066cc' : '#b8c7d9', color: '#fff' })
 const linkButton = { padding: '0.35rem 0.8rem', border: '1px solid #ccc', borderRadius: '4px', background: '#fff', cursor: 'pointer', fontSize: '0.85rem' }
-const th = { textAlign: 'left', padding: '0.3rem 0.6rem', borderBottom: '1px solid #ddd', fontSize: '0.85rem', color: '#555' }
-const td = { padding: '0.3rem 0.6rem', borderBottom: '1px solid #f0f0f0', fontSize: '0.9rem', verticalAlign: 'top' }
 
 const elapsed = (from, to) => {
   const secs = Math.max(0, Math.round(((to || Date.now()) - from) / 1000))
   return `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`
 }
 
-function ReportSummary({ result }) {
-  const s = result.summary
-  return (
-    <>
-      <p style={{ marginBottom: 0 }}>
-        <strong>{s.filled}</strong> cell{s.filled === 1 ? '' : 's'} filled.{' '}
-        {s.unsure.length
-          ? <><strong>{s.unsure.length}</strong> left blank (yellow) because the reader wasn't sure{result.notesAdded ? ' — each has a note in Excel with the candidate reading' : ''}.</>
-          : 'Nothing was left blank as unsure.'}
-        {s.toCheck.length > 0 && <> <strong>{s.toCheck.length}</strong> filled from a correction on the paper but highlighted yellow to check.</>}
-      </p>
-
-      {s.unsure.length > 0 && (
-        <>
-          <h4 style={{ marginBottom: '0.3rem' }}>Left blank — please check the paper</h4>
-          <table style={{ borderCollapse: 'collapse', width: '100%' }}>
-            <thead><tr><th style={th}>Cell</th><th style={th}>Field</th><th style={th}>Candidate reading</th><th style={th}>Why</th></tr></thead>
-            <tbody>
-              {s.unsure.map((u) => (
-                <tr key={u.ref} style={{ background: '#fffbe0' }}>
-                  <td style={td}>{u.ref}</td><td style={td}>{u.label}</td>
-                  <td style={td}>{u.candidates.length ? u.candidates.join(' / ') : '—'}</td>
-                  <td style={td}>{u.note || ''}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </>
-      )}
-
-      {s.toCheck.length > 0 && (
-        <>
-          <h4 style={{ marginBottom: '0.3rem' }}>Corrections filled in — please check (yellow)</h4>
-          <table style={{ borderCollapse: 'collapse', width: '100%' }}>
-            <thead><tr><th style={th}>Cell</th><th style={th}>Field</th><th style={th}>Reading</th><th style={th}>Why</th></tr></thead>
-            <tbody>
-              {s.toCheck.map((c) => (
-                <tr key={c.ref} style={{ background: '#fffbe0' }}><td style={td}>{c.ref}</td><td style={td}>{c.label}</td><td style={{ ...td, fontWeight: 600 }}>{c.value}</td><td style={td}>{c.note || ''}</td></tr>
-              ))}
-            </tbody>
-          </table>
-        </>
-      )}
-
-      {s.outOfSpec.length > 0 && (
-        <>
-          <h4 style={{ marginBottom: '0.3rem' }}>Outside the spec printed on the sheet</h4>
-          <table style={{ borderCollapse: 'collapse', width: '100%' }}>
-            <thead><tr><th style={th}>Cell</th><th style={th}>Field</th><th style={th}>Reading</th><th style={th}>Spec</th></tr></thead>
-            <tbody>
-              {s.outOfSpec.map((o) => (
-                <tr key={o.ref}><td style={td}>{o.ref}</td><td style={td}>{o.label}</td><td style={{ ...td, fontWeight: 600 }}>{o.value}</td><td style={td}>{o.spec.join(' – ')}</td></tr>
-              ))}
-            </tbody>
-          </table>
-        </>
-      )}
-
-      {s.noted.length > 0 && (
-        <>
-          <h4 style={{ marginBottom: '0.3rem' }}>Filled, with a note</h4>
-          <table style={{ borderCollapse: 'collapse', width: '100%' }}>
-            <thead><tr><th style={th}>Cell</th><th style={th}>Field</th><th style={th}>Reading</th><th style={th}>Note</th></tr></thead>
-            <tbody>
-              {s.noted.map((n) => (
-                <tr key={n.ref}><td style={td}>{n.ref}</td><td style={td}>{n.label}</td><td style={td}>{n.value}</td><td style={td}>{n.note}</td></tr>
-              ))}
-            </tbody>
-          </table>
-        </>
-      )}
-
-      {s.generalNotes.length > 0 && (
-        <>
-          <h4 style={{ marginBottom: '0.3rem' }}>About the sheet</h4>
-          <ul style={{ marginTop: 0 }}>{s.generalNotes.map((n, i) => <li key={i}>{n}</li>)}</ul>
-        </>
-      )}
-    </>
-  )
-}
-
-function JobCard({ job, open, onToggle, onError }) {
+function JobCard({ job, onError }) {
   const r = job.result
   return (
     <div style={{ ...card, borderLeft: `4px solid ${job.status === 'done' ? '#2e7d32' : job.status === 'failed' ? '#c0392b' : '#0066cc'}` }}>
@@ -125,18 +40,17 @@ function JobCard({ job, open, onToggle, onError }) {
           <div style={{ color: '#666', fontSize: '0.85rem' }}>
             {job.templateLabel}
             {job.status === 'reading' && <> · {elapsed(job.startedAt)} so far (usually about a minute). You can leave this page; you'll be asked where to save it when it's ready.</>}
-            {job.status === 'done' && <> · from {job.fileName} · took {elapsed(job.startedAt, job.finishedAt)}</>}
+            {job.status === 'done' && <> · from {job.fileName} · {toFillCount(job) ? `${toFillCount(job)} cells to fill in or check (yellow)` : 'nothing left blank'}</>}
           </div>
           {job.status === 'done' && r.usedToday && <div style={{ color: '#7a4b00', fontSize: '0.85rem' }}>The date on the sheet couldn't be read for the file name, so today's date was used.</div>}
           {job.status === 'failed' && <div style={{ color: '#c0392b', fontSize: '0.9rem', marginTop: '0.25rem' }}>{job.error}</div>}
         </div>
         <div style={{ display: 'flex', gap: '0.5rem' }}>
-          {job.status === 'done' && <button onClick={onToggle} style={linkButton}>{open ? 'Hide details' : 'Show details'}</button>}
+          {job.status === 'done' && <button onClick={() => openScan(job.id)} style={linkButton}>Open the scan</button>}
           {job.status === 'done' && <button onClick={() => saveReport(job.id).catch((e) => onError(`Couldn't save the report: ${e.message}`))} style={job.savedAs ? linkButton : button(true)}>{job.savedAs ? 'Save again…' : 'Save as…'}</button>}
           {job.status !== 'reading' && <button onClick={() => dismissJob(job.id)} style={linkButton}>Dismiss</button>}
         </div>
       </div>
-      {job.status === 'done' && open && <ReportSummary result={r} />}
     </div>
   )
 }
@@ -146,7 +60,6 @@ export default function ScanToReport() {
   const [file, setFile] = useState(null)
   const [dragging, setDragging] = useState(false)
   const [error, setError] = useState('')
-  const [openIds, setOpenIds] = useState({})
   const [, tick] = useState(0)
   const jobs = useScanJobs()
   const inputRef = useRef(null)
@@ -176,10 +89,6 @@ export default function ScanToReport() {
       setError(e.message || String(e))
     }
   }
-
-  // The newest finished report shows its details unless closed.
-  const latestDone = jobs.find((j) => j.status === 'done')?.id
-  const isOpen = (id) => (id in openIds ? openIds[id] : id === latestDone)
 
   return (
     <div style={{ maxWidth: '900px' }}>
@@ -222,7 +131,7 @@ export default function ScanToReport() {
       </div>
 
       {jobs.map((job) => (
-        <JobCard key={job.id} job={job} open={isOpen(job.id)} onError={setError} onToggle={() => setOpenIds((o) => ({ ...o, [job.id]: !isOpen(job.id) }))} />
+        <JobCard key={job.id} job={job} onError={setError} />
       ))}
     </div>
   )

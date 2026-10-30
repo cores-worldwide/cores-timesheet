@@ -15,7 +15,7 @@ const FUNCTION_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scan-rep
 const ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
 
 // job: { id, fileName, templateLabel, status: 'reading'|'done'|'failed',
-//        startedAt, finishedAt, error, prompted, savedAs,
+//        startedAt, finishedAt, error, prompted, savedAs, file (the scan, to reopen),
 //        result: { bytes, name, usedToday, summary, notesAdded } }
 let jobs = []
 const listeners = new Set()
@@ -33,6 +33,22 @@ function subscribe(listener) {
 
 export function useScanJobs() {
   return useSyncExternalStore(subscribe, () => jobs)
+}
+
+// Opens the original scan in a new browser tab, to fill in the blanks from.
+// Must be called from a click (pop-up blockers).
+export function openScan(id) {
+  const job = jobs.find((j) => j.id === id)
+  if (!job?.file) return
+  const url = URL.createObjectURL(job.file)
+  window.open(url, '_blank')
+  setTimeout(() => URL.revokeObjectURL(url), 60000)
+}
+
+// How many cells she has to fill in or check, for the one-line summaries.
+export function toFillCount(job) {
+  const s = job?.result?.summary
+  return s ? s.unsure.length + s.toCheck.length : 0
 }
 
 export function dismissPrompt(id) {
@@ -96,7 +112,7 @@ export function startScan(file, templateId) {
   const template = findTemplate(templateId)
   if (!template) throw new Error('Unknown report template')
   const id = nextId++
-  jobs = [{ id, fileName: file.name, templateLabel: template.label, status: 'reading', startedAt: Date.now() }, ...jobs]
+  jobs = [{ id, fileName: file.name, file, templateLabel: template.label, status: 'reading', startedAt: Date.now() }, ...jobs]
   listeners.forEach((l) => l())
 
   ;(async () => {

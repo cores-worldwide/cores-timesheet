@@ -5,31 +5,49 @@ import Reports from './components/Reports'
 import AdminPanel from './components/AdminPanel'
 import Search from './components/Search'
 import PasswordGate from './components/PasswordGate'
-import { useScanJobs, saveReport, dismissPrompt } from './utils/scanJobs'
+import { useScanJobs, saveReport, dismissPrompt, openScan, toFillCount } from './utils/scanJobs'
 
 // Pops up over whatever page the office is on when a scan's report is ready,
 // so "Save as…" (a click, which the save dialog needs) is one step away.
 function ScanReadyPrompt() {
   const jobs = useScanJobs()
   const [error, setError] = React.useState('')
-  const job = [...jobs].reverse().find((j) => j.status === 'done' && !j.prompted)
+  const [justSaved, setJustSaved] = React.useState(null) // job id saved from this pop-up
+  const job = [...jobs].reverse().find((j) => j.status === 'done' && (!j.prompted || j.id === justSaved))
   if (!job) return null
-  const save = () => { setError(''); saveReport(job.id).catch((e) => setError(`Couldn't save the report: ${e.message}`)) }
-  const later = () => { setError(''); dismissPrompt(job.id) }
-  const s = job.result.summary
+  const save = () => {
+    setError('')
+    saveReport(job.id).then(() => setJustSaved(job.id)).catch((e) => setError(`Couldn't save the report: ${e.message}`))
+  }
+  const later = () => { setError(''); setJustSaved(null); dismissPrompt(job.id) }
+  const n = toFillCount(job)
+  const saved = job.id === justSaved && job.savedAs
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
       <div role="dialog" aria-label="Report ready" style={{ background: '#fff', borderRadius: '8px', padding: '1.25rem 1.5rem', maxWidth: '460px', width: '100%', boxShadow: '0 8px 30px rgba(0,0,0,0.25)' }}>
-        <h3 style={{ marginTop: 0 }}>Report ready</h3>
-        <p style={{ margin: '0 0 0.25rem' }}>From <strong>{job.fileName}</strong></p>
-        <p style={{ margin: '0 0 1rem', color: '#555', fontSize: '0.9rem' }}>
-          {s.filled} cells filled{s.unsure.length ? `, ${s.unsure.length} left blank to check` : ''}{s.toCheck.length ? `, ${s.toCheck.length} corrections to check` : ''}.
-          Choose a name and folder for it.
-        </p>
+        <h3 style={{ marginTop: 0 }}>{saved ? 'Report saved' : 'Report ready'}</h3>
+        {saved ? (
+          <p style={{ margin: '0 0 1rem' }}>
+            Saved as <strong>{job.savedAs}</strong>. Open it in Excel from that folder{n ? ` and fill in the ${n} yellow cells` : ''}; open the scan here to read them from.
+          </p>
+        ) : (
+          <p style={{ margin: '0 0 1rem' }}>
+            From <strong>{job.fileName}</strong>. {n ? `${n} cells to fill in or check (yellow).` : 'Nothing was left blank.'} Choose a name and folder for it.
+          </p>
+        )}
         {error && <p style={{ color: '#c0392b', fontSize: '0.9rem' }}>{error}</p>}
         <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
-          <button onClick={later} style={{ padding: '0.5rem 1rem', border: '1px solid #ccc', borderRadius: '4px', background: '#fff', cursor: 'pointer' }}>Later</button>
-          <button onClick={save} autoFocus style={{ padding: '0.5rem 1.1rem', border: 'none', borderRadius: '4px', background: '#0066cc', color: '#fff', fontWeight: 600, cursor: 'pointer' }}>Save as…</button>
+          {saved ? (
+            <>
+              <button onClick={later} style={{ padding: '0.5rem 1rem', border: '1px solid #ccc', borderRadius: '4px', background: '#fff', cursor: 'pointer' }}>Close</button>
+              <button onClick={() => { openScan(job.id); later() }} autoFocus style={{ padding: '0.5rem 1.1rem', border: 'none', borderRadius: '4px', background: '#0066cc', color: '#fff', fontWeight: 600, cursor: 'pointer' }}>Open the scan</button>
+            </>
+          ) : (
+            <>
+              <button onClick={later} style={{ padding: '0.5rem 1rem', border: '1px solid #ccc', borderRadius: '4px', background: '#fff', cursor: 'pointer' }}>Later</button>
+              <button onClick={save} autoFocus style={{ padding: '0.5rem 1.1rem', border: 'none', borderRadius: '4px', background: '#0066cc', color: '#fff', fontWeight: 600, cursor: 'pointer' }}>Save as…</button>
+            </>
+          )}
         </div>
       </div>
     </div>
