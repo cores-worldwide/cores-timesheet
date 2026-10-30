@@ -18,7 +18,9 @@ CREATE TABLE IF NOT EXISTS "Cores".job_files (
   template_id text,                     -- kind 'report': which report template
   source_id uuid REFERENCES "Cores".job_files(id) ON DELETE RESTRICT, -- kind 'scan': its report
   filed_by_name text,                   -- office name from the login (getAdminName)
-  created_at timestamp with time zone NOT NULL DEFAULT now()
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  deleted_at timestamp with time zone,  -- "Remove" in the app hides the file; the file is kept
+  deleted_by_name text
 );
 
 CREATE INDEX IF NOT EXISTS idx_job_files_job ON "Cores".job_files(job_id, created_at);
@@ -27,11 +29,18 @@ CREATE INDEX IF NOT EXISTS idx_job_files_source ON "Cores".job_files(source_id) 
 ALTER TABLE "Cores".job_files ENABLE ROW LEVEL SECURITY;
 
 -- Same posture as the rest of the app until office logins land: the app talks
--- to the database as anon. No UPDATE or DELETE: filed files are a record; a
--- wrong filing is corrected by Jim, and every insert is in the Audit Log.
+-- to the database as anon. Jim: the office must be able to fix a file filed
+-- on the wrong job, so it can move a file (job_id) or remove it (deleted_at).
+-- Only those columns can change, and nothing is ever deleted: the anon key is
+-- public, so a real delete would let anyone wipe the files. Every change is in
+-- the Audit Log, and a removed file can be brought back.
+-- Default privileges give new tables full access; start from nothing.
+REVOKE ALL ON "Cores".job_files FROM anon, authenticated;
 GRANT SELECT, INSERT ON "Cores".job_files TO anon, authenticated;
+GRANT UPDATE (job_id, deleted_at, deleted_by_name) ON "Cores".job_files TO anon, authenticated;
 CREATE POLICY "job_files_select" ON "Cores".job_files FOR SELECT TO anon, authenticated USING (true);
 CREATE POLICY "job_files_insert" ON "Cores".job_files FOR INSERT TO anon, authenticated WITH CHECK (true);
+CREATE POLICY "job_files_update" ON "Cores".job_files FOR UPDATE TO anon, authenticated USING (true) WITH CHECK (true);
 
 CREATE TRIGGER audit_trg AFTER INSERT OR UPDATE OR DELETE ON "Cores".job_files
   FOR EACH ROW EXECUTE FUNCTION "Cores".audit_trigger_fn();
@@ -39,7 +48,7 @@ CREATE TRIGGER audit_trg AFTER INSERT OR UPDATE OR DELETE ON "Cores".job_files
 -- Private bucket (unlike gear-photos / work-order-docs): customer reports and
 -- measurement data, and the repo and site are public. The app opens files
 -- with short-lived signed URLs. Any file type, up to 50 MB. Insert + select
--- only, same reason as the table. Both policies are scoped to this bucket.
+-- only: files are never deleted or overwritten from the app (see above). Both policies are scoped to this bucket.
 INSERT INTO storage.buckets (id, name, public, file_size_limit)
 VALUES ('job-files', 'job-files', false, 52428800)
 ON CONFLICT (id) DO NOTHING;

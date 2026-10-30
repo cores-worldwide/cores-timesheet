@@ -75,9 +75,25 @@ export async function uploadJobFiles(job, files) {
 
 export async function listJobFiles(jobId) {
   const { data, error } = await supabase.schema('Cores').from('job_files')
-    .select('*').eq('job_id', jobId).order('created_at', { ascending: false })
+    .select('*').eq('job_id', jobId).is('deleted_at', null).order('created_at', { ascending: false })
   if (error) throw error
   return data || []
+}
+
+// Moves a file to another job; a report's original scan goes with it.
+export async function moveJobFile(file, toJob) {
+  const { error } = await supabase.schema('Cores').from('job_files')
+    .update({ job_id: toJob.id }).or(`id.eq.${file.id},source_id.eq.${file.id}`)
+  if (error) throw new Error(`Couldn't move ${file.file_name}: ${error.message}`)
+}
+
+// Hides a file from the job (kept in storage and recoverable; see the
+// job_files migration). A report's original scan goes with it.
+export async function removeJobFile(file) {
+  const { error } = await supabase.schema('Cores').from('job_files')
+    .update({ deleted_at: new Date().toISOString(), deleted_by_name: getAdminName() || null })
+    .or(`id.eq.${file.id},source_id.eq.${file.id}`)
+  if (error) throw new Error(`Couldn't remove ${file.file_name}: ${error.message}`)
 }
 
 // The bucket is private: files open through a link that works for an hour.
