@@ -5,7 +5,36 @@ import Reports from './components/Reports'
 import AdminPanel from './components/AdminPanel'
 import Search from './components/Search'
 import PasswordGate from './components/PasswordGate'
-import { useScanJobs } from './utils/scanJobs'
+import { useScanJobs, saveReport, dismissPrompt } from './utils/scanJobs'
+
+// Pops up over whatever page the office is on when a scan's report is ready,
+// so "Save as…" (a click, which the save dialog needs) is one step away.
+function ScanReadyPrompt() {
+  const jobs = useScanJobs()
+  const [error, setError] = React.useState('')
+  const job = [...jobs].reverse().find((j) => j.status === 'done' && !j.prompted)
+  if (!job) return null
+  const save = () => { setError(''); saveReport(job.id).catch((e) => setError(`Couldn't save the report: ${e.message}`)) }
+  const later = () => { setError(''); dismissPrompt(job.id) }
+  const s = job.result.summary
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
+      <div role="dialog" aria-label="Report ready" style={{ background: '#fff', borderRadius: '8px', padding: '1.25rem 1.5rem', maxWidth: '460px', width: '100%', boxShadow: '0 8px 30px rgba(0,0,0,0.25)' }}>
+        <h3 style={{ marginTop: 0 }}>Report ready</h3>
+        <p style={{ margin: '0 0 0.25rem' }}>From <strong>{job.fileName}</strong></p>
+        <p style={{ margin: '0 0 1rem', color: '#555', fontSize: '0.9rem' }}>
+          {s.filled} cells filled{s.unsure.length ? `, ${s.unsure.length} left blank to check` : ''}{s.toCheck.length ? `, ${s.toCheck.length} corrections to check` : ''}.
+          Choose a name and folder for it.
+        </p>
+        {error && <p style={{ color: '#c0392b', fontSize: '0.9rem' }}>{error}</p>}
+        <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+          <button onClick={later} style={{ padding: '0.5rem 1rem', border: '1px solid #ccc', borderRadius: '4px', background: '#fff', cursor: 'pointer' }}>Later</button>
+          <button onClick={save} autoFocus style={{ padding: '0.5rem 1.1rem', border: 'none', borderRadius: '4px', background: '#0066cc', color: '#fff', fontWeight: 600, cursor: 'pointer' }}>Save as…</button>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 // Top-bar badge for Scan to Report jobs running in the background; click to
 // open Admin → Scan to Report.
@@ -14,11 +43,11 @@ function ScanIndicator() {
   const jobs = useScanJobs()
   const reading = jobs.filter((j) => j.status === 'reading').length
   const failed = jobs.filter((j) => j.status === 'failed').length
-  const done = jobs.filter((j) => j.status === 'done').length
-  if (!jobs.length) return null
+  const done = jobs.filter((j) => j.status === 'done' && !j.savedAs).length
+  if (!reading && !failed && !done) return null
   const text = reading ? `📄 Reading ${reading} scan${reading > 1 ? 's' : ''}…`
     : failed ? `📄 ${failed} scan${failed > 1 ? 's' : ''} failed`
-    : `📄 ${done} report${done > 1 ? 's' : ''} ready`
+    : `📄 ${done} report${done > 1 ? 's' : ''} to save`
   return (
     <button onClick={() => navigate('/admin', { state: { section: 'scan' } })} title="Open Scan to Report" style={{
       padding: '0.35rem 0.8rem', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600,
@@ -51,6 +80,7 @@ function AdminApp() {
           <span style={{ marginLeft: 'auto' }}><ScanIndicator /></span>
           <button onClick={() => window.location.reload()} style={{ padding: '0.4rem 1rem', border: '1px solid #555', borderRadius: '4px', background: 'transparent', color: '#aaa', cursor: 'pointer', fontSize: '0.9rem' }}>Refresh</button>
         </nav>
+        <ScanReadyPrompt />
         <Routes>
           <Route index element={<Navigate to="/reports" replace />} />
           <Route path="reports" element={<Reports />} />

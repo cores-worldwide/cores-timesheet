@@ -137,7 +137,7 @@ const reading = {
 reading.grid.exhaust_bushing_id.A1[0] = ok('1.7500', 'Read 1: neat correction')
 reading.grid.exhaust_bushing_id.A1[1] = { ...ok('1.7510', 'Read 1: ink spill'), check: true, corrected: true }
 
-const { writes, summary } = planCells(template, reading)
+const { writes, summary } = planCells(template, reading, new Date(2027, 0, 10)) // fixture is dated Jan 5/27
 const { bytes, notesAdded } = await fillXlsx(templateBytes, template.sheet, writes)
 const outPath = process.argv[2]
 if (outPath) await writeFile(outPath, bytes)
@@ -201,6 +201,13 @@ check('grid: AX34 non-number kept as text', textOf('AX34') === '1.75l0')
 check('no yellow on filled cells', !isYellow(styleOf('O19')) && !isYellow(styleOf('AG4')))
 check('doubtful correction T31: number filled, yellow, 0.0000', numOf('T31') === '1.7510' && isYellow(styleOf('T31')) && fmtCode(styleOf('T31')) === '0.0000')
 check('summary lists the correction to check', summary.toCheck.length === 1 && summary.toCheck[0].ref === 'T31')
+{
+  const r2 = { ...reading, header: { ...reading.header, date: ok('Oct 19/86') } }
+  const { writes: w2, summary: s2 } = planCells(template, r2, new Date(2026, 9, 30))
+  check('date with an impossible year -> blank + unsure', s2.unsure.some((u) => u.ref === 'AW4' && u.candidates[0] === 'Oct 19/86') && w2.find((w) => w.ref === 'AW4').kind === 'unsure')
+  const { summary: s3 } = planCells(template, { ...reading, header: { ...reading.header, date: ok('Oct 19/26') } }, new Date(2026, 9, 30))
+  check('recent date is filled', !s3.unsure.some((u) => u.ref === 'AW4'))
+}
 check('numFmt 0.0000 added', /formatCode="0\.0000"/.test(styles))
 check('fullCalcOnLoad set', /fullCalcOnLoad="1"/.test(await after.file('xl/workbook.xml').async('string')))
 

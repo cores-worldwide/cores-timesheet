@@ -106,6 +106,11 @@ export function buildViews(page, zoom) {
     { label: 'Header fields, left half', ...toJpeg(crop(hx0, hy0, mid + 60, hy1)) },
     { label: 'Header fields, right half', ...toJpeg(crop(mid - 60, hy0, hx1, hy1)) },
   ]
+  for (const f of zoom.fields || []) {
+    const view = { label: f.label, ...toJpeg(crop(...f.box)) }
+    viewsA.push(view)
+    viewsB.push(view)
+  }
   for (const s of zoom.sections) {
     const what = `${s.label} rows ${s.rows}`
     viewsA.push({ label: `${what}, measurement columns 1-${half}`, ...toJpeg(grid(0, half, s.y[0], s.y[1])) })

@@ -1,4 +1,5 @@
 import JSZip from 'jszip'
+import { parseWrittenDate } from './reportTemplates.js'
 
 // Fills a report .xlsx template with scan readings, in the browser.
 //
@@ -37,7 +38,16 @@ function candidatesText(cell) {
 // Works out what goes where. `reading` is the scan-report function's reply:
 // { header: {key: cell}, column_headings: [cell], grid: {section: {row: [cell]}}, general_notes }
 // where cell = { value, unsure, candidates, note }.
-export function planCells(template, reading) {
+// A date whose year is outside the last two years (e.g. a 2 in "26" that
+// reads as "86") is treated as unsure rather than filled.
+function implausibleDate(text, today) {
+  const ymd = parseWrittenDate(text)
+  if (!ymd) return false
+  const year = Number(ymd.slice(0, 4))
+  return year < today.getFullYear() - 2 || year > today.getFullYear()
+}
+
+export function planCells(template, reading, today = new Date()) {
   const writes = []
   const unsure = []
   const toCheck = []
@@ -68,6 +78,10 @@ export function planCells(template, reading) {
     const cell = reading.header?.[key]
     if (!cell) continue
     const prefix = def.prefix || ''
+    if (def.kind === 'date' && cell.value && implausibleDate(cell.value, today)) {
+      flagUnsure(def.cell, def.label, { ...cell, candidates: [cell.value], note: [cell.note, 'The year looks wrong for a recent inspection.'].filter(Boolean).join(' ') }, prefix || null)
+      continue
+    }
     if (cell.value !== null && cell.value !== undefined) {
       writes.push({ ref: def.cell, kind: 'text', text: prefix + cell.value, yellow: !!cell.check, comment: addNote(def.cell, def.label, cell) })
       filled++

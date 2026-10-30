@@ -124,10 +124,37 @@ Rules — accuracy matters more than completeness. IF YOU DON'T KNOW, DON'T GUES
 2. If you are not certain of every character of a value, set value to "", put your best candidate in unsure_reading, and say why in note.
 3. If any ink blob, scribble or overwrite in the same ink touches any digit of a value, set value to "", put the candidate in unsure_reading, and describe it in note — even if you think you can tell what it says.
 4. A correction (the value rewritten in a different ink, e.g. blue over black, or rewritten over whiteout) is the technician's final value. Put the corrected reading in value and leave unsure_reading "". Set correction to "neat" if every digit of the correction is clear, or to "doubtful" if there is any doubt at all about it (ink spill, smudge, an unclear digit, the old digits showing through enough to confuse) and say why in note. Every other cell: correction "none".
+4b. Header fields (job number, date, serial number) follow the same rules as measurements: read them character by character from their close-up crops. If any character is written over, traced over, or could be read as two different characters, set value to "" and put your best reading in unsure_reading. A wrong job number or date is worse than a blank one.
 5. A box with nothing written in it: value, unsure_reading and note all "", correction "none".
 6. Each row must have exactly ${spec.columns} cells, left to right, matching the column headings. Never shift values between columns to fill a gap.
 7. Only report the fields in the schema. Ignore anything else written on the sheet (e.g. the technician's name).
 8. If the document contains more than one inspection sheet, read only the first one and say so in general_notes.`
+}
+
+class BadReply extends Error {}
+
+// Parses the reply, repairing the one slip seen in practice: an unescaped
+// inch mark inside a value (e.g. 1-2" outside). A quote right after a digit
+// and followed by more text in the same value can't end a JSON string.
+function parseReply(json: string) {
+  try {
+    return JSON.parse(json)
+  } catch (first) {
+    const repaired = json.replace(/(\d)"(?=[ \t]*[A-Za-z])/g, '$1\\"')
+    if (repaired === json) throw first
+    return JSON.parse(repaired)
+  }
+}
+
+// One retry when a reply isn't valid JSON (seen now and then on dev).
+async function readWithRetry(spec: any, page: any, views: any[]) {
+  try {
+    return await readOnce(spec, page, views)
+  } catch (e) {
+    if (!(e instanceof BadReply)) throw e
+    console.error('scan-report: retrying after', (e as Error).message)
+    return await readOnce(spec, page, views)
+  }
 }
 
 async function readOnce(spec: any, page: any, views: any[]) {
@@ -150,22 +177,27 @@ async function readOnce(spec: any, page: any, views: any[]) {
       // The schema goes in the prompt, not output_config.format: a full grid of
       // cell objects compiles to a grammar larger than the API accepts.
       output_config: { effort: EFFORT },
-      messages: [{ role: 'user', content: [...content, { type: 'text', text: buildPrompt(spec) + '\n\nReply with ONLY a JSON object (no prose, no code fence) matching this JSON schema:\n' + JSON.stringify(buildSchema(spec)) }] }],
+      messages: [{ role: 'user', content: [...content, { type: 'text', text: buildPrompt(spec) + '\n\nReply with ONLY a JSON object (no prose, no code fence) matching this JSON schema. Inside JSON strings, escape every double-quote character as \\" (for example an inch mark).\n' + JSON.stringify(buildSchema(spec)) }] }],
     }),
   })
   const body = await res.json().catch(() => null)
   if (!res.ok) throw new Error(`Claude read failed (${res.status}): ${JSON.stringify(body?.error || body).slice(0, 300)}`)
   if (body.stop_reason === 'refusal') throw new Error('Claude declined to read this scan')
   if (body.stop_reason === 'max_tokens') throw new Error('Claude ran out of room reading this scan')
-  const text = (body.content || []).find((c: any) => c.type === 'text')?.text
+  // The reply can come back in more than one text block; join them all.
+  const text = (body.content || []).filter((c: any) => c.type === 'text').map((c: any) => c.text).join('')
   if (!text) throw new Error('Claude returned no reading')
   const start = text.indexOf('{'), end = text.lastIndexOf('}')
   let reading
   try {
-    reading = JSON.parse(text.slice(start, end + 1))
-  } catch {
+    reading = parseReply(text.slice(start, end + 1))
+  } catch (e) {
+    const json = text.slice(start, end + 1)
+    const pos = Number(/position (\d+)/.exec((e as Error).message)?.[1] ?? -1)
+    const near = pos >= 0 ? json.slice(Math.max(0, pos - 80), pos + 40) : ''
+    console.error('scan-report: parse error', (e as Error).message, JSON.stringify(near))
     console.error('scan-report: unparseable reply', body.stop_reason, text.length, text.slice(0, 300), '…', text.slice(-300))
-    throw new Error('Claude returned a reading that is not valid JSON')
+    throw new BadReply(`Claude returned a reading that is not valid JSON (${(e as Error).message}; near: ${JSON.stringify(near)})`)
   }
   return { reading, usage: body.usage || {} }
 }
@@ -197,7 +229,7 @@ Deno.serve(async (req: Request) => {
 
   try {
     // Two independent reads, run side by side to keep the wait down.
-    const [r1, r2] = await Promise.all([readOnce(spec, pageCheck.image, a.views!), readOnce(spec, pageCheck.image, b.views!)])
+    const [r1, r2] = await Promise.all([readWithRetry(spec, pageCheck.image, a.views!), readWithRetry(spec, pageCheck.image, b.views!)])
     const merged = mergeReads(r1.reading, r2.reading, spec)
     const usage = {
       input_tokens: (r1.usage.input_tokens || 0) + (r2.usage.input_tokens || 0),

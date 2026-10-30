@@ -25,7 +25,7 @@ export const REPORT_TEMPLATES = [
     header: {
       customer: { cell: 'G4', label: 'Customer' },
       job_no: { cell: 'AG4', label: 'Job No.' },
-      date: { cell: 'AW4', label: 'Date' }, // cell has a mmm-yy format; written as text, as on the sheet
+      date: { cell: 'AW4', label: 'Date', kind: 'date' }, // cell has a mmm-yy format; written as text, as on the sheet
       tool: { cell: 'H5', label: 'Tool', prefix: 'Tool- ' }, // label and value share this merged cell
       serial_number: { cell: 'AM5', label: 'Serial Number' },
     },
@@ -48,6 +48,13 @@ export const REPORT_TEMPLATES = [
       cols: [405, 538, 670, 803, 936, 1069, 1202, 1335, 1468], // edges of the 8 measurement columns
       headingRow: [757, 800],
       headerBox: [180, 255, 1540, 362],
+      // Close-ups of single header fields, for both reads (a wrong job number
+      // or date was read with confidence from the wider header crop).
+      fields: [
+        { label: 'Job No. field, close-up', box: [870, 255, 1235, 330] },
+        { label: 'Date field, close-up', box: [1290, 255, 1540, 330] },
+        { label: 'Serial Number field, close-up', box: [1030, 310, 1500, 365] },
+      ],
       sections: [
         { label: 'Intake Rocker Bushing I.D.', rows: 'A1-A4', y: [830, 982] },
         { label: 'Intake Rocker Shaft O.D.', rows: 'B1-B4', y: [980, 1132] },

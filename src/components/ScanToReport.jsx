@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { REPORT_TEMPLATES } from '../utils/reportTemplates'
-import { useScanJobs, startScan, dismissJob, downloadBytes } from '../utils/scanJobs'
+import { useScanJobs, startScan, dismissJob, saveReport } from '../utils/scanJobs'
 
 // Scan to Report (Admin tab; Niki, 2026-10-29): drop in a scanned handwritten
 // inspection sheet, pick the report template, and get the filled .xlsx back
@@ -12,7 +12,8 @@ import { useScanJobs, startScan, dismissJob, downloadBytes } from '../utils/scan
 // the summary below. Nothing is kept: no history, no lookups of old reports.
 //
 // Scans run in the background (src/utils/scanJobs.js): start one, go
-// elsewhere in the app, and the report downloads when it's ready.
+// elsewhere in the app, and a prompt pops up to save the report when it's
+// ready (ScanReadyPrompt in AdminApp.jsx).
 
 const MAX_BYTES = 10 * 1024 * 1024
 const ACCEPT = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp']
@@ -110,7 +111,7 @@ function ReportSummary({ result }) {
   )
 }
 
-function JobCard({ job, open, onToggle }) {
+function JobCard({ job, open, onToggle, onError }) {
   const r = job.result
   return (
     <div style={{ ...card, borderLeft: `4px solid ${job.status === 'done' ? '#2e7d32' : job.status === 'failed' ? '#c0392b' : '#0066cc'}` }}>
@@ -118,12 +119,12 @@ function JobCard({ job, open, onToggle }) {
         <div>
           <div style={{ fontWeight: 700 }}>
             {job.status === 'reading' && <>Reading {job.fileName}…</>}
-            {job.status === 'done' && <>Downloaded {r.name}</>}
+            {job.status === 'done' && (job.savedAs ? <>Saved as {job.savedAs}</> : <>Report ready: {r.name}</>)}
             {job.status === 'failed' && <>Couldn't read {job.fileName}</>}
           </div>
           <div style={{ color: '#666', fontSize: '0.85rem' }}>
             {job.templateLabel}
-            {job.status === 'reading' && <> · {elapsed(job.startedAt)} so far (usually about a minute). You can leave this page; it downloads when ready.</>}
+            {job.status === 'reading' && <> · {elapsed(job.startedAt)} so far (usually about a minute). You can leave this page; you'll be asked where to save it when it's ready.</>}
             {job.status === 'done' && <> · from {job.fileName} · took {elapsed(job.startedAt, job.finishedAt)}</>}
           </div>
           {job.status === 'done' && r.usedToday && <div style={{ color: '#7a4b00', fontSize: '0.85rem' }}>The date on the sheet couldn't be read for the file name, so today's date was used.</div>}
@@ -131,7 +132,7 @@ function JobCard({ job, open, onToggle }) {
         </div>
         <div style={{ display: 'flex', gap: '0.5rem' }}>
           {job.status === 'done' && <button onClick={onToggle} style={linkButton}>{open ? 'Hide details' : 'Show details'}</button>}
-          {job.status === 'done' && <button onClick={() => downloadBytes(r.bytes, r.name)} style={linkButton}>Download again</button>}
+          {job.status === 'done' && <button onClick={() => saveReport(job.id).catch((e) => onError(`Couldn't save the report: ${e.message}`))} style={job.savedAs ? linkButton : button(true)}>{job.savedAs ? 'Save again…' : 'Save as…'}</button>}
           {job.status !== 'reading' && <button onClick={() => dismissJob(job.id)} style={linkButton}>Dismiss</button>}
         </div>
       </div>
@@ -185,7 +186,7 @@ export default function ScanToReport() {
       <h2 style={{ marginTop: 0 }}>Scan to Report</h2>
       <p style={{ color: '#555', marginTop: 0 }}>
         Drop in a scanned inspection sheet and get the filled-in Excel report. Anything the reader isn't sure of is left blank and highlighted yellow for you to fill in.
-        You can start a scan and carry on with other work; the report downloads by itself when it's ready.
+        You can start a scan and carry on with other work; when the report is ready you'll be asked where to save it.
       </p>
 
       <div style={card}>
@@ -221,7 +222,7 @@ export default function ScanToReport() {
       </div>
 
       {jobs.map((job) => (
-        <JobCard key={job.id} job={job} open={isOpen(job.id)} onToggle={() => setOpenIds((o) => ({ ...o, [job.id]: !isOpen(job.id) }))} />
+        <JobCard key={job.id} job={job} open={isOpen(job.id)} onError={setError} onToggle={() => setOpenIds((o) => ({ ...o, [job.id]: !isOpen(job.id) }))} />
       ))}
     </div>
   )
