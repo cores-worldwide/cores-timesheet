@@ -130,7 +130,7 @@ function JobCard({ job, jobs }) {
           {job.status !== 'reading' && <button onClick={() => dismissJob(job.id)} style={linkButton}>Dismiss</button>}
         </div>
       </div>
-      {job.filedOn && <div style={{ color: '#2e7d32', fontSize: '0.9rem', marginTop: '0.35rem' }}>Filed on job {job.filedOn}. It's on that job's page in Job Reports.</div>}
+      {job.filedOn && <div style={{ color: '#2e7d32', fontSize: '0.9rem', marginTop: '0.35rem' }}>Filed on job {job.filedOn}. It's under Files on that job's page in Job Reports.</div>}
       {filing && !job.filedOn && (
         <FileReport scanFile={job.file} defaultTemplateId={job.templateId} jobs={jobs}
           onCancel={() => setFiling(false)}
@@ -236,7 +236,7 @@ export default function ScanToReport() {
         {filingLoose
           ? <FileReport key={filedMsg} defaultTemplateId={templateId} jobs={jobs}
               onCancel={() => setFilingLoose(false)}
-              onFiled={(j) => { setFilingLoose(false); setFiledMsg(`Filed on job ${j.job_number}. It's on that job's page in Job Reports.`) }} />
+              onFiled={(j) => { setFilingLoose(false); setFiledMsg(`Filed on job ${j.job_number}. It's under Files on that job's page in Job Reports.`) }} />
           : <button onClick={() => { setFiledMsg(''); setFilingLoose(true) }} style={{ ...linkButton, marginTop: '0.6rem' }}>File a report…</button>}
       </div>
     </div>
