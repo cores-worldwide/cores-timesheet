@@ -9,6 +9,12 @@ import { mergeReads } from "./agreement.js"
 // separate Claude calls and a cell keeps a value only when both reads agree
 // exactly (see agreement.js); everything else comes back empty and flagged.
 //
+// The browser renders the scan and cuts zoomed-in crops of the grid (see
+// scanViews.js in the app). Both reads get the full page; read A gets the grid
+// in half-width crops and read B in full-width crops, so the two reads don't
+// look at exactly the same pixels. Two reads of the same low-resolution page
+// were seen agreeing on the same misread digit (2026-10-30).
+//
 // Keeps nothing: no tables, no storage. The scan goes to Claude and the
 // readings come back to the browser, which builds the .xlsx itself.
 //
@@ -20,9 +26,10 @@ import { mergeReads } from "./agreement.js"
 // Accuracy matters most here, so the most capable Opus. One place to change it.
 const MODEL = 'claude-opus-5-5'
 const EFFORT = 'high'
-const MAX_FILE_BYTES = 10 * 1024 * 1024
-const MAX_PDF_PAGES = 5
-const MEDIA_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'image/gif']
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024 // Anthropic's per-image limit
+const MAX_BODY_BYTES = 20 * 1024 * 1024
+const MAX_VIEWS = 16 // crops per read
+const MEDIA_TYPES = ['image/jpeg', 'image/png', 'image/webp']
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -34,19 +41,28 @@ function jsonReply(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json', ...CORS } })
 }
 
-// Rough page count: counts page objects in the raw PDF. Scanner PDFs list them
-// plainly; a PDF that hides them in compressed object streams counts as 0 and
-// is let through (the Claude API has its own page limit).
-function countPdfPages(bytes: Uint8Array): number {
-  const text = new TextDecoder('latin1').decode(bytes)
-  return (text.match(/\/Type\s*\/Page(?![a-zA-Z])/g) || []).length
+// Checks one { media_type, data, label? } image from the request. Returns the
+// cleaned image or an error message.
+function checkImage(img: any, what: string): { image?: any, error?: string } {
+  const mediaType = String(img?.media_type || '')
+  if (!MEDIA_TYPES.includes(mediaType)) return { error: `${what}: send a JPEG, PNG or WebP image` }
+  const data = typeof img?.data === 'string' ? img.data.replace(/\s/g, '') : ''
+  if (!data || !/^[A-Za-z0-9+/]+={0,2}$/.test(data)) return { error: `${what}: no image data` }
+  if (Math.floor(data.length * 3 / 4) > MAX_IMAGE_BYTES) return { error: `${what}: image is too large (5 MB max)` }
+  const label = String(img?.label || '').slice(0, 200)
+  return { image: { media_type: mediaType, data, label } }
 }
 
-function base64ToBytes(b64: string): Uint8Array {
-  const bin = atob(b64)
-  const out = new Uint8Array(bin.length)
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i)
-  return out
+function checkViews(list: any, what: string): { views?: any[], error?: string } {
+  if (!Array.isArray(list) || list.length === 0) return { error: `${what}: no zoomed views` }
+  if (list.length > MAX_VIEWS) return { error: `${what}: too many zoomed views` }
+  const views = []
+  for (const [i, v] of list.entries()) {
+    const { image, error } = checkImage(v, `${what} ${i + 1}`)
+    if (error) return { error }
+    views.push(image)
+  }
+  return { views }
 }
 
 // ── What each read returns (structured output schema) ─────────────────────
@@ -96,10 +112,12 @@ function buildSchema(spec: any) {
 
 function buildPrompt(spec: any): string {
   const sections = spec.sections.map((s: any) => `- ${s.label} (grid key "${s.key}"): rows ${s.rows.join(', ')}`).join('\n')
-  return `This is a scan of a handwritten "${spec.title}" sheet filled in by a technician. Read it and report the values using the JSON schema.
+  return `This is a scan of a handwritten "${spec.title}" sheet filled in by a technician. Read it and report the values using the JSON schema below.
 
 The measurement grid has ${spec.columns} columns. Sections and rows:
 ${sections}
+
+Images: the first image is the whole page. After it come zoomed-in crops of parts of the sheet, each introduced by a label saying what it is meant to show. In the crops the row labels (A1, B1, ...) run down the left and the column headings are pasted across the top. Read every digit from the zoomed crops, and use the whole page to confirm where each crop sits. Crop positions are approximate: if a crop is cut off, shows different rows or columns from its label, or disagrees with the whole page, trust the whole page for position and treat any value you can't read clearly as not certain.
 
 Rules — accuracy matters more than completeness. IF YOU DON'T KNOW, DON'T GUESS:
 1. Keep every value exactly as written: same digits, same decimal places, keep trailing zeros (if "2.3450" is written, return "2.3450", not "2.345"). Never round, convert or tidy a value.
@@ -112,9 +130,10 @@ Rules — accuracy matters more than completeness. IF YOU DON'T KNOW, DON'T GUES
 8. If the document contains more than one inspection sheet, read only the first one and say so in general_notes.`
 }
 
-async function readOnce(spec: any, mediaType: string, data: string) {
-  const source = { type: 'base64', media_type: mediaType, data }
-  const fileBlock = mediaType === 'application/pdf' ? { type: 'document', source } : { type: 'image', source }
+async function readOnce(spec: any, page: any, views: any[]) {
+  const image = (img: any) => ({ type: 'image', source: { type: 'base64', media_type: img.media_type, data: img.data } })
+  const content: any[] = [{ type: 'text', text: 'Whole page:' }, image(page)]
+  for (const v of views) content.push({ type: 'text', text: `Zoomed: ${v.label}` }, image(v))
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -131,7 +150,7 @@ async function readOnce(spec: any, mediaType: string, data: string) {
       // The schema goes in the prompt, not output_config.format: a full grid of
       // cell objects compiles to a grammar larger than the API accepts.
       output_config: { effort: EFFORT },
-      messages: [{ role: 'user', content: [fileBlock, { type: 'text', text: buildPrompt(spec) + '\n\nReply with ONLY a JSON object (no prose, no code fence) matching this JSON schema:\n' + JSON.stringify(buildSchema(spec)) }] }],
+      messages: [{ role: 'user', content: [...content, { type: 'text', text: buildPrompt(spec) + '\n\nReply with ONLY a JSON object (no prose, no code fence) matching this JSON schema:\n' + JSON.stringify(buildSchema(spec)) }] }],
     }),
   })
   const body = await res.json().catch(() => null)
@@ -155,9 +174,8 @@ Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: CORS })
   if (req.method !== 'POST') return jsonReply({ ok: false, error: 'POST only' }, 405)
 
-  // Base64 is 4/3 the size of the file, plus a little JSON around it.
   const declared = Number(req.headers.get('content-length') || 0)
-  if (declared > Math.ceil(MAX_FILE_BYTES * 4 / 3) + 4096) return jsonReply({ ok: false, error: 'File is too large (10 MB max)' }, 413)
+  if (declared > MAX_BODY_BYTES) return jsonReply({ ok: false, error: 'The scan is too large to send' }, 413)
 
   let json: any
   try {
@@ -170,31 +188,20 @@ Deno.serve(async (req: Request) => {
   const spec = Object.hasOwn(READ_TEMPLATES, templateId) ? (READ_TEMPLATES as any)[templateId] : null
   if (!spec) return jsonReply({ ok: false, error: 'Unknown report template' }, 400)
 
-  const mediaType = String(json?.media_type || '')
-  if (!MEDIA_TYPES.includes(mediaType)) return jsonReply({ ok: false, error: 'Send a PDF or a JPEG/PNG/WebP/GIF image' }, 400)
-
-  const data = typeof json?.data === 'string' ? json.data.replace(/\s/g, '') : ''
-  if (!data || !/^[A-Za-z0-9+/]+={0,2}$/.test(data)) return jsonReply({ ok: false, error: 'No file data' }, 400)
-  let bytes: Uint8Array
-  try {
-    bytes = base64ToBytes(data)
-  } catch {
-    return jsonReply({ ok: false, error: 'File data is not valid base64' }, 400)
-  }
-  if (bytes.length > MAX_FILE_BYTES) return jsonReply({ ok: false, error: 'File is too large (10 MB max)' }, 413)
-  if (mediaType === 'application/pdf') {
-    if (new TextDecoder('latin1').decode(bytes.subarray(0, 5)) !== '%PDF-') return jsonReply({ ok: false, error: 'That file is not a PDF' }, 400)
-    const pages = countPdfPages(bytes)
-    if (pages > MAX_PDF_PAGES) return jsonReply({ ok: false, error: `PDF has ${pages} pages (${MAX_PDF_PAGES} max). Scan one sheet at a time.` }, 400)
-  }
+  const pageCheck = checkImage(json?.page, 'Page image')
+  if (pageCheck.error) return jsonReply({ ok: false, error: pageCheck.error }, 400)
+  const a = checkViews(json?.views_a, 'Read 1 views')
+  if (a.error) return jsonReply({ ok: false, error: a.error }, 400)
+  const b = checkViews(json?.views_b, 'Read 2 views')
+  if (b.error) return jsonReply({ ok: false, error: b.error }, 400)
 
   try {
     // Two independent reads, run side by side to keep the wait down.
-    const [a, b] = await Promise.all([readOnce(spec, mediaType, data), readOnce(spec, mediaType, data)])
-    const merged = mergeReads(a.reading, b.reading, spec)
+    const [r1, r2] = await Promise.all([readOnce(spec, pageCheck.image, a.views!), readOnce(spec, pageCheck.image, b.views!)])
+    const merged = mergeReads(r1.reading, r2.reading, spec)
     const usage = {
-      input_tokens: (a.usage.input_tokens || 0) + (b.usage.input_tokens || 0),
-      output_tokens: (a.usage.output_tokens || 0) + (b.usage.output_tokens || 0),
+      input_tokens: (r1.usage.input_tokens || 0) + (r2.usage.input_tokens || 0),
+      output_tokens: (r1.usage.output_tokens || 0) + (r2.usage.output_tokens || 0),
     }
     return jsonReply({ ok: true, template_id: templateId, model: MODEL, ...merged, usage })
   } catch (e) {

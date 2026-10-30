@@ -4,7 +4,8 @@
 //   1. Put the blank .xlsx in public/report-templates/.
 //   2. Add an entry here with its cell map (cells are the top-left cell of
 //      each merged range, on the first sheet).
-//   3. Add the matching read spec (same id and keys) to
+//   3. Measure its `zoom` geometry on a real scan (see below).
+//   4. Add the matching read spec (same id and keys) to
 //      supabase/functions/scan-report/templates.js and redeploy scan-report.
 // scripts/test-xlsx-fill.mjs checks the two lists agree.
 
@@ -35,6 +36,25 @@ export const REPORT_TEMPLATES = [
       { key: 'exhaust_bushing_id', label: 'Exhaust Rocker Bushing I.D.', rows: { A1: 31, A2: 32, A3: 33, A4: 34 }, spec: BUSHING_SPEC },
       { key: 'exhaust_shaft_od', label: 'Exhaust Rocker Shaft O.D.', rows: { B1: 35, B2: 36, B3: 37, B4: 38 }, spec: SHAFT_SPEC },
     ],
+    // Where things sit on the scanned paper sheet, for the zoomed crops the
+    // reader gets (src/utils/scanViews.js). Units: the upright landscape page
+    // scaled to 2000 wide, measured on the 4685 C-block scan of 2026-10-19.
+    // Positions are approximate (scans shift a little); pad adds a margin and
+    // the reader also gets the whole page to check against.
+    zoom: {
+      width: 2000,
+      pad: 12,
+      labelCol: [352, 405],
+      cols: [405, 538, 670, 803, 936, 1069, 1202, 1335, 1468], // edges of the 8 measurement columns
+      headingRow: [757, 800],
+      headerBox: [180, 255, 1540, 362],
+      sections: [
+        { label: 'Intake Rocker Bushing I.D.', rows: 'A1-A4', y: [830, 982] },
+        { label: 'Intake Rocker Shaft O.D.', rows: 'B1-B4', y: [980, 1132] },
+        { label: 'Exhaust Rocker Bushing I.D.', rows: 'A1-A4', y: [1255, 1407] },
+        { label: 'Exhaust Rocker Shaft O.D.', rows: 'B1-B4', y: [1405, 1540] },
+      ],
+    },
   },
 ]
 

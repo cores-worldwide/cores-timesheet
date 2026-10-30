@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react'
 import { REPORT_TEMPLATES, findTemplate, reportFilename } from '../utils/reportTemplates'
 import { planCells, fillXlsx } from '../utils/xlsxFill'
+import { scanToViews } from '../utils/scanViews'
 
 // Scan to Report tab (Niki, 2026-10-29): drop in a scanned handwritten
 // inspection sheet, pick the report template, and get the filled .xlsx back
@@ -14,21 +15,12 @@ import { planCells, fillXlsx } from '../utils/xlsxFill'
 const FUNCTION_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scan-report`
 const ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
 const MAX_BYTES = 10 * 1024 * 1024
-const ACCEPT = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'image/gif']
+const ACCEPT = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp']
 
 const card = { padding: '1rem 1.25rem', background: '#fff', borderRadius: '6px', border: '1px solid #e0e0e0', boxShadow: '0 1px 3px rgba(0,0,0,0.06)', marginBottom: '1rem' }
 const button = (enabled) => ({ padding: '0.55rem 1.2rem', border: 'none', borderRadius: '4px', fontSize: '0.95rem', fontWeight: 600, cursor: enabled ? 'pointer' : 'default', background: enabled ? '#0066cc' : '#b8c7d9', color: '#fff' })
 const th = { textAlign: 'left', padding: '0.3rem 0.6rem', borderBottom: '1px solid #ddd', fontSize: '0.85rem', color: '#555' }
 const td = { padding: '0.3rem 0.6rem', borderBottom: '1px solid #f0f0f0', fontSize: '0.9rem', verticalAlign: 'top' }
-
-function fileToBase64(file) {
-  return new Promise((resolve, reject) => {
-    const r = new FileReader()
-    r.onload = () => resolve(String(r.result).split(',')[1] || '')
-    r.onerror = () => reject(new Error('Could not read the file'))
-    r.readAsDataURL(file)
-  })
-}
 
 function downloadBytes(bytes, name) {
   const blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
@@ -67,11 +59,13 @@ export default function ScanToReport() {
     setError('')
     setResult(null)
     try {
-      const data = await fileToBase64(file)
+      // The page image and zoomed crops are made here in the browser; only
+      // those images are sent, not the original file.
+      const views = await scanToViews(file, template.zoom)
       const res = await fetch(FUNCTION_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ANON_KEY}` },
-        body: JSON.stringify({ template_id: template.id, media_type: file.type, data }),
+        body: JSON.stringify({ template_id: template.id, ...views }),
       })
       const reading = await res.json().catch(() => null)
       if (!res.ok || !reading?.ok) throw new Error(reading?.error || `Reading the scan failed (${res.status})`)
