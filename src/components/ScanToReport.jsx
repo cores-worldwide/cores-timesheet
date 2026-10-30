@@ -3,7 +3,7 @@ import { supabase } from '../supabaseClient'
 import { REPORT_TEMPLATES, findTemplate } from '../utils/reportTemplates'
 import { readCellText, matchJob, fileReport } from '../utils/scanFiling'
 import JobPicker from '../employee/JobPicker'
-import { useScanJobs, startScan, dismissJob, saveReport, openScan, toFillCount, markFiled } from '../utils/scanJobs'
+import { useScanJobs, startScan, dismissJob, openReport, openScan, toFillCount, markFiled } from '../utils/scanJobs'
 
 // Scan to Report (Admin tab; Niki, 2026-10-29): drop in a scanned handwritten
 // inspection sheet, pick the report template, and get the filled .xlsx back
@@ -102,7 +102,7 @@ function FileReport({ scanFile, defaultTemplateId, jobs, onFiled, onCancel }) {
   )
 }
 
-function JobCard({ job, onError, jobs }) {
+function JobCard({ job, jobs }) {
   const [filing, setFiling] = useState(false)
 
   const r = job.result
@@ -112,12 +112,12 @@ function JobCard({ job, onError, jobs }) {
         <div>
           <div style={{ fontWeight: 700 }}>
             {job.status === 'reading' && <>Reading {job.fileName}…</>}
-            {job.status === 'done' && (job.savedAs ? <>Saved as {job.savedAs}</> : <>Report ready: {r.name}</>)}
+            {job.status === 'done' && <>Report ready: {r.name}</>}
             {job.status === 'failed' && <>Couldn't read {job.fileName}</>}
           </div>
           <div style={{ color: '#666', fontSize: '0.85rem' }}>
             {job.templateLabel}
-            {job.status === 'reading' && <> · {elapsed(job.startedAt)} so far (usually about a minute). You can leave this page; you'll be asked where to save it when it's ready.</>}
+            {job.status === 'reading' && <> · {elapsed(job.startedAt)} so far (usually about a minute). You can leave this page; it opens in Excel when it's ready.</>}
             {job.status === 'done' && <> · from {job.fileName} · {toFillCount(job) ? `${toFillCount(job)} cells to fill in or check (yellow)` : 'nothing left blank'}</>}
           </div>
           {job.status === 'done' && r.usedToday && <div style={{ color: '#7a4b00', fontSize: '0.85rem' }}>The date on the sheet couldn't be read for the file name, so today's date was used.</div>}
@@ -125,7 +125,7 @@ function JobCard({ job, onError, jobs }) {
         </div>
         <div style={{ display: 'flex', gap: '0.5rem' }}>
           {job.status === 'done' && <button onClick={() => openScan(job.id)} style={linkButton}>Open the scan</button>}
-          {job.status === 'done' && <button onClick={() => saveReport(job.id).catch((e) => onError(`Couldn't save the report: ${e.message}`))} style={job.savedAs ? linkButton : button(true)}>{job.savedAs ? 'Save again…' : 'Save as…'}</button>}
+          {job.status === 'done' && <button onClick={() => openReport(job.id)} style={linkButton}>Open the report again</button>}
           {job.status === 'done' && !job.filedOn && <button onClick={() => setFiling(true)} style={linkButton}>File finished report…</button>}
           {job.status !== 'reading' && <button onClick={() => dismissJob(job.id)} style={linkButton}>Dismiss</button>}
         </div>
@@ -188,7 +188,7 @@ export default function ScanToReport() {
       <h2 style={{ marginTop: 0 }}>Scan to Report</h2>
       <p style={{ color: '#555', marginTop: 0 }}>
         Drop in a scanned inspection sheet and get the filled-in Excel report. Anything the reader isn't sure of is left blank and highlighted yellow for you to fill in.
-        You can start a scan and carry on with other work; when the report is ready you'll be asked where to save it.
+        You can start a scan and carry on with other work; when the report is ready it opens in Excel.
       </p>
 
       <div style={card}>
@@ -224,7 +224,7 @@ export default function ScanToReport() {
       </div>
 
       {scans.map((job) => (
-        <JobCard key={job.id} job={job} jobs={jobs} onError={setError} />
+        <JobCard key={job.id} job={job} jobs={jobs} />
       ))}
 
       <div style={card}>

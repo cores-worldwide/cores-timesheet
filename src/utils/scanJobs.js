@@ -4,9 +4,8 @@ import { planCells, fillXlsx } from './xlsxFill'
 import { scanToViews } from './scanViews'
 
 // Scans run here, outside any page, so the office can start one and carry on
-// elsewhere in the app (Jim, 2026-10-30). Nothing downloads by itself (she
-// wouldn't know where it went): when a report is ready a prompt pops up and
-// "Save as…" opens the save dialog to name it and pick the folder. The top
+// elsewhere in the app (Jim, 2026-10-30). When a report is ready it opens
+// (openReport) and a pop-up says what to fill in and offers the scan. The top
 // bar shows what's running. Lives only in this browser tab (finished
 // reports are stored only when she files them), so closing or reloading the tab drops running scans
 // (the browser asks first).
@@ -15,7 +14,7 @@ const FUNCTION_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scan-rep
 const ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
 
 // job: { id, fileName, templateLabel, status: 'reading'|'done'|'failed',
-//        startedAt, finishedAt, error, prompted, savedAs, filedOn, templateId,
+//        startedAt, finishedAt, error, prompted, opened, filedOn, templateId,
 //        file (the scan, to reopen and file),
 //        result: { bytes, name, usedToday, summary, notesAdded } }
 let jobs = []
@@ -60,32 +59,16 @@ export function dismissPrompt(id) {
   update(id, { prompted: true })
 }
 
-// Opens the browser's save dialog (Chrome and Edge) so she can rename the
-// report and choose the folder. Other browsers can't do that from a page, so
-// they fall back to a normal download. Must be called from a click.
-export async function saveReport(id) {
+// Downloads the report so it opens in Excel (Jim, 2026-10-30: "the file
+// should open when it's finished"). A web page can't launch Excel itself; the
+// browser opens it once "Always open files of this type" is set for .xlsx
+// (one-time setup on Niki's computer). She names it and picks the folder in
+// Excel with File → Save As.
+export function openReport(id) {
   const job = jobs.find((j) => j.id === id)
   if (!job?.result) return
-  const { bytes, name } = job.result
-  if (typeof window.showSaveFilePicker === 'function') {
-    let handle
-    try {
-      handle = await window.showSaveFilePicker({
-        suggestedName: name,
-        types: [{ description: 'Excel workbook', accept: { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] } }],
-      })
-    } catch (e) {
-      if (e.name === 'AbortError') return // she cancelled the dialog
-      throw e
-    }
-    const writable = await handle.createWritable()
-    await writable.write(bytes)
-    await writable.close()
-    update(id, { prompted: true, savedAs: handle.name })
-    return
-  }
-  downloadBytes(bytes, name)
-  update(id, { prompted: true, savedAs: `${name} (Downloads folder)` })
+  downloadBytes(job.result.bytes, job.result.name)
+  update(id, { opened: true })
 }
 
 function downloadBytes(bytes, name) {
@@ -139,6 +122,7 @@ export function startScan(file, templateId) {
       const { bytes, notesAdded } = await fillXlsx(await tplRes.arrayBuffer(), template.sheet, writes)
       const { name, usedToday } = reportFilename(template, reading.header)
       update(id, { status: 'done', finishedAt: Date.now(), result: { bytes, name, usedToday, summary, notesAdded } })
+      openReport(id)
     } catch (e) {
       update(id, { status: 'failed', finishedAt: Date.now(), error: e.message || String(e) })
     }
