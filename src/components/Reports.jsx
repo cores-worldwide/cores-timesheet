@@ -836,6 +836,8 @@ export default function Reports() {
           </tbody>
         </table>
 
+        <JobFiles job={job} />
+
         <h4 style={{ color: '#555', marginBottom: '0.75rem' }}>Supplies Used</h4>
         {jobSupplies.length > 0 ? (
           <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '2rem' }}>
@@ -866,7 +868,6 @@ export default function Reports() {
           <div style={{ color: '#999', fontSize: '0.9rem', marginBottom: '2rem' }}>No supplies recorded</div>
         )}
 
-        <JobFiles job={job} />
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginBottom: '2rem' }}>
           {[
