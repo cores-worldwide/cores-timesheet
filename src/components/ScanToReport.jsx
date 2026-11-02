@@ -3,6 +3,7 @@ import { supabase } from '../supabaseClient'
 import { REPORT_TEMPLATES, findTemplate } from '../utils/reportTemplates'
 import { readCellText, matchJob, fileReport } from '../utils/scanFiling'
 import JobPicker from '../employee/JobPicker'
+import JobFileUploader from './JobFileUploader'
 import { useScanJobs, startScan, dismissJob, openReport, openScan, toFillCount, markFiled } from '../utils/scanJobs'
 
 // Scan to Report (Admin tab; Niki, 2026-10-29): drop in a scanned handwritten
@@ -165,6 +166,7 @@ export default function ScanToReport() {
   const [jobs, setJobs] = useState([])
   const [filingLoose, setFilingLoose] = useState(false)
   const [filedMsg, setFiledMsg] = useState('')
+  const [uploadJob, setUploadJob] = useState(null)
 
   useEffect(() => {
     supabase.schema('Cores').from('jobs').select('id, job_number, description, status, vessels(name)').order('job_number')
@@ -252,6 +254,20 @@ export default function ScanToReport() {
               onCancel={() => setFilingLoose(false)}
               onFiled={(j) => { setFilingLoose(false); setFiledMsg(`Filed on job ${j.job_number}. It's under Files on that job's page in Job Reports.`) }} />
           : <button onClick={() => { setFiledMsg(''); setFilingLoose(true) }} style={{ ...linkButton, marginTop: '0.6rem' }}>File a report…</button>}
+      </div>
+
+      {/* Jim, 2026-11-02: upload finished reports and scans (or whole folders) to a job from here too. */}
+      <div style={card}>
+        <div style={{ fontWeight: 700 }}>Upload files to a job</div>
+        <div style={{ color: '#666', fontSize: '0.9rem' }}>
+          Finished reports, the handwritten scans, or a whole folder. Choose the job first. A folder's sub-folders (e.g. valve-train, con-rods) become folders on the job's page in Job Reports.
+        </div>
+        <div style={{ maxWidth: '420px', margin: '0.6rem 0' }}>
+          <label style={{ display: 'block', fontSize: '0.9rem', marginBottom: '0.25rem' }}>Job <span style={{ color: '#c0392b' }}>*</span></label>
+          <JobPicker jobs={jobs} value={uploadJob?.id} onChange={setUploadJob}
+            inputStyle={{ width: '100%', padding: '0.45rem', fontSize: '0.95rem', boxSizing: 'border-box' }} />
+        </div>
+        <JobFileUploader key={uploadJob?.id || 'none'} job={uploadJob} disabledHint="Choose the job first — it's required." />
       </div>
     </div>
   )
