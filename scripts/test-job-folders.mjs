@@ -12,7 +12,7 @@ eq('two folders dropped together → one each', got(['valve-train/a.xlsx', 'con-
 eq('plain files → no folder', got(['a.pdf', 'b.pdf']), ['a.pdf:null', 'b.pdf:null'])
 eq('Thumbs.db skipped', got(['x/Thumbs.db', 'x/a.pdf']), ['a.pdf:x'])
 eq('cleanFolder trims / blanks', [cleanFolder('  a   b '), cleanFolder('   '), cleanFolder(null)], ['a b', null, null])
-eq('old report shows in its template folder', shownFolder({ kind: 'report', template_id: 'alco-valve-train-inspection', folder: null }), 'valve-train')
+eq('report with no folder stays loose (never auto-placed)', shownFolder({ kind: 'report', template_id: 'alco-valve-train-inspection', folder: null }), null)
 eq('own folder wins', shownFolder({ kind: 'report', template_id: 'alco-valve-train-inspection', folder: 'misc' }), 'misc')
 eq('uploaded file with no folder', shownFolder({ kind: 'file', folder: null }), null)
 process.exit(bad ? 1 : 0)

@@ -2,9 +2,9 @@ import JSZip from 'jszip'
 import { supabase } from '../supabaseClient'
 import { getAdminName } from '../components/PasswordGate'
 import { splitRef, matchJob } from './xlsxFill'
-import { cleanFolder, reportFolder } from './jobFolders'
+import { cleanFolder } from './jobFolders'
 
-export { cleanFolder, reportFolder, shownFolder, foldersFromPaths } from './jobFolders'
+export { cleanFolder, shownFolder, foldersFromPaths } from './jobFolders'
 
 export { matchJob }
 
@@ -68,9 +68,10 @@ async function addJobFile(job, file, { kind, contentType, templateId = null, sou
 export async function fileReport({ job, templateId, reportFile, scanFile }) {
   if (!job) throw new Error('Pick the job first.')
   if (!reportFile) throw new Error('Choose the finished Excel report.')
-  const folder = reportFolder(templateId)
-  const report = await addJobFile(job, reportFile, { kind: 'report', contentType: XLSX_TYPE, templateId, folder })
-  if (scanFile) await addJobFile(job, scanFile, { kind: 'scan', contentType: scanFile.type || 'application/pdf', sourceId: report.id, folder })
+  // No folder: filed reports go with the loose files; the office moves them
+  // into a folder themselves if they want (Jim, 2026-11-02, option A).
+  const report = await addJobFile(job, reportFile, { kind: 'report', contentType: XLSX_TYPE, templateId })
+  if (scanFile) await addJobFile(job, scanFile, { kind: 'scan', contentType: scanFile.type || 'application/pdf', sourceId: report.id })
 }
 
 // Any other files for the job (e.g. the external report written from the

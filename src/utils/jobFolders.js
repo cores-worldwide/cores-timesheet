@@ -1,16 +1,13 @@
-import { findTemplate } from './reportTemplates.js'
-
 // Folders (Jim, 2026-11-02): one level per job, e.g. "valve-train". null = no folder.
 export const cleanFolder = (name) => {
   const f = (name || '').replace(/\s+/g, ' ').trim().slice(0, 100)
   return f || null
 }
 
-// A report filed from Scan to Report goes in its template's folder.
-export const reportFolder = (templateId) => cleanFolder(findTemplate(templateId)?.fileSlug)
-
-// The folder shown for a file: its own, or for an older report its template's.
-export const shownFolder = (f) => f.folder || (f.kind === 'report' ? reportFolder(f.template_id) : null)
+// The folder shown for a file is only ever the one a person put it in.
+// Nothing is placed in a folder automatically (Jim, 2026-11-02: "you can't
+// just move files around") — no folder means it shows with the loose files.
+export const shownFolder = (f) => f.folder || null
 
 // Files picked or dropped, with their path inside the chosen folder
 // ("4685/valve-train/x.xlsx"), to { file, folder }. The folder is the first
