@@ -2,6 +2,9 @@ import JSZip from 'jszip'
 import { supabase } from '../supabaseClient'
 import { getAdminName } from '../components/PasswordGate'
 import { splitRef, matchJob } from './xlsxFill'
+import { cleanFolder, reportFolder } from './jobFolders'
+
+export { cleanFolder, reportFolder, shownFolder, foldersFromPaths } from './jobFolders'
 
 export { matchJob }
 
@@ -39,7 +42,7 @@ export async function readCellText(bytes, sheetPath, ref) {
 const safeName = (name) => name.replace(/[^A-Za-z0-9._-]+/g, '_').slice(-80)
 
 // Uploads one file to the job's folder and records it. Returns the new row.
-async function addJobFile(job, file, { kind, contentType, templateId = null, sourceId = null }) {
+async function addJobFile(job, file, { kind, contentType, templateId = null, sourceId = null, folder = null }) {
   const type = contentType || file.type || 'application/octet-stream'
   const path = `${job.id}/${new Date().toISOString().replace(/[:.]/g, '-')}-${kind}-${safeName(file.name)}`
   // Re-wrapped with the type set: browsers sometimes leave a file's type empty.
@@ -55,6 +58,7 @@ async function addJobFile(job, file, { kind, contentType, templateId = null, sou
     template_id: templateId,
     source_id: sourceId,
     filed_by_name: getAdminName() || null,
+    folder: cleanFolder(folder),
   }).select('id').single()
   if (error) throw new Error(`Couldn't record ${file.name}: ${error.message}`)
   return data
@@ -64,13 +68,25 @@ async function addJobFile(job, file, { kind, contentType, templateId = null, sou
 export async function fileReport({ job, templateId, reportFile, scanFile }) {
   if (!job) throw new Error('Pick the job first.')
   if (!reportFile) throw new Error('Choose the finished Excel report.')
-  const report = await addJobFile(job, reportFile, { kind: 'report', contentType: XLSX_TYPE, templateId })
-  if (scanFile) await addJobFile(job, scanFile, { kind: 'scan', contentType: scanFile.type || 'application/pdf', sourceId: report.id })
+  const folder = reportFolder(templateId)
+  const report = await addJobFile(job, reportFile, { kind: 'report', contentType: XLSX_TYPE, templateId, folder })
+  if (scanFile) await addJobFile(job, scanFile, { kind: 'scan', contentType: scanFile.type || 'application/pdf', sourceId: report.id, folder })
 }
 
-// Any other files for the job (e.g. the external report written from the measurements).
-export async function uploadJobFiles(job, files) {
-  for (const f of files) await addJobFile(job, f, { kind: 'file' })
+// Any other files for the job (e.g. the external report written from the
+// measurements). items: [{ file, folder }]. Keeps going past a failed file and
+// returns the failures, so one bad file doesn't stop a 50-file folder.
+export async function uploadJobFiles(job, items, onProgress) {
+  const failed = []
+  for (let i = 0; i < items.length; i++) {
+    onProgress?.(i + 1, items.length, items[i].file.name)
+    try {
+      await addJobFile(job, items[i].file, { kind: 'file', folder: items[i].folder })
+    } catch (e) {
+      failed.push(e.message)
+    }
+  }
+  return failed
 }
 
 export async function listJobFiles(jobId) {
@@ -84,6 +100,14 @@ export async function listJobFiles(jobId) {
 export async function moveJobFile(file, toJob) {
   const { error } = await supabase.schema('Cores').from('job_files')
     .update({ job_id: toJob.id }).or(`id.eq.${file.id},source_id.eq.${file.id}`)
+  if (error) throw new Error(`Couldn't move ${file.file_name}: ${error.message}`)
+}
+
+// Puts a file in another folder on the same job (null = no folder); a
+// report's original scan goes with it.
+export async function moveJobFileToFolder(file, folder) {
+  const { error } = await supabase.schema('Cores').from('job_files')
+    .update({ folder: cleanFolder(folder) }).or(`id.eq.${file.id},source_id.eq.${file.id}`)
   if (error) throw new Error(`Couldn't move ${file.file_name}: ${error.message}`)
 }
 
