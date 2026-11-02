@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { findTemplate } from '../utils/reportTemplates'
 import { supabase } from '../supabaseClient'
 import { listJobFiles, openStoredFile, moveJobFile, moveJobFileToFolder, removeJobFile, shownFolder } from '../utils/scanFiling'
@@ -27,6 +28,20 @@ export default function JobFiles({ job }) {
   const [open, setOpen] = useState({}) // folder name -> open
   const [newFolder, setNewFolder] = useState('')
   const [folderChoice, setFolderChoice] = useState('')
+
+  // Link from an upload on Scan to Report: /reports?job=<id>&files=a|b opens
+  // those folders and scrolls to Files, so she sees where the upload went.
+  const [searchParams] = useSearchParams()
+  const filesParam = searchParams.get('job') === job.id ? searchParams.get('files') : null
+  const boxRef = useRef(null)
+  const jumped = useRef(false)
+  useEffect(() => {
+    if (filesParam === null || !files || jumped.current) return
+    jumped.current = true
+    const names = filesParam.split('|').filter(Boolean)
+    if (names.length) setOpen((o) => ({ ...o, ...Object.fromEntries(names.map((n) => [n, true])) }))
+    boxRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [filesParam, files])
 
   const load = useCallback(() => {
     listJobFiles(job.id).then(setFiles).catch((e) => setError(e.message))
@@ -131,7 +146,7 @@ export default function JobFiles({ job }) {
   ))
 
   return (
-    <div style={{ marginBottom: '2rem' }}>
+    <div ref={boxRef} style={{ marginBottom: '2rem', scrollMarginTop: '70px' }}>
       <h4 style={{ color: '#555', margin: '0 0 0.75rem' }}>Files</h4>
       <div style={{ marginBottom: '0.75rem' }}>
         <JobFileUploader job={job} onUploaded={load} />

@@ -260,14 +260,14 @@ export default function ScanToReport() {
       <div style={card}>
         <div style={{ fontWeight: 700 }}>Upload files to a job</div>
         <div style={{ color: '#666', fontSize: '0.9rem' }}>
-          Finished reports, the handwritten scans, or a whole folder. Choose the job first. A folder's sub-folders (e.g. valve-train, con-rods) become folders on the job's page in Job Reports.
+          Finished reports, the handwritten scans, or a whole folder. Choose the job first. A folder's sub-folders (e.g. valve-train, con-rods) become folders on the job's page in Job Reports (Job Reports → the job → Files).
         </div>
         <div style={{ maxWidth: '420px', margin: '0.6rem 0' }}>
           <label style={{ display: 'block', fontSize: '0.9rem', marginBottom: '0.25rem' }}>Job <span style={{ color: '#c0392b' }}>*</span></label>
           <JobPicker jobs={jobs} value={uploadJob?.id} onChange={setUploadJob}
             inputStyle={{ width: '100%', padding: '0.45rem', fontSize: '0.95rem', boxSizing: 'border-box' }} />
         </div>
-        <JobFileUploader key={uploadJob?.id || 'none'} job={uploadJob} disabledHint="Choose the job first — it's required." />
+        <JobFileUploader key={uploadJob?.id || 'none'} job={uploadJob} showJobLink disabledHint="Choose the job first — it's required." />
       </div>
     </div>
   )

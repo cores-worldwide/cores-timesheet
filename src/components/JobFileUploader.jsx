@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react'
+import { Link } from 'react-router-dom'
 import { uploadJobFiles, foldersFromPaths } from '../utils/scanFiling'
 
 // Upload files or whole folders to a job's Files (Jim, 2026-11-02): buttons
@@ -28,10 +29,11 @@ async function readEntry(entry, out) {
   }
 }
 
-export default function JobFileUploader({ job, onUploaded, disabledHint }) {
+export default function JobFileUploader({ job, onUploaded, disabledHint, showJobLink }) {
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
   const [done, setDone] = useState('')
+  const [doneLink, setDoneLink] = useState('') // where the files went (Jim, 2026-11-02: "I don't see where they went")
   const [dragging, setDragging] = useState(false)
   const filesRef = useRef(null)
   const folderRef = useRef(null)
@@ -40,6 +42,7 @@ export default function JobFileUploader({ job, onUploaded, disabledHint }) {
   const send = async (picked) => {
     setError('')
     setDone('')
+    setDoneLink('')
     const items = foldersFromPaths(picked)
     if (!items.length) return
     const tooBig = items.filter(({ file }) => file.size > MAX_BYTES)
@@ -50,6 +53,7 @@ export default function JobFileUploader({ job, onUploaded, disabledHint }) {
       const failed = await uploadJobFiles(job, items, (n, total, name) => setBusy(`Uploading ${n} of ${total}: ${name}`))
       const ok = items.length - failed.length
       setDone(`${ok} file${ok === 1 ? '' : 's'} uploaded to job ${job.job_number}${folders.length ? ` (${folders.length === 1 ? 'folder' : 'folders'}: ${folders.join(', ')})` : ''}.`)
+      if (ok) setDoneLink(`/reports?job=${job.id}&files=${encodeURIComponent(folders.join('|'))}`)
       if (failed.length) setError(`${failed.length} didn't upload: ${failed.join(' · ')}`)
     } finally {
       setBusy('')
@@ -91,7 +95,12 @@ export default function JobFileUploader({ job, onUploaded, disabledHint }) {
         onChange={(e) => { const l = [...e.target.files]; e.target.value = ''; send(l.map((file) => ({ file, path: file.name }))) }} />
       <input ref={folderRef} type="file" webkitdirectory="" directory="" multiple style={{ display: 'none' }}
         onChange={(e) => { const l = [...e.target.files]; e.target.value = ''; send(l.map((file) => ({ file, path: file.webkitRelativePath || file.name }))) }} />
-      {done && <div style={{ color: '#2e7d32', fontSize: '0.85rem', marginTop: '0.35rem' }}>{done}</div>}
+      {done && (
+        <div style={{ color: '#2e7d32', fontSize: '0.85rem', marginTop: '0.35rem' }}>
+          {done}
+          {showJobLink && doneLink && <> <Link to={doneLink} style={{ color: '#0066cc', fontWeight: 600 }}>Open job {job.job_number}'s files →</Link></>}
+        </div>
+      )}
       {error && <div style={{ color: '#c0392b', fontSize: '0.85rem', marginTop: '0.35rem' }}>{error}</div>}
     </div>
   )
