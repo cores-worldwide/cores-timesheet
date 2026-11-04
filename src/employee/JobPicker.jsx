@@ -41,7 +41,7 @@ export default function JobPicker({ jobs, value, onChange, placeholder = 'Type a
   // Closing the dropdown without picking anything (e.g. clicking away) keeps
   // whatever was typed visible — it shouldn't look like the search was
   // cleared when it wasn't (a caller may still be live-filtering on it).
-  const displayValue = selectedJob ? (open ? query : `${selectedJob.job_number} — ${selectedJob.vessels?.name || selectedJob.description || ''}`) : query
+  const displayValue = selectedJob ? (open ? query : [selectedJob.job_number, selectedJob.vessels?.name].filter(Boolean).join(' — ')) : query
 
   return (
     <div ref={containerRef} style={{ position: 'relative' }}>
@@ -54,6 +54,11 @@ export default function JobPicker({ jobs, value, onChange, placeholder = 'Type a
         onChange={e => { setQuery(e.target.value); onQueryChange?.(e.target.value) }}
         style={inputStyle}
       />
+      {!open && selectedJob?.description && (
+        <div style={{ marginTop: '0.3rem', color: '#555', fontSize: '0.85rem', lineHeight: 1.4, overflowWrap: 'anywhere' }}>
+          {selectedJob.description}
+        </div>
+      )}
       {open && (
         <div style={{
           position: 'absolute', top: '100%', left: 0, right: 0, marginTop: '0.25rem', zIndex: 30,
