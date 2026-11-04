@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect } from 'react'
 // Type-to-filter job picker. A native <select> can't be typed into on iOS —
 // its wheel picker has no keyboard at all, so finding a job means scrolling
 // through 50+ options by hand. This is a text input + tap-list instead:
-// start typing a job number (or vessel name) and it filters down live.
+// start typing a job number, vessel name or description and it filters down live.
 export default function JobPicker({ jobs, value, onChange, placeholder = 'Type a job # to search…', inputStyle, onQueryChange }) {
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState(false)
@@ -66,8 +66,11 @@ export default function JobPicker({ jobs, value, onChange, placeholder = 'Type a
           {matches.map(j => (
             <div key={j.id}
               onClick={() => pick(j)}
-              style={{ padding: '0.65rem 0.8rem', borderBottom: '1px solid #f0f0f0', cursor: 'pointer', fontSize: '0.92rem' }}>
-              <strong>{j.job_number}</strong> — {j.vessels?.name || j.description}
+              style={{ padding: '0.65rem 0.8rem', borderBottom: '1px solid #f0f0f0', cursor: 'pointer', fontSize: '0.92rem', lineHeight: 1.4, overflowWrap: 'anywhere' }}>
+              <div><strong>{j.job_number}</strong>{j.vessels?.name && ` — ${j.vessels.name}`}</div>
+              {j.description && (
+                <div style={{ marginTop: '0.2rem', color: '#555', fontSize: '0.85rem' }}>{j.description}</div>
+              )}
             </div>
           ))}
         </div>
