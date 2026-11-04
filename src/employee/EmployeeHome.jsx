@@ -4,6 +4,7 @@ import { supabase } from '../supabaseClient'
 import { payWeekRange } from '../utils/statPay'
 import { computeOTMap } from '../utils/otCalc'
 import { fmtHours } from '../utils/format'
+import { draftEntries } from '../utils/draftEntries'
 import { fetchDailyOTContext, computeDailyOTSplit, computeSubmissionTiming, fixShiftAmPm, amPmFixNote } from '../utils/entrySave'
 import { addTechPhotos } from '../utils/media'
 import JobPicker from './JobPicker'
@@ -53,12 +54,14 @@ export default function EmployeeHome({ employee }) {
   const [draftLines, setDraftLines] = useState([blankDraftLine()])
   const [supplyLines, setSupplyLines] = useState([blankSupplyLine()])
   const [savingLog, setSavingLog] = useState(false)
+  const [closingLog, setClosingLog] = useState(false)
   const [amPmNote, setAmPmNote] = useState('')
   // Keyed by work_date so an in-flight autosave for a day that's no longer
   // open (the tech already swiped to another day) can't get corrupted by
   // openLog() resetting shared refs out from under it.
   const daySubIdsRef = useRef({})
   const insertLocksRef = useRef({})
+  const saveQueuesRef = useRef({})
   const baseEntriesRef = useRef({})
   const [markingDayOffFor, setMarkingDayOffFor] = useState(null)
   const [noteFor, setNoteFor] = useState(null)
@@ -226,7 +229,7 @@ export default function EmployeeHome({ employee }) {
     if (sub.stated_time_out) parts.push(`Out ${fmtTimeShort(sub.stated_time_out)}`)
     if (sub.lunch_minutes != null) parts.push(`Lunch ${sub.lunch_minutes}min`)
     if (sub.per_diem_location && sub.per_diem_location !== 'none') parts.push(`PD: ${sub.per_diem_location}`)
-    for (const e of sub.entries || []) parts.push(`Job# ${e.job_number}: ${e.hours}hrs${e.description ? ' — ' + e.description : ''}`)
+    for (const e of sub.entries || []) parts.push(`Job# ${e.job_number}: ${e.hours == null ? 'hrs TBD' : `${e.hours}hrs`}${e.description ? ' — ' + e.description : ''}`)
     for (const s of sub.supplies || []) parts.push(`Supply: ${s.supply_name} ×${s.quantity}${s.job_number ? ' (Job# ' + s.job_number + ')' : ''}`)
     if (parts.length === 0) return // nothing worth a snapshot
 
@@ -239,13 +242,18 @@ export default function EmployeeHome({ employee }) {
       .eq('id', id)
   }
 
-  function closeLog() {
-    if (logFor) logActivitySnapshot(logFor)
+  async function closeLog() {
+    setClosingLog(true)
+    if (logFor) {
+      if (!await autosaveLog(logFor)) { setClosingLog(false); return }
+      await logActivitySnapshot(logFor)
+    }
     setLogFor(null)
     setDraftLines([blankDraftLine()])
     setSupplyLines([blankSupplyLine()])
     setPhotoFor(null)
     setPhotoJobId('')
+    setClosingLog(false)
   }
 
   // Finds (or creates) this day's sms_submissions row, serialized so two
@@ -273,11 +281,24 @@ export default function EmployeeHome({ employee }) {
   // another day or leave the page mid-entry. linesOverride lets a handler
   // that just changed draftLines pass the freshly-computed array straight
   // through instead of reading back the (still-stale, pre-render) state.
-  async function autosaveLog(ymd, linesOverride, suppliesOverride) {
+  function autosaveLog(ymd, linesOverride, suppliesOverride) {
+    // Capture this edit before queuing it. Blurring Notes and then picking a
+    // job can save twice; an older Unknown save must not overwrite the pick.
     const lines = linesOverride ?? draftLines
-    const validLines = lines.filter(l => l.job_id)
+    const supplies = suppliesOverride ?? supplyLines
+    const shift = draftShift
+    setSavingLog(true)
+    const pending = (saveQueuesRef.current[ymd] || Promise.resolve())
+      .then(() => persistLog(ymd, lines, supplies, shift))
+    saveQueuesRef.current[ymd] = pending
+    return pending.finally(() => {
+      if (saveQueuesRef.current[ymd] === pending) setSavingLog(false)
+    })
+  }
+
+  async function persistLog(ymd, lines, rawSupplies, shift) {
     const jobNumberFor = (jobId) => jobs.find(j => j.id === jobId)?.job_number || ''
-    const rawSupplies = suppliesOverride ?? supplyLines
+    const pendingLines = draftEntries(lines.map(l => ({ ...l, job_number: jobNumberFor(l.job_id) })))
     const cleanedSupplies = rawSupplies
       .filter(s => s.supply_name.trim())
       .map(s => ({
@@ -286,18 +307,19 @@ export default function EmployeeHome({ employee }) {
         quantity: Number(s.quantity) > 0 ? Number(s.quantity) : 1,
       }))
 
-    setSavingLog(true); setError('')
+    setError('')
     try {
       let newEntries = []
-      if (validLines.length > 0) {
+      if (pendingLines.length > 0) {
         const { statDay, dailyOTThreshold, alreadyWorked: startAlready } = await fetchDailyOTContext(supabase, employee.id, ymd)
         let alreadyWorked = startAlready + (baseEntriesRef.current[ymd] || []).reduce((s, e) => s + (Number(e.hours) || 0), 0)
-        newEntries = validLines.map(l => {
-          const hours = Number(l.hours) || 0
+        newEntries = pendingLines.map(l => {
+          if (l.hours == null) return { ...l, reg_hours: null, ot_hours: null }
+          const hours = l.hours
           const { reg, ot } = computeDailyOTSplit(hours, alreadyWorked, dailyOTThreshold, statDay)
           alreadyWorked += hours
           return {
-            job_number: jobNumberFor(l.job_id), hours, description: (l.description || '').trim(),
+            ...l,
             reg_hours: Math.round(reg * 100) / 100, ot_hours: Math.round(ot * 100) / 100,
           }
         })
@@ -305,21 +327,20 @@ export default function EmployeeHome({ employee }) {
 
       const entries = [...(baseEntriesRef.current[ymd] || []), ...newEntries]
       const totalHours = entries.reduce((s, e) => s + (Number(e.hours) || 0), 0)
-      const ampm = fixShiftAmPm(draftShift.time_in, draftShift.time_out, totalHours, draftShift.lunch_minutes)
+      const ampm = fixShiftAmPm(shift.time_in, shift.time_out, totalHours, shift.lunch_minutes)
       if (ampm.changed) {
         setDraftShift(f => ({ ...f, time_in: ampm.time_in, time_out: ampm.time_out }))
         setAmPmNote(amPmFixNote(ampm))
       }
       const time_in = ampm.time_in || null
       const stated_time_out = ampm.time_out || null
-      const lunch_minutes = draftShift.lunch_minutes === '' ? null : Number(draftShift.lunch_minutes)
-      const per_diem_location = draftShift.per_diem_location.trim() || 'none'
+      const lunch_minutes = shift.lunch_minutes === '' ? null : Number(shift.lunch_minutes)
+      const per_diem_location = shift.per_diem_location.trim() || 'none'
       const { calculated_time_out, delta_minutes } = computeSubmissionTiming(time_in, stated_time_out, lunch_minutes, totalHours)
 
-      // Nothing worth persisting yet — no shift time set, no per diem note, no job picked, no supply logged
+      // Skip only an untouched form; a work note alone is a real pending entry.
       if (!time_in && !stated_time_out && lunch_minutes == null && per_diem_location === 'none' && entries.length === 0 && cleanedSupplies.length === 0) {
-        setSavingLog(false)
-        return
+        return true
       }
 
       const id = await ensureDaySubId(ymd)
@@ -330,12 +351,13 @@ export default function EmployeeHome({ employee }) {
       const { error: err } = await supabase.schema('Cores').from('sms_submissions')
         .update({ time_in, stated_time_out, lunch_minutes, per_diem_location, entries, supplies: cleanedSupplies, calculated_time_out, delta_minutes, status: 'submitted', updated_at: new Date().toISOString() })
         .eq('id', id)
-      if (err) { setError(err.message); setSavingLog(false); return }
+      if (err) { setError(err.message); return false }
       await load({ silent: true })
+      return true
     } catch (e) {
       setError(e.message)
+      return false
     }
-    setSavingLog(false)
   }
 
   // Uploaded straight to the gear-photos bucket — photo or video, the
@@ -596,12 +618,12 @@ export default function EmployeeHome({ employee }) {
                 })()}
 
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '0.6rem', marginTop: '0.9rem' }}>
-                  <button className="emp-btn" disabled={savingLog} onClick={closeLog}>Save Entry</button>
+                  <button className="emp-btn" disabled={closingLog} onClick={closeLog}>{closingLog ? 'Saving…' : 'Save Entry'}</button>
                   {/* Everything above autosaves as it's typed, so there's nothing to
                       actually discard — this closes the same way Save Entry does.
                       It exists for whoever opened this just to look and wants a
                       button that doesn't read like they're committing to anything. */}
-                  <button type="button" className="emp-inline-link" style={{ fontSize: '0.85rem' }} disabled={savingLog} onClick={closeLog}>Cancel</button>
+                  <button type="button" className="emp-inline-link" style={{ fontSize: '0.85rem' }} disabled={closingLog} onClick={closeLog}>Cancel</button>
                   {savingLog && <span style={{ fontSize: '0.8rem', color: '#999' }}>Saving…</span>}
                 </div>
               </div>
