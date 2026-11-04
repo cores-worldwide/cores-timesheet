@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
+import { draftEntries } from '../utils/draftEntries'
 import { fetchDailyOTContext, computeDailyOTSplit, fixShiftAmPm, amPmFixNote } from '../utils/entrySave'
 import JobPicker from './JobPicker'
 import AutoGrowTextarea from './AutoGrowTextarea'
@@ -116,19 +117,15 @@ export default function PendingEntryEdit({ employee }) {
   }
 
   async function saveEdit() {
-    const cleaned = entries
-      .filter(e => e.job_number.trim() || e.description.trim() || e.hours !== '')
-      .map(e => ({ job_number: e.job_number.trim(), hours: Number(e.hours) || 0, description: e.description.trim() }))
+    const cleaned = draftEntries(entries)
 
-    if (cleaned.some(e => !e.job_number)) { setError('Every entry needs a job'); return }
-    if (cleaned.some(e => !(Number(e.hours) >= 0))) { setError('Hours can\'t be blank (0 is fine for a day off)'); return }
     if (cleaned.length === 0) { setError('Add at least one job'); return }
-    if (cleaned.some(e => !e.description)) { setError('Add a note describing what was done for each job'); return }
     setSaving(true); setError('')
 
     const { statDay, dailyOTThreshold, alreadyWorked: startAlready } = await fetchDailyOTContext(supabase, employee.id, sub.work_date)
     let alreadyWorked = startAlready
     const entriesWithOT = cleaned.map(e => {
+      if (e.hours == null) return { ...e, reg_hours: null, ot_hours: null }
       const { reg, ot } = computeDailyOTSplit(e.hours, alreadyWorked, dailyOTThreshold, statDay)
       alreadyWorked += e.hours
       return { ...e, reg_hours: Math.round(reg * 100) / 100, ot_hours: Math.round(ot * 100) / 100 }

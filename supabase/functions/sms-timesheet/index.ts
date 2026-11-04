@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { createClient } from "jsr:@supabase/supabase-js@2"
+import { mergeEntries, parsedWorkEntries, unparsedWorkEntry } from "./entries.js"
 
 // Handles both SMS (via Twilio) and WhatsApp (via Twilio Messaging API)
 // Webhook payload is identical for both; Twilio routes based on channel config
@@ -786,6 +787,7 @@ function friendlyDate(d: string): string {
 function calcOTBreakdown(entries: any[], dailyThreshold: number, alreadyWorked = 0): any[] {
   let regLeft = Math.max(0, dailyThreshold - alreadyWorked)
   return entries.map(e => {
+    if (e.hours == null) return { ...e, reg_hours: null, ot_hours: null }
     const hours = Math.round((Number(e.hours) || 0) * 100) / 100
     const reg   = Math.round(Math.min(hours, Math.max(0, regLeft)) * 100) / 100
     const ot    = Math.round((hours - reg) * 100) / 100
@@ -795,8 +797,9 @@ function calcOTBreakdown(entries: any[], dailyThreshold: number, alreadyWorked =
 }
 
 // The day's "current job": the job this tech mentioned most recently, used to
-// attach job-less texts ("fixed the head") and uncaptioned photos to the right
-// work without asking. Primary source: the day's submission entries (greatest
+// attach uncaptioned photos and supplies to the right work without asking.
+// Work-note entries use Unknown unless a job is supplied. Primary source for
+// this photo/supply fallback: the day's submission entries (greatest
 // last_mentioned_at stamp; legacy rows without stamps fall back to array order).
 // Fallback: the newest job-tagged gear photo — a photo captioned "4900" that
 // morning establishes the day's job before any hours text arrives.
@@ -869,107 +872,6 @@ async function getLastJobForDay(supabase: any, fromPhone: string, workDate: stri
   // job-scoped view (Reports, Job Reports, billing) at all; "Unknown" does,
   // which is the whole reason that job exists.
   return 'Unknown'
-}
-
-// Accumulate a day's texts into ONE entry per job: hours add (or replace, when
-// the parser marked the mention as a correction), descriptions join with "; ".
-// New entries with no job number inherit lastJob; if there's no job to inherit,
-// they're kept with job_number null and folded into the day's job as soon as
-// one is named (the "Which job?" answer, or a later text that names one).
-// Every entry touched this message gets a last_mentioned_at stamp — the source
-// of truth for getLastJobForDay. The parser-only replace_hours key never makes
-// it into the result (entries are rebuilt field-by-field).
-function mergeEntries(prevEntries: any[], newEntries: any[], lastJob: string | null, now: string): any[] {
-  const merged: any[] = prevEntries.map((e: any) => ({ ...e }))
-
-  const foldInto = (target: any, hours: number | null, desc: string, replaceHours: boolean) => {
-    if (hours != null) {
-      target.hours = replaceHours || !(Number(target.hours) > 0)
-        ? hours
-        : Math.round((Number(target.hours) + hours) * 100) / 100
-    }
-    const existingDesc = String(target.description || '').trim()
-    if (desc && !existingDesc.toLowerCase().includes(desc.toLowerCase())) {
-      target.description = existingDesc ? `${existingDesc}; ${desc}` : desc
-    }
-    target.last_mentioned_at = now
-  }
-
-  for (const raw of newEntries) {
-    // A job-number correction renames the existing entry rather than adding a
-    // second one under the new number — "actually that was 4760, not 9999".
-    const correctsFrom = String(raw.corrects_job_number || '').trim()
-    if (correctsFrom) {
-      const oldEntry = merged.find((e: any) => String(e.job_number || '').toLowerCase() === correctsFrom.toLowerCase())
-      if (oldEntry) {
-        const newJobNum = String(raw.job_number || '').trim()
-        const hours = Number(raw.hours) > 0 ? Number(raw.hours) : null
-        const desc = String(raw.description || '').replace(/\s+/g, ' ').trim()
-        // A real entry may already exist under the corrected number (e.g. the tech
-        // separately texted 4760 earlier) — fold the mistyped one into it rather
-        // than leaving two rows for what's really one job.
-        const target = newJobNum
-          ? merged.find((e: any) => e !== oldEntry && String(e.job_number || '').toLowerCase() === newJobNum.toLowerCase())
-          : null
-        if (target) {
-          foldInto(target, Number(oldEntry.hours) > 0 ? Number(oldEntry.hours) : null, String(oldEntry.description || '').trim(), false)
-          merged.splice(merged.indexOf(oldEntry), 1)
-          foldInto(target, hours, desc, !!raw.replace_hours)
-        } else {
-          if (newJobNum) oldEntry.job_number = newJobNum
-          foldInto(oldEntry, hours, desc, !!raw.replace_hours)
-        }
-        continue
-      }
-      // The "old" number wasn't found (e.g. from a prior day) — fall through so
-      // the new job number still gets recorded instead of silently dropped.
-    }
-
-    const jobNum = (raw.job_number || '').trim() || lastJob
-    const hours = Number(raw.hours) > 0 ? Number(raw.hours) : null
-    const desc = String(raw.description || '').replace(/\s+/g, ' ').trim()
-    const existing = jobNum
-      ? merged.find((e: any) => String(e.job_number || '').toLowerCase() === String(jobNum).toLowerCase())
-      : null
-    if (existing) {
-      foldInto(existing, hours, desc, !!raw.replace_hours)
-    } else {
-      merged.push({ job_number: jobNum || null, hours, description: desc, last_mentioned_at: now })
-    }
-  }
-
-  // ── Safety net: collapse any duplicate job numbers into one entry ──
-  // A job number can land on an entry several ways (direct match, a correction,
-  // an occasional LLM parsing quirk) — however it happens, two rows for the same
-  // job is never correct. Always combine down to one before doing anything else.
-  const byJob = new Map<string, any>()
-  const deduped: any[] = []
-  for (const e of merged) {
-    const key = e.job_number ? String(e.job_number).toLowerCase() : null
-    const prior = key ? byJob.get(key) : null
-    if (prior) {
-      foldInto(prior, Number(e.hours) > 0 ? Number(e.hours) : null, String(e.description || '').trim(), false)
-      if (String(e.last_mentioned_at || '') > String(prior.last_mentioned_at || '')) prior.last_mentioned_at = e.last_mentioned_at
-    } else {
-      deduped.push(e)
-      if (key) byJob.set(key, e)
-    }
-  }
-
-  // Fold still-unattributed work into the most recently mentioned job, if any —
-  // this is what turns yesterday's stored "fixed the head" plus today's "4900"
-  // answer into a single 4900 entry.
-  const withJob = deduped.filter((e: any) => e.job_number)
-  if (withJob.length > 0) {
-    const anchor = [...withJob].sort((a: any, b: any) =>
-      String(a.last_mentioned_at || '').localeCompare(String(b.last_mentioned_at || '')))[withJob.length - 1]
-    for (const orphan of deduped.filter((e: any) => !e.job_number)) {
-      foldInto(anchor, Number(orphan.hours) > 0 ? Number(orphan.hours) : null, String(orphan.description || '').trim(), false)
-    }
-    return withJob
-  }
-
-  return deduped
 }
 
 // Short ack + running day total — the reply for every accepted text now that the
@@ -1067,7 +969,7 @@ Rules:
 - stated_time_out: "HH:MM" 24-hour if they said when they finished/left anywhere in the message — else null. A time range on a job ("4709 9 to 5") counts here too — extract the second time as stated_time_out, the same way "worked 4760 all day, in 7 out 5" would.
 - lunch_minutes: integer minutes if lunch mentioned ("lunch 30" → 30, "half hour lunch" → 30, "1/2 hour" → 30), 0 if explicitly no lunch ("no lunch", "worked through", "no break") — null if not mentioned at all
 - per_diem_location: hotel/location string if staying overnight, "none" if explicitly no per diem ("no PD", "no per diem", "going home", "nope", "no", "worked in the shop", "at the shop", "local", "not staying") — null if not mentioned at all
-- entries: [{job_number:"4-digit string or SHOP"|null, hours:number|null, description:"verbatim from message", replace_hours:boolean, corrects_job_number:"4-digit string"|null}] — only real job work. corrects_job_number: set this ONLY when the message says a job number already reported today was WRONG and gives the correct one ("actually that was 4760, not 9999", "wrong job, it's 4762 not 4761", "change 9999 to 4760", "meant 4760 not 9999") — corrects_job_number is the OLD/wrong number being replaced, job_number is the NEW/correct number. Leave hours and description null unless the message also restates new work/hours alongside the correction. Otherwise always null. If the message clearly describes work done but names NO job ("fixed the head this afternoon", "another 2 hours on the pump"), still return the entry with job_number null — the app attaches it to the day's current job. If the message names a job number but gives no work description and no hours ("job 4949", "end time 3:30 job 4949", "4760" on its own), still return an entry for that job_number with hours and description null — never drop a job-number mention just because nothing else came with it; the office fills in the rest. Only a message with NEITHER a job number NOR a work description — just times/lunch/PD, like "In 7:30" or "no lunch, no PD" — returns entries: []. replace_hours: true when the message restates the TOTAL/FINAL hours for a job already reported today, rather than describing more work done — this includes "actually that was 3hrs", "make that 6", "not 2, 3 hours", "I only worked 7hrs on 4760", "only 2hrs for 4862", "it was really 5", "should only be 4", "total was 6". The word "only" or a flat restated number tied to a specific job almost always means a correction, not new work. replace_hours: false ONLY for messages that clearly describe additional new work on top of what's already logged ("another 2 hrs", "plus 2 more on it", "did 2 more hours this afternoon"). Internal shop work with no customer job ("shop", "job shop", "shop work", "in the shop doing X") gets job_number "SHOP" (always uppercase). hours: the number ONLY if the worker explicitly stated hours for that specific job as a duration ("4760 6hrs", "3.5 hours on 4862") — otherwise null. A time range attached to a job ("4709 9 to 5", "4760 from 8 to 4") is NOT explicit hours — leave hours null even though it looks computable; do not subtract or compute anything yourself. Never estimate, guess, or split a shift total across jobs yourself, even if you know time_in/stated_time_out — the app does that math from the overall time bounds and lunch after parsing.
+- entries: [{job_number:"4-digit string or SHOP"|null, hours:number|null, description:"verbatim from message", replace_hours:boolean, corrects_job_number:"4-digit string"|null}] — only real job work. corrects_job_number: set this ONLY when the message says a job number already reported today was WRONG and gives the correct one ("actually that was 4760, not 9999", "wrong job, it's 4762 not 4761", "change 9999 to 4760", "meant 4760 not 9999") — corrects_job_number is the OLD/wrong number being replaced, job_number is the NEW/correct number. Leave hours and description null unless the message also restates new work/hours alongside the correction. Otherwise always null. If the message clearly describes work done but names NO job ("fixed the head this afternoon", "another 2 hours on the pump"), still return the full work description with job_number null and hours null unless explicitly given — it is kept under Unknown for office review. Never omit a description because the job or hours are missing. If the message names a job number but gives no work description and no hours ("job 4949", "end time 3:30 job 4949", "4760" on its own), still return an entry for that job_number with hours and description null — never drop a job-number mention just because nothing else came with it; the office fills in the rest. Only a message with NEITHER a job number NOR a work description — just times/lunch/PD, like "In 7:30" or "no lunch, no PD" — returns entries: []. replace_hours: true when the message restates the TOTAL/FINAL hours for a job already reported today, rather than describing more work done — this includes "actually that was 3hrs", "make that 6", "not 2, 3 hours", "I only worked 7hrs on 4760", "only 2hrs for 4862", "it was really 5", "should only be 4", "total was 6". The word "only" or a flat restated number tied to a specific job almost always means a correction, not new work. replace_hours: false ONLY for messages that clearly describe additional new work on top of what's already logged ("another 2 hrs", "plus 2 more on it", "did 2 more hours this afternoon"). Internal shop work with no customer job ("shop", "job shop", "shop work", "in the shop doing X") gets job_number "SHOP" (always uppercase). hours: the number ONLY if the worker explicitly stated hours for that specific job as a duration ("4760 6hrs", "3.5 hours on 4862") — otherwise null. A time range attached to a job ("4709 9 to 5", "4760 from 8 to 4") is NOT explicit hours — leave hours null even though it looks computable; do not subtract or compute anything yourself. Never estimate, guess, or split a shift total across jobs yourself, even if you know time_in/stated_time_out — missing job hours stay null for the worker or office to fill in, even when shift start and stop times are present.
 - supplies: [{job_number:"4-digit string", supply_name:string, quantity:number}] — materials/consumables used on a job. Trigger words are "supplies", "parts", or "supply" (any of these, plus obvious misspellings like "supplys"/"suplies"/"parts used" — this is a text message, expect typos), either as its own line/message or as a lead-in word before a list of items: "supplies brake cleaner x1, wire brushes x2 Job 4358", "parts 2 wire brushes", "PARTS: brake cleaner x1", or mixed in with hours ("4760 6hrs bearings, used 2 cans brake cleaner"). One item per line works exactly the same as several comma-separated on one line — parse every line that starts with a trigger word, and every comma-separated item after it, the same way. Quantity comes ONLY from an explicit count word/pattern at the item's edge — "x2", "2 cans", "two rolls", a bare leading count ("2 wire brushes") — default 1 if no count is given. supply_name is the item's full name MINUS only that count — keep everything else, including any part/model/catalog number, brand, spec, or color ("wire brush PN 4521", "3M 5200 sealant", "#44 red", "1/2 inch hose", "wire brushes 43622") verbatim, even if it's a number, EVEN IF it happens to look like a job number. A trailing/leading alphanumeric code stuck directly onto the item is a part number, not a quantity and not a job number — never drop it, never move it into job_number, and never truncate/reshape it to fit any format. E.g. "wire brush PN4521 x2" → supply_name "wire brush PN4521", quantity 2. "2 wire brushes" → supply_name "wire brushes", quantity 2. "2 Wire brushes 43622" → supply_name "wire brushes 43622", quantity 2, job_number "" (the trailing number isn't labeled as a job, so it stays part of the item — never invent or reshape a job_number from it). job_number is set ONLY when the message explicitly marks a number as the job — "Job 4358", "for 4760", "on job 4862" — a bare number with no such marker is part of the item name, full stop. If no job number is given with the supplies, use the job from the same message; empty string if no job mentioned at all (the app then falls back to whatever job the day's already on). Supplies are NOT job work — never create an entries item from a supplies phrase. The reverse also holds: a job's work description is not a supply. "4760 2hrs seals" or "6hrs bearings" describes the work done — extract supplies ONLY when the text presents them as materials used/consumed ("used 2 cans of brake cleaner", "supplies: wire brush x2", "grabbed a roll of tape"), never from a bare work description.
 - low_stock: [{item:string, job_number:"4-digit string"|null}] — set ONLY when the message signals an item is nearly or fully depleted: "last one/can/box/roll/tube/bottle/pair/bag", "running low", "almost out", "getting low", "down to the last one", "need to order more X". This is independent of whether the same item also appears in supplies (used X — supplies can be reported without being low, and a low item might not be phrased as "used" at all — e.g. "heads up, brake cleaner is down to one can" gets low_stock even though nothing was consumed just now). item is the item name, same style as supply_name (keep part/catalog numbers attached, strip only an explicit count). job_number only if explicitly marked as job for that message ("Job 4358") — otherwise null, never guessed.
 - is_help_request: true only if the entire message is a help request
@@ -2135,34 +2037,15 @@ Deno.serve(async (req: Request) => {
   // recomputed from the real (much longer) shift.
   const knownTimeIn = submission?.time_in ? friendlyTime(submission.time_in.substring(0, 5)) : null
 
+  let parseFailed = false
   try {
     parsed = await parseWithClaude(msgBody, today, parseContext, knownTimeIn)
   } catch (_e) {
     console.error('parseWithClaude failed:', _e instanceof Error ? _e.message : String(_e))
-    const r = "Couldn't read that one. Reply HELP for the format, or text the office directly."
-    // Safety net for the exact failure mode that left Aidan Gardin's text
-    // (2026-09-02) totally unanswered: parseWithClaude only reaches this
-    // catch after burning real time on retries, and a slow-enough Anthropic
-    // outage can still eat Twilio's ~15s webhook window even with the
-    // shortened backoff above — at which point Twilio delivers nothing no
-    // matter what this function returns (confirmed that day: this function
-    // completed and returned a valid TwiML reply, but the tech never
-    // received it). Fires a second, independent reply through Twilio's
-    // outbound REST API — decoupled from this response's timing entirely —
-    // so a genuine timeout doesn't leave the tech in total silence.
-    // Backgrounded via waitUntil so it can't delay the response we're
-    // already about to send; occasionally doubling up this one fallback
-    // message is a far better failure mode than the tech hearing nothing.
-    if (isTwilio && fromPhone) {
-      const to = toWhatsAppE164(fromPhone)
-      const sendSafetyNet = async () => {
-        const result = isWhatsAppChannel ? await sendTwilioWhatsApp(to, r) : await sendTwilioSMS(to, r)
-        if (!result.ok) console.error('safety-net send failed:', result.error)
-      }
-      // @ts-ignore — EdgeRuntime is a Supabase/Deno Deploy global for background tasks, not in the standard lib types.
-      EdgeRuntime.waitUntil(sendSafetyNet())
-    }
-    return isTwilio ? twiML(r) : jsonReply({ reply: r })
+    // Parsing trouble must not cost the worker their note. Keep the original
+    // message as an incomplete entry and let the office supply missing fields.
+    parseFailed = true
+    parsed.entries = [unparsedWorkEntry(msgBody)]
   }
 
   if (parsed.is_help_request) {
@@ -2280,11 +2163,11 @@ Deno.serve(async (req: Request) => {
 
     // ── Merge entries ──
     // One entry per job per day: hours accumulate (or replace, for corrections),
-    // descriptions join. A text with no job number attaches to the day's current job.
+    // descriptions join. Work without a supplied job is kept under Unknown.
     const lastJob = await getLastJobForDay(supabase, fromPhone, workDate, submission, employeeId)
     const prevEntries: any[] = submission?.entries || []
     const mergeStamp = new Date().toISOString()
-    let allEntries: any[] = mergeEntries(prevEntries, parsed.entries || [], lastJob, mergeStamp)
+    let allEntries: any[] = mergeEntries(prevEntries, parsedWorkEntries(parsed, msgBody), mergeStamp)
 
     // Supplies accumulate across texts the same way entries do. If no job number was
     // given with a supply, attribute it to the first job we know about for the day.
@@ -2312,12 +2195,11 @@ Deno.serve(async (req: Request) => {
     // later in the day overrides whatever was stored (or defaulted) earlier.
     // Silent default, same philosophy as lunch/PD — a tech who doesn't mention a
     // start time almost always started around 7; the office corrects the exceptions.
-    // Only applies when there's actual work logged for the day — an "off, zero
-    // hours" text has no entries at all, and defaulting to 7am there produced a
-    // nonsensical "Got it — in 7am" reply for a day the tech said they didn't work.
+    // Only applies when there are supplied hours. A note without hours keeps
+    // its start time blank too; it is an incomplete record for office review.
     const rawTimeIn       = parsed.time_in
                           ?? (submission?.time_in ? submission.time_in.substring(0, 5) : null)
-                          ?? (allEntries.length > 0 ? '07:00' : null)
+                          ?? (allEntries.some((e: any) => Number(e.hours) > 0) ? '07:00' : null)
     const rawStatedOut    = parsed.stated_time_out
                           ?? (submission?.stated_time_out ? submission.stated_time_out.substring(0, 5) : null)
     const mergedLunch     = parsed.lunch_minutes != null ? parsed.lunch_minutes
@@ -2371,59 +2253,9 @@ Deno.serve(async (req: Request) => {
       ))
     }
 
-    // If any entry has no hours but we have start + end times, infer hours from the time bounds.
-    // Common case: "worked on 4760 all day" — hours are null but times tell us how long.
-    const nullHoursEntries = allEntries.filter((e: any) => !e.hours || Number(e.hours) === 0)
-    if (nullHoursEntries.length > 0 && mergedTimeIn && mergedStatedOut) {
-      const boundedHours = (timeToMins(mergedStatedOut) - timeToMins(mergedTimeIn) - (mergedLunch || 0)) / 60
-      const knownHours   = allEntries.reduce((s: number, e: any) => { const h = Number(e.hours); return h > 0 ? s + h : s }, 0)
-      const remaining    = Math.max(0, Math.round((boundedHours - knownHours) * 100) / 100)
-      const each         = Math.round((remaining / nullHoursEntries.length) * 100) / 100
-      allEntries = allEntries.map((e: any) =>
-        (!e.hours || Number(e.hours) === 0) ? { ...e, hours: each } : e
-      )
-    }
-
-    // Single job for the whole day + known shift bounds: the job's hours MUST equal the
-    // bounded elapsed time. Claude sometimes fills entries[].hours from a bare time range on
-    // the job itself ("4709 9 to 5" -> hours: 8, the raw span) despite being told not to —
-    // recompute from the bounds rather than trust that number, since there's no ambiguity
-    // to preserve when there's only one job.
-    //
-    // Only allowed to run the FIRST time on an entry the current message didn't just create
-    // or touch itself (last_mentioned_at === mergeStamp) — otherwise a later, unrelated
-    // message that happens to complete the shift bounds while only one job is known SO FAR
-    // (more may still be coming) would silently overwrite that job's already-correct,
-    // explicitly-stated hours with the full shift span. Real incident: Cory's "Shop 1hr"
-    // silently became "Shop 8hrs" the instant he texted his out-time, before he'd texted his
-    // second job — which then showed as all OT once given (2026-08-26).
-    //
-    // Once an entry HAS been bounds-derived this way, _hours_from_bounds keeps it re-syncing
-    // on later bounds-only corrections too ("actually lunch was only 30 min") — that's a real,
-    // separate, intended behavior (a lone job's hours track the shift bounds once derived from
-    // them) and gating purely on last_mentioned_at would have broken it.
-    // Same-message variant of the above: a tech states explicit hours AND full time
-    // bounds together in one message and the two don't agree (e.g. "4760 6hrs, in 7,
-    // out 3:30" — bounds say 8). Bounds still win here (Claude's stated number is often
-    // itself just the raw span, per the note above — there's no reliable way to tell
-    // "genuinely stated" from "computed from the range" at this point), but silently
-    // trusting bounds with no visibility was the original 2026-08-08 concern — flag a
-    // real mismatch to the office instead of swallowing it. Only checked on first touch
-    // (this message), not on a later _hours_from_bounds re-sync (e.g. a lunch
-    // correction), since that re-sync is intended behavior and would false-positive here.
-    let hoursBoundsMismatch: { stated: number; bounds: number } | null = null
-    if (allEntries.length === 1 && mergedTimeIn && mergedStatedOut &&
-        (allEntries[0].last_mentioned_at === mergeStamp || allEntries[0]._hours_from_bounds)) {
-      const firstTouch = allEntries[0].last_mentioned_at === mergeStamp
-      const statedHours = Number(allEntries[0].hours) || 0
-      const boundedHours = Math.round(((timeToMins(mergedStatedOut) - timeToMins(mergedTimeIn) - (mergedLunch || 0)) / 60) * 100) / 100
-      if (boundedHours > 0) {
-        if (firstTouch && statedHours > 0 && Math.abs(statedHours - boundedHours) > 0.1) {
-          hoursBoundsMismatch = { stated: statedHours, bounds: boundedHours }
-        }
-        allEntries = [{ ...allEntries[0], hours: boundedHours, _hours_from_bounds: true }]
-      }
-    }
+    // Job hours are supplied durations, not a share of the shift inferred here.
+    // Incomplete notes stay null, and explicit durations must never be replaced
+    // by shift bounds. The existing delta check exposes any mismatch for review.
 
     // ── Calculate time_out from hours + lunch ──
     const totalHours = allEntries.reduce((s: number, e: any) => s + (Number(e.hours) || 0), 0)
@@ -2509,7 +2341,7 @@ Deno.serve(async (req: Request) => {
     const hasUnattributedWork = allEntries.some((e: any) => !e.job_number)
 
     // Fields the office will need to fill in (shown in review screen)
-    flags = []
+    flags = parseFailed ? ['text kept as written — needs office review'] : []
 
     // ── Decide ──
     // The bot records quietly: job number and PD are never asked about — they default
@@ -2557,7 +2389,7 @@ Deno.serve(async (req: Request) => {
 
     if (nextStatus === 'submitted' && !reply) {
       if (allEntries.some((e: any) => !(Number(e.hours) > 0))) {
-        flags.push('job hours missing — need total hours or an out time')
+        flags.push('job hours missing — the office will check')
       }
       reply = daySummaryReply(firstName, touchedEntriesWithOT, totalHours, totalOTHours, mergedTimeIn, flags, unknownJobs, allEntriesWithOT.length, deltaMinutes)
     }
@@ -2572,10 +2404,6 @@ Deno.serve(async (req: Request) => {
     } else if (midnightOutWarning && mergedStatedOut && reply) {
       reply += `\nHeads up — your out time (${friendlyTime(mergedStatedOut)}) is after midnight. Did you mean pm?`
     }
-    if (hoursBoundsMismatch && reply) {
-      reply += `\nHeads up — you said ${hoursBoundsMismatch.stated}hrs but your in/out times work out to ${hoursBoundsMismatch.bounds}hrs. Logged ${hoursBoundsMismatch.bounds}hrs — reply to correct if that's wrong.`
-    }
-
     // ── Save/update submission ──
     const prevMsgs: any[] = submission?.raw_messages || []
     const allMsgs = [
