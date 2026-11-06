@@ -55,7 +55,7 @@ Jim's supplied Cores letterhead is retained. Labels and fields share compact row
 
 ## Verification and remaining work
 
-- 2026-11-06 review fixes: `tests/report-review-fixes.browser.js` (14 checks), all browser fixtures and unit tests pass, run with mocked job data and database writes blocked. Videos can still be selected as photos (open).
+- 2026-11-06 review fixes: `tests/report-review-fixes.browser.js` (19 checks), run with mocked job data and database writes blocked. Videos are not offered as report photos and the editor refuses them; they stay viewable on the job page.
 - Seven mapping/dev-guard checks pass for safe job defaults, engine choice, legacy field migration and date overrides.
 - Thirty-one cover browser checks pass: field order, optional photo upload/edit/reopen, locked job, engine catalogue/selection, date defaults/manual overrides/reset, participants, legacy fields/title migration, inline customer/date labels, optional-photo omission, mobile width, save/reopen, and zero database-write requests.
 - Letter PDFs with and without a vessel photo, all requested fields and a 600-character reason were extracted/rendered and visually checked at the final print font size. Each cover stays on page one; body text begins on page two.

@@ -9,11 +9,13 @@ async page => {
   const job=(id,n)=>({id,job_number:n,status:'open',description:'Inspection request',customers:{name:'Sample customer'},vessels:{name:'Sample vessel'}});
   const jobs=[job(first,'FIX-TEST-A'),job(longJob,'FIX-TEST-B'),job(futureJob,'FIX-TEST-C')];
   const entries=[{id:'a',job_id:first,employee_id:employee.id,work_date:'2026-11-03',hours:4,description:'First',employees:employee,jobs:jobs[0]},{id:'b',job_id:first,employee_id:employee.id,work_date:'2026-11-04',hours:3,description:'Second',employees:employee,jobs:jobs[0]},{id:'c',job_id:longJob,employee_id:employee.id,work_date:'2026-11-03',hours:1,description:'Long',employees:employee,jobs:jobs[1]},{id:'d',job_id:futureJob,employee_id:employee.id,work_date:'2026-11-03',hours:1,description:'Future',employees:employee,jobs:jobs[2]}];
+  const photos=[{id:'still',job_id:first,employee_id:employee.id,work_date:'2026-11-03',storage_path:'test/still.jpg'},{id:'clip-a',job_id:first,employee_id:employee.id,work_date:'2026-11-03',storage_path:'test/clip.mp4'},{id:'clip-b',job_id:first,employee_id:employee.id,work_date:'2026-11-03',storage_path:'test/clip.3GP'}];
+  await page.route('https://giwexoouqxioxkjhoxoe.supabase.co/storage/v1/object/public/gear-photos/**',route=>route.fulfill({contentType:'image/png',body:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j4XcAAAAASUVORK5CYII=','base64')}));
   const writes=[];
   await page.route('https://giwexoouqxioxkjhoxoe.supabase.co/rest/v1/**',async route=>{
     const req=route.request(),url=new URL(req.url());
     if(!['GET','HEAD','OPTIONS'].includes(req.method())){writes.push(req.method());return route.fulfill({status:405,body:'Writes forbidden in this test'});}
-    let data=({jobs,employees:[employee],timesheet_entries:entries})[url.pathname.split('/').pop()]||[];
+    let data=({jobs,employees:[employee],timesheet_entries:entries,gear_photos:photos})[url.pathname.split('/').pop()]||[];
     for(const field of ['id','job_id'])if(url.searchParams.get(field)?.startsWith('eq.'))data=data.filter(row=>row[field]===url.searchParams.get(field).slice(3));
     await route.fulfill({status:200,contentType:'application/json',headers:{'content-range':data.length?`0-${data.length-1}/${data.length}`:'*/0'},body:req.method()==='HEAD'?'':JSON.stringify(req.headers().accept?.includes('vnd.pgrst.object')?data[0]||{}:data)});
   });
@@ -67,6 +69,20 @@ async page => {
   await page.getByRole('button',{name:'Close report builder',exact:true}).click();
   await page.getByRole('button',{name:'Build service report',exact:true}).waitFor();
   check(true,'A second Close can still leave after a warning');
+
+  await loadJob(first);
+  await page.getByText('Select photos').first().click();
+  const boxes=page.locator('input[aria-label^="Include photograph"]');
+  check(await boxes.count()===1&&await boxes.first().getAttribute('aria-label')==='Include photograph still','Only still photos can be selected, whatever the video file extension case');
+  check(await page.getByText('Videos can’t go in a printed report').isVisible(),'The picker says why videos are not listed');
+  check(await page.locator('span',{hasText:'📷 3'}).count()>=1,'The page still counts and opens the job’s videos');
+  await boxes.first().check();
+  await page.getByRole('button',{name:'Add selected photos to report',exact:true}).click();
+  await editor().locator('.media-figure img').first().waitFor();
+  check(await editor().locator('.media-figure').count()===1,'The selected still photo is added');
+  const before=(await read(first)).blocks.length;
+  const rejected=await page.evaluate(jobId=>new Promise(resolve=>{addEventListener('message',event=>{if(event.data?.type==='cores-report-imported'&&event.data.id==='video-probe')resolve(event.data.error||'');});document.querySelector('iframe[title^="Service report editor"]').contentWindow.postMessage({type:'cores-report-import',id:'video-probe',jobId,sections:[{type:'media',title:'Video',items:[{kind:'image',name:'clip.mp4',url:'https://giwexoouqxioxkjhoxoe.supabase.co/storage/v1/object/public/gear-photos/test/clip.mp4'}]}]},location.origin);}),first);
+  check(rejected.includes('Videos')&&(await read(first)).blocks.length===before,'The editor refuses a video even if one is sent directly');
 
   const many=Array.from({length:101},(_,i)=>({id:'b'+i,type:'text',title:'S'+i,html:'<p>x</p>'}));
   await seed(longJob,{version:1,cover:{},blocks:many});

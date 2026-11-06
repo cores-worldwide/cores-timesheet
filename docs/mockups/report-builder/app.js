@@ -11,6 +11,7 @@ import {readDraft,writeDraft,flushDraft,draftStorageMessage} from './draft-store
   const STORE_KEY = embedded ? `cores-service-report-dev-${hostJobId}-v1` : 'cores-report-builder-mockup-v1';
   document.body.classList.toggle('embedded',embedded);
   const MAX_FILE_BYTES = 4 * 1024 * 1024;
+  const VIDEO_FILE=/\.(mp4|mov|webm|3gp|m4v)$/i; // Same list as src/utils/media.js.
   const ENGINE_COVER_FIELDS=['engineType','engineSerial','engineManufacturer','engineRole'];
   const COVER_DEFAULTS = {
     projectNo:'',writtenBy:'',authorLocation:'',visitStart:'',visitEnd:'',destination:'',participants:'',serviceReason:'',
@@ -188,7 +189,7 @@ import {readDraft,writeDraft,flushDraft,draftStorageMessage} from './draft-store
       const blocks=request.sections.map(section=>{
         const common={id:uid(),title:String(section.title||'New section').slice(0,180),sourceLabel:String(section.sourceLabel||'From Job Reports').slice(0,80)};
         if(section.type==='text')return {...common,type:'text',html:cleanHTML(section.html),sourceIds:Array.isArray(section.sourceIds)?section.sourceIds.filter(id=>typeof id==='string'&&id.length<=100):[]};
-        if(section.type!=='media'||!Array.isArray(section.items)||!section.items.length||section.items.some(item=>item.kind!=='image'||!safeURL(item.url)))throw new Error('A selected photograph could not be imported.');
+        if(section.type!=='media'||!Array.isArray(section.items)||!section.items.length||section.items.some(item=>item.kind!=='image'||!safeURL(item.url)||VIDEO_FILE.test(item.url)))throw new Error('A selected photograph could not be imported. Videos can’t go in a printed report.');
         return {...common,type:'media',layout:'quarter',items:section.items.map(item=>({id:uid(),kind:'image',name:String(item.name||'Job photograph'),url:item.url,caption:String(item.caption||'')}))};
       });
       const previous=state.blocks;

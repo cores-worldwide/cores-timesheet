@@ -9,6 +9,7 @@ import { DownloadButton } from './MediaViewer'
 import PhotoLightbox from './PhotoLightbox'
 import { getAdminName } from './PasswordGate'
 import { fetchAll } from '../utils/fetchAll'
+import { isVideoPath } from '../utils/media'
 import JobFiles from './JobFiles'
 import ReportBuilder from './ReportBuilder'
 import {reportBuilderAvailable} from '../utils/reportBuilderData'
@@ -743,7 +744,8 @@ export default function Reports() {
     }, {})
 
     const selectedNotes=reportSelection.jobId===job.id ? jobEntries.filter(e=>reportSelection.notes.includes(e.id)) : []
-    const visiblePhotos=gearPhotos.filter(p=>jobEntries.some(e=>p.job_id===job.id&&p.employee_id===e.employee_id&&p.work_date===e.work_date))
+    // A printed report can only show still images, so videos are not offered.
+    const visiblePhotos=gearPhotos.filter(p=>!isVideoPath(p.storage_path)&&jobEntries.some(e=>p.job_id===job.id&&p.employee_id===e.employee_id&&p.work_date===e.work_date))
     const selectedPhotos=reportSelection.jobId===job.id ? visiblePhotos.filter(p=>reportSelection.photos.includes(p.id)) : []
     const addSection=(section,disabled=false,label)=>reportBuilderAvailable&&<button type="button" aria-label={label||`Add ${section.title} to report`} disabled={disabled||!!reportImport} onClick={()=>importReportSections(job.id,[section])} style={{padding:'0.3rem 0.7rem',border:'1px solid #0066cc',borderRadius:4,background:'#f4f9ff',color:'#0059b3',cursor:disabled||reportImport?'default':'pointer',fontSize:'0.8rem',opacity:disabled||reportImport?.jobId===job.id?0.6:1}}>{label?.startsWith('Add selected')?label.replace(' to report',''):'Add to report'}</button>
     const workLog=reportTable('Full Work Log',['Date','Employee','Hours','Description'],[...jobEntries].sort((a,b)=>a.work_date.localeCompare(b.work_date)).map(e=>[e.work_date,e.employees?.name||'—',e.hours,e.description]))
@@ -975,7 +977,7 @@ export default function Reports() {
                         onClick={() => openPhotoGroup(`${job.job_number} — ${e.employees?.name} — ${e.work_date}`, entryPhotos)}
                       >📷 {entryPhotos.length}</span>
                     ) : '—'}
-                    {reportBuilderAvailable&&entryPhotos.length>0&&<details style={{marginTop:6,textAlign:'left'}}><summary style={{cursor:'pointer',fontSize:12}}>Select photos</summary><div style={{display:'flex',flexWrap:'wrap',gap:8,paddingTop:8}}>{entryPhotos.map(photo=><label key={photo.id} style={{display:'flex',alignItems:'center',gap:4}}><input type="checkbox" aria-label={`Include photograph ${photo.id}`} checked={selectedPhotos.some(p=>p.id===photo.id)} onChange={()=>toggleReportItem(job.id,'photos',photo.id)}/><img src={gearPhotoUrl(photo.thumb_path||photo.storage_path)} alt={`Job photograph from ${photo.work_date}`} loading="lazy" style={{width:56,height:44,objectFit:'cover',borderRadius:3}}/></label>)}</div></details>}
+                    {reportBuilderAvailable&&entryPhotos.length>0&&<details style={{marginTop:6,textAlign:'left'}}><summary style={{cursor:'pointer',fontSize:12}}>Select photos</summary><div style={{display:'flex',flexWrap:'wrap',gap:8,paddingTop:8}}>{entryPhotos.some(photo=>isVideoPath(photo.storage_path))&&<span style={{flexBasis:'100%',fontSize:12,color:'#777'}}>Videos can’t go in a printed report, so they aren’t listed here.</span>}{entryPhotos.filter(photo=>!isVideoPath(photo.storage_path)).map(photo=><label key={photo.id} style={{display:'flex',alignItems:'center',gap:4}}><input type="checkbox" aria-label={`Include photograph ${photo.id}`} checked={selectedPhotos.some(p=>p.id===photo.id)} onChange={()=>toggleReportItem(job.id,'photos',photo.id)}/><img src={gearPhotoUrl(photo.thumb_path||photo.storage_path)} alt={`Job photograph from ${photo.work_date}`} loading="lazy" style={{width:56,height:44,objectFit:'cover',borderRadius:3}}/></label>)}</div></details>}
                   </td>
                 </tr>
               )
