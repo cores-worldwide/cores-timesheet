@@ -47,6 +47,13 @@ async page => {
   check(await page.getByRole('checkbox',{name:'Include photograph photo-a',exact:true}).isChecked(),'Adding notes keeps the separate photo selection');
   await page.getByRole('button',{name:'Add selected photos to report',exact:true}).click();
   await editor().getByRole('textbox',{name:'Description for photo-a.png',exact:true}).fill('Edited photo description');
+  await editor().getByRole('button',{name:'Edit image photo-a.png',exact:true}).click();
+  const imageDialog=editor().getByRole('dialog',{name:'Edit image',exact:true});
+  await page.waitForFunction(()=>!document.querySelector('iframe[title^="Service report editor"]').contentDocument.querySelector('[data-image-save]').disabled);
+  await imageDialog.getByRole('slider',{name:'Image size in frame',exact:true}).evaluate(input=>{input.value='70';input.dispatchEvent(new Event('input',{bubbles:true}));});
+  await imageDialog.getByRole('button',{name:'Apply image changes',exact:true}).click();
+  check(await editor().locator('.media-frame .edited-image').count()===1,'The embedded editor adjusts an imported storage photograph');
+
   const notes=editor().locator('.report-block').filter({has:editor().locator('input[value="Work performed"]')});
   check((await notes.innerText()).includes('Selected inspection note')&&!(await notes.innerText()).includes('Leave this note out'),'Only selected work notes are imported');
   check(await notes.locator('script').count()===0,'Source note markup is escaped');
@@ -60,7 +67,8 @@ async page => {
   check(await editor().locator('.richtext').first().innerText()==='Edited report wording','Edited report text survives reload');
   check(await editor().locator('td').first().innerText()==='Report-only role','Edited table cells survive reload');
   check(await editor().getByRole('textbox',{name:'Description for photo-a.png',exact:true}).inputValue()==='Edited photo description','Photo caption survives reload');
-  check(await editor().locator('.media-figure img').evaluate(img=>img.complete&&img.naturalWidth>0),'Imported photo loads after reload');
+  check(await editor().locator('.media-figure .edited-image image').getAttribute('href')==='https://giwexoouqxioxkjhoxoe.supabase.co/storage/v1/object/public/gear-photos/test/photo-a.png','Edited photo retains its original dev storage source after reload');
+  check((await editor().locator('.media-figure .edited-image').getAttribute('style')).includes('70%'),'Imported photo resizing survives reload');
   await editor().locator('.report-block').last().getByRole('button',{name:'Move component up',exact:true}).click();
   await editor().locator('.report-block').last().getByRole('button',{name:'Remove component',exact:true}).click();
   check(await editor().locator('.report-block').count()===5,'Imported sections can be reordered and removed');

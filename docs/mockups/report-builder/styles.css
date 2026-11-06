@@ -236,3 +236,24 @@ dialog{border:0;padding:0;border-radius:12px;box-shadow:0 25px 90px #112d4840;ma
  .image-sheet .media-frame iframe{display:none}
  .image-sheet .media-frame:has(iframe){min-height:0}
 }
+
+/* Report-only, non-destructive image editing. */
+.image-sheet .media-frame .edited-image,.image-edit-preview .edited-image{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:var(--image-scale,100%);height:var(--image-scale,100%);overflow:hidden}
+.media-item-actions{flex-wrap:wrap}.media-item-actions [data-edit-image]{font-size:10px;white-space:nowrap}
+.image-editor-dialog{width:min(850px,calc(100vw - 24px));max-width:850px;max-height:calc(100vh - 24px);padding:0;overflow:auto;color:var(--ink)}
+.image-editor-heading{display:flex;justify-content:space-between;gap:20px;padding:24px 26px 10px}.image-editor-heading h2{font-size:26px;margin:6px 0 8px}.image-editor-heading p{font-size:12px;color:var(--muted);margin:0;line-height:1.5}
+.image-editor-status{font-size:12px;line-height:1.5;margin:0;padding:4px 26px 18px;min-height:40px}
+.image-editor-workspace{display:grid;grid-template-columns:minmax(0,1fr) 230px;gap:20px;border:0;margin:0;padding:0 26px 24px;min-width:0}
+.crop-stage{background:#192b3a;padding:14px;display:flex;align-items:center;justify-content:center;min-height:160px;overflow:hidden;border-radius:4px}
+.crop-surface{position:relative;aspect-ratio:var(--source-ratio,1);width:100%;max-width:calc(42vh * var(--source-aspect,1));touch-action:none;overflow:hidden;cursor:crosshair}
+.crop-source{display:block;width:100%;height:100%;object-fit:contain;user-select:none;pointer-events:none}
+.crop-selection{position:absolute;border:2px solid #fff;box-shadow:0 0 0 9999px #0009;cursor:move;touch-action:none;min-width:3px;min-height:3px}
+.crop-selection:focus-visible{outline:2px solid #39cadd;outline-offset:3px}
+.crop-guide{position:absolute;pointer-events:none;opacity:.6}.crop-guide.vertical{left:33.333%;width:33.333%;top:0;height:100%;border-left:1px solid #fff;border-right:1px solid #fff}.crop-guide.horizontal{top:33.333%;height:33.333%;left:0;width:100%;border-top:1px solid #fff;border-bottom:1px solid #fff}
+.crop-handle{position:absolute;width:14px;height:14px;background:#fff;border:1px solid #087e83;z-index:2}.crop-handle.nw{top:-2px;left:-2px;cursor:nwse-resize}.crop-handle.ne{top:-2px;right:-2px;cursor:nesw-resize}.crop-handle.sw{bottom:-2px;left:-2px;cursor:nesw-resize}.crop-handle.se{bottom:-2px;right:-2px;cursor:nwse-resize}
+.precise-crop{font-size:12px;margin-top:14px}.precise-crop summary{cursor:pointer;color:var(--blue)}.precise-crop>div{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;padding-top:12px}.precise-crop label{font-size:10px;color:var(--muted)}.precise-crop input{width:100%;margin-top:5px;padding:7px 4px;border:1px solid var(--line);border-radius:3px;color:var(--ink)}
+.image-preview-label{display:block;font-size:10px;color:var(--muted);margin:0 0 7px}.image-edit-preview{position:relative;width:100%;height:145px;background:#e9eef1;border:1px solid var(--line);overflow:hidden;margin-bottom:15px}
+.image-adjustments>label{display:block;font-size:11px;margin:13px 0;color:var(--ink)}.image-adjustments output{float:right;color:var(--teal);font-weight:600}.image-adjustments input[type=range]{display:block;width:100%;margin:8px 0 0;accent-color:var(--teal)}.image-size-help{font-size:10px;line-height:1.5;color:var(--muted)}.image-adjustments .button{font-size:11px;padding:8px 10px}
+@media(max-width:620px){.image-editor-heading{padding:20px 18px 8px}.image-editor-status{padding:4px 18px 14px}.image-editor-workspace{grid-template-columns:1fr;padding:0 18px 20px}.image-adjustments{display:grid;grid-template-columns:1fr 1fr;gap:8px 15px}.image-adjustments>label{margin:6px 0}.image-preview-label,.image-edit-preview,.image-size-help{grid-column:1/-1}.image-edit-preview{height:120px;margin-bottom:0}.crop-surface{max-width:calc(35vh * var(--source-aspect,1))}.crop-handle{width:20px;height:20px}}
+
+.image-editor-workspace>legend{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}

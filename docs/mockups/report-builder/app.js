@@ -1,6 +1,7 @@
 /* Local report-builder prototype. Job reads use a dev-only local proxy. */
 import {fillFromJob, suggestedEngines, engineFields, engineModel} from './job-fields.mjs';
 import {IMAGE_LAYOUTS,imageLayout,imagePages} from './image-layouts.mjs';
+import {createImageEditor,normalizeImageEdit,editedImageMarkup} from './image-editor.mjs';
 (() => {
   'use strict';
   const params = new URLSearchParams(location.search);
@@ -118,7 +119,7 @@ import {IMAGE_LAYOUTS,imageLayout,imagePages} from './image-layouts.mjs';
     if (saved?.version === 1 && Array.isArray(saved.blocks) && saved.blocks.length <= 100) {
       state = { version: 1, blocks: saved.blocks.filter(block => block && typeof block.id === 'string' && ['text', 'media', 'break'].includes(block.type)).map(block => {
         if (block.type === 'text') return { id: block.id, type: 'text', title: String(block.title || ''), sourceLabel:String(block.sourceLabel||''), html: cleanHTML(block.html), sourceIds: Array.isArray(block.sourceIds) ? block.sourceIds.filter(id => typeof id==='string' && id.length<=100) : [] };
-        if (block.type === 'media') return { id: block.id, type: 'media', title: String(block.title || ''), sourceLabel:String(block.sourceLabel||''), layout: imageLayout(block.layout), items: (Array.isArray(block.items) ? block.items : []).filter(item => item && safeURL(item.url)).map(item => ({ id: String(item.id || uid()), kind: ['image', 'pdf', 'attachment'].includes(item.kind) ? item.kind : 'attachment', name: String(item.name || 'Attachment'), url: item.url, caption: String(item.caption || '') })) };
+        if (block.type === 'media') return { id: block.id, type: 'media', title: String(block.title || ''), sourceLabel:String(block.sourceLabel||''), layout: imageLayout(block.layout), items: (Array.isArray(block.items) ? block.items : []).filter(item => item && safeURL(item.url)).map(item => ({ id: String(item.id || uid()), kind: ['image', 'pdf', 'attachment'].includes(item.kind) ? item.kind : 'attachment', name: String(item.name || 'Attachment'), url: item.url, caption: String(item.caption || ''), edit:normalizeImageEdit(item.edit) })) };
         return { id: block.id, type: 'break' };
       }) };
       state.cover = Object.fromEntries(Object.entries(COVER_DEFAULTS).map(([key, fallback]) => [key, typeof saved.cover?.[key] === 'string' ? saved.cover[key].slice(0, key === 'serviceReason' ? 600 : 180) : fallback]));
@@ -367,10 +368,10 @@ import {IMAGE_LAYOUTS,imageLayout,imagePages} from './image-layouts.mjs';
   }
   function mediaItem(item) {
     let preview;
-    if (item.kind === 'image') preview = `<img src="${esc(item.url)}" alt="${esc(item.caption || item.name)}">`;
+    if (item.kind === 'image') preview = editedImageMarkup(item,item.edit) || `<img src="${esc(item.url)}" alt="${esc(item.caption || item.name)}">`;
     else if (item.kind === 'pdf') preview = `<iframe src="${esc(pdfPreviewURL(item.url))}#toolbar=0&navpanes=0&view=FitH" title="PDF preview: ${esc(item.name)}"></iframe><span class="attachment-print-label">PDF attachment<br>${esc(item.name)}</span>`;
     else preview = `<div class="file-preview">${icon('document')}<strong>${esc(item.name)}</strong><span>Attached file · open to view</span></div>`;
-    return `<figure class="media-figure" data-item-id="${item.id}"><div class="media-frame">${preview}</div><textarea class="media-caption" aria-label="Description for ${esc(item.name)}" placeholder="Add a description for this image or file…" rows="2">${esc(item.caption)}</textarea><div class="media-caption-print">${esc(item.caption)}</div><div class="media-item-actions screen-only"><span title="${esc(item.name)}">${esc(item.name)}</span><a href="${esc(item.url)}" target="_blank" rel="noopener" download="${esc(item.name)}">Open original</a><button class="icon-button danger" data-remove-item="${item.id}" title="Remove file" aria-label="Remove ${esc(item.name)}">${icon('close')}</button></div></figure>`;
+    return `<figure class="media-figure" data-item-id="${item.id}"><div class="media-frame">${preview}</div><textarea class="media-caption" aria-label="Description for ${esc(item.name)}" placeholder="Add a description for this image or file…" rows="2">${esc(item.caption)}</textarea><div class="media-caption-print">${esc(item.caption)}</div><div class="media-item-actions screen-only"><span title="${esc(item.name)}">${esc(item.name)}</span>${item.kind === 'image' ? `<button class="small-text-button" data-edit-image="${esc(item.id)}" aria-label="Edit image ${esc(item.name)}">Edit image</button>` : ''}<a href="${esc(item.url)}" target="_blank" rel="noopener" download="${esc(item.name)}">Open original</a><button class="icon-button danger" data-remove-item="${item.id}" title="Remove file" aria-label="Remove ${esc(item.name)}">${icon('close')}</button></div></figure>`;
   }
   function renderBlock(block, index) {
     const top = blockActions(block, index);
@@ -622,6 +623,7 @@ import {IMAGE_LAYOUTS,imageLayout,imagePages} from './image-layouts.mjs';
   $('#insert-notes').addEventListener('click', insertNotes);
   $('#file-picker').addEventListener('change', event => { if (pendingFileBlock) addFiles(pendingFileBlock, event.target.files); });
   $('#report-outline').addEventListener('click', event => { const row = event.target.closest('.outline-row'); if (!row) return; if (previewing) setPreview(false); if (row.dataset.showCover) showPage('cover'); else { showPage('body'); selectBlock(row.dataset.id, true); } });
+  const openImageEditor=createImageEditor($('#image-editor-dialog'));
   $('#report-blocks').addEventListener('click', event => {
     const el = event.target.closest('.report-block');
     if (!el) return;
@@ -629,6 +631,17 @@ import {IMAGE_LAYOUTS,imageLayout,imagePages} from './image-layouts.mjs';
     selectBlock(id);
     const block = state.blocks.find(b => b.id === id);
     const index = state.blocks.indexOf(block);
+    const editButton=event.target.closest('[data-edit-image]');
+    if(editButton){
+      const item=block.items?.find(item=>item.id===editButton.dataset.editImage&&item.kind==='image');
+      if(item)openImageEditor(item,edit=>{
+        const previous=item.edit;
+        item.edit=edit;
+        if(!saveDraft()){item.edit=previous;return false;}
+        render();selectBlock(block.id,true);toast('Image crop and size saved. The original is unchanged.');return true;
+      });
+      return;
+    }
     const removeItem = event.target.closest('[data-remove-item]');
     if (removeItem) { block.items = block.items.filter(item => item.id !== removeItem.dataset.removeItem); render(); changed(); return; }
     const action = event.target.closest('[data-action]')?.dataset.action;
