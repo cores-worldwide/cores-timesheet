@@ -11,7 +11,7 @@ The report builder lives inside Job Reports on dev. Production release is not ap
 
 ## Opening page
 
-Jim's supplied Cores letterhead is retained. Content order:
+Jim's supplied Cores letterhead is retained. Labels and fields share compact rows in editing, preview and print; phone layouts use one field per row. Printed labels/values remain readable at 9/10 pt. The cover grows rather than clipping if exceptional content needs more space. Content order:
 
 | Group | Fields |
 | --- | --- |
@@ -45,7 +45,7 @@ Jim's supplied Cores letterhead is retained. Content order:
 ## Verification and remaining work
 
 - Seven mapping/dev-guard checks pass for safe job defaults, engine choice, legacy field migration and date overrides.
-- Twenty-eight cover browser checks pass: field order, optional photo upload/edit/reopen, locked job, engine catalogue/selection, date defaults/manual overrides/reset, participants, legacy fields/title migration, mobile width, save/reopen, and zero database-write requests.
-- A Letter PDF with all requested fields, a vessel photo and a 600-character reason was extracted/rendered and visually checked. Everything stays on page one; body text begins on page two.
+- Thirty-one cover browser checks pass: field order, optional photo upload/edit/reopen, locked job, engine catalogue/selection, date defaults/manual overrides/reset, participants, legacy fields/title migration, inline customer/date labels, optional-photo omission, mobile width, save/reopen, and zero database-write requests.
+- Letter PDFs with and without a vessel photo, all requested fields and a 600-character reason were extracted/rendered and visually checked at the final print font size. Each cover stays on page one; body text begins on page two.
 - Nineteen integrated Job Reports checks pass with the revised cover and Job Summary heading. Earlier checks cover quarter-page flow, image cropping/printing and a deliberately full localStorage area plus interrupted-save retry. Tests are under `tests/`; run browser fixtures with `playwright-cli run-code --filename=…` against port 5212. `npm run build` passes; the existing bundle-size warning remains.
 - Remaining production design: server-backed report filing/shared drafts, final PDF merging/export and real page numbering. Current drafts are browser-local. No app push/deploy or production testing is approved.

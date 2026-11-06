@@ -304,3 +304,41 @@ dialog{border:0;padding:0;border-radius:12px;box-shadow:0 25px 90px #112d4840;ma
 @media print{#cover-page .cover-vessel-hero{margin:12px 0 2px;padding-bottom:10px;gap:18px}#cover-page .cover-vessel-hero.has-photo{grid-template-columns:minmax(0,1fr) 60mm}#cover-page .vessel-photo-preview{height:30mm;max-width:none}#cover-page .cover-vessel-intro h2{font-size:9pt;margin:7px 0 0}#cover-page .vessel-name-field>.field-display{font-size:20px!important}#cover-page .cover-photo-slot:has(.vessel-photo-preview[hidden]){display:none}#cover-page .report-customer-grid{grid-template-columns:1fr 1fr}#cover-page .report-job-grid{margin-top:8px}#cover-page .cover-section{padding:9px 0}#cover-page .report-customer-grid>.cover-field:last-child{grid-column:auto}}
 
 .vessel-photo-actions [hidden],.vessel-photo-preview[hidden]{display:none!important}
+
+/* Compact opening-page rows: labels and editable/printed values share a line. */
+#cover-page .cover-field{display:grid;grid-template-columns:104px minmax(0,1fr);column-gap:9px;align-items:baseline}
+#cover-page .cover-field>span:first-child:not(.field-display),#cover-page .cover-field>label{grid-column:1;margin:0;line-height:1.4}
+#cover-page .cover-field>input,#cover-page .cover-field>textarea,#cover-page .cover-field>select,#cover-page .cover-field>.field-display,#cover-page .cover-field>.job-locked-control{grid-column:2;min-width:0}
+#cover-page .cover-field input,#cover-page .cover-field select{padding:4px 0}
+#cover-page .cover-field input[type=date]{height:29px;font-size:11px}
+#cover-page .cover-field:has(textarea){align-items:start}
+#cover-page .cover-field:has(textarea)>span:first-child{padding-top:6px}
+#cover-page .author-dates-grid .cover-field{grid-template-columns:65px minmax(0,1fr);gap:7px}
+#cover-page .vessel-name-field{grid-template-columns:max-content minmax(0,1fr)}
+#cover-page .vessel-name-field>span:first-child{padding-right:3px}
+#cover-page .cover-field-grid{column-gap:20px;row-gap:9px}
+#cover-page .author-dates-grid{margin-top:8px}
+#cover-page .report-job-grid{margin-top:8px}
+#cover-page .report-engine-grid{row-gap:8px}
+#cover-page .report-reason{margin-top:9px;padding-bottom:10px}
+#cover-page .report-reason>.reason-length{top:auto;bottom:0}
+#cover-page .cover-section h3{margin-bottom:10px}
+@media(max-width:620px){
+ #cover-page .cover-field-grid{grid-template-columns:1fr;gap:9px}
+ #cover-page .cover-field-grid>.cover-field{grid-column:auto}
+ #cover-page .cover-field,#cover-page .author-dates-grid .cover-field{grid-template-columns:100px minmax(0,1fr);column-gap:9px}
+ #cover-page .vessel-name-field{grid-template-columns:max-content minmax(0,1fr)}
+}
+@media print{
+ #cover-page.cover-paper{height:auto!important;min-height:245mm}
+ #cover-page .cover-field{grid-template-columns:114px minmax(0,1fr);column-gap:8px;align-items:baseline}
+ #cover-page .author-dates-grid .cover-field{grid-template-columns:76px minmax(0,1fr);gap:6px}
+ #cover-page .vessel-name-field{grid-template-columns:max-content minmax(0,1fr)}
+ #cover-page .cover-field>span:first-child:not(.field-display),#cover-page .cover-field>label{font-size:9pt;line-height:1.4;margin:0;padding-top:0}
+ #cover-page .cover-field .field-display{font-size:10pt;line-height:1.4}
+ #cover-page .cover-field-grid{column-gap:20px;row-gap:8px}
+ #cover-page .cover-section{padding:8px 0}
+ #cover-page .cover-section h3{margin-bottom:9px}
+ #cover-page .author-dates-grid,#cover-page .report-job-grid{margin-top:7px}
+ #cover-page .report-reason{margin-top:8px;padding-bottom:0}
+}

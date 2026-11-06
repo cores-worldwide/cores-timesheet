@@ -47,6 +47,9 @@ async page => {
  check(await editor().locator('[data-cover="visitStart"]').inputValue()==='2026-10-01'&&await editor().locator('[data-cover="visitEnd"]').inputValue()==='2026-10-09','Visit dates default to the actual report work-date range');
  check((await editor().getByRole('textbox',{name:'Participants',exact:true}).inputValue()).includes('Technician A')&&(await editor().getByRole('textbox',{name:'Participants',exact:true}).inputValue()).includes('Technician B'),'Participants default to the report crew');
  check(await editor().getByRole('textbox',{name:'Customer name',exact:true}).inputValue()==='Sample customer','Available customer details fill without replacing existing report edits');
+ check(await editor().locator('[data-cover="customerName"]').evaluate(input=>{const label=input.previousElementSibling;const a=label.getBoundingClientRect(),b=input.getBoundingClientRect();return b.left>=a.right&&Math.min(a.bottom,b.bottom)>Math.max(a.top,b.top);}), 'Customer label and text box share the same line');
+ check(await editor().locator('[data-cover="visitStart"]').evaluate(input=>{const a=input.previousElementSibling.getBoundingClientRect(),b=input.getBoundingClientRect();return b.left>=a.right&&Math.min(a.bottom,b.bottom)>Math.max(a.top,b.top);}), 'Visit date labels and fields share the same line');
+
  check(await editor().getByRole('textbox',{name:'Requested by',exact:true}).inputValue()==='','The customer requester is not guessed from another contact field');
  check(await editor().getByRole('textbox',{name:'Destination',exact:true}).inputValue()==='Legacy port, NS','Existing location details migrate into Destination');
  check(await editor().locator('[data-cover="postalZip"],[data-cover="purchaseOrder"],[data-cover="arrivalDate"],[data-cover="arrivalTime"]').count()===0,'Postal code, PO and arrival-time inputs are removed');
@@ -86,6 +89,12 @@ async page => {
  await page.goto(origin+'report-builder/index.html');await page.getByRole('button',{name:/01 Opening page/}).click();
  await page.emulateMedia({media:'print'});await page.pdf({path:'tmp/pdfs/opening-page-fields-qa.pdf',format:'Letter',printBackground:true,preferCSSPageSize:true});await page.emulateMedia({media:'screen'});
  await page.locator('#cover-page').screenshot({path:'tmp/pdfs/opening-page-fields-editor.png'});
+ const withoutPhoto=structuredClone(snapshot);withoutPhoto.coverPhoto=null;
+ await page.evaluate(async state=>(await import('/cores-timesheet/report-builder/draft-store.mjs')).writeDraft('cores-report-builder-mockup-v1',state),withoutPhoto);
+ await page.reload();await page.getByRole('button',{name:/01 Opening page/}).click();
+ await page.emulateMedia({media:'print'});await page.pdf({path:'tmp/pdfs/opening-page-no-photo-qa.pdf',format:'Letter',printBackground:true,preferCSSPageSize:true});await page.emulateMedia({media:'screen'});
+ check(await page.locator('#vessel-photo-preview').isHidden(),'Omitting the photo leaves no photo box in the opening page');
+
  check(writes.length===0,'The cover workflow attempts no database writes');
  await page.evaluate(async({key,originalStandalone})=>{const store=await import('/cores-timesheet/report-builder/draft-store.mjs');await store.writeDraft(key,null);await store.writeDraft('cores-report-builder-mockup-v1',originalStandalone);},{key,originalStandalone});
  await page.unrouteAll({behavior:'wait'});
