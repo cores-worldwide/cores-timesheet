@@ -4,6 +4,12 @@ export function engineModel(engine) {
  const model=text(engine?.model),maker=text(engine?.manufacturer);
  return model&&maker&&!model.toLowerCase().includes(maker.toLowerCase())?`${maker} ${model}`:model;
 }
+// Engines on this job's vessel, plus any recorded as serviced on this job.
+export function jobEngines(detail) {
+ const serviced=new Set((detail?.services||[]).map(service=>service.engineId));
+ const vesselId=detail?.job?.vesselId;
+ return (detail?.engines||[]).filter(engine=>(!!vesselId&&engine.vesselId===vesselId)||serviced.has(engine.id));
+}
 export function suggestedEngines(detail) {
  const engines=detail.engines||[];
  const serviceIds=new Set((detail.services||[]).map(service=>service.engineId));
@@ -28,7 +34,7 @@ export function visitDefaults(cover,range,manual={}) {
 }
 export function fillFromJob(cover,detail,engineIds=suggestedEngines(detail),edited={}) {
  const next={...cover,projectNo:text(detail.job.number)};
- for(const [field,value] of Object.entries({customerName:detail.job.customer,plantVessel:detail.job.vessel,serviceReason:text(detail.job.description).slice(0,600)}))if(!next[field]&&!edited[field])next[field]=text(value);
+ for(const [field,value] of Object.entries({customerName:detail.job.customer,plantVessel:(text(detail.job.vessel)||text(detail.job.description)||text(detail.job.customer)).slice(0,180),serviceReason:text(detail.job.description).slice(0,600)}))if(!next[field]&&!edited[field])next[field]=text(value);
  if(engineIds.length&&!next.engineType&&!next.engineSerial&&!edited.engineType&&!edited.engineSerial)Object.assign(next,engineFields(detail,engineIds));
  return {cover:next,engineIds,descriptionShortened:text(detail.job.description).length>600};
 }

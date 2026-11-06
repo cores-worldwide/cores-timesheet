@@ -7,15 +7,18 @@ async page => {
   const first='11111111-1111-4111-8111-111111111111',longJob='55555555-5555-4555-8555-555555555555',futureJob='66666666-6666-4666-8666-666666666666';
   const employee={id:'technician-a',name:'Technician A'};
   const job=(id,n)=>({id,job_number:n,status:'open',description:'Inspection request',customers:{name:'Sample customer'},vessels:{name:'Sample vessel'}});
-  const jobs=[job(first,'FIX-TEST-A'),job(longJob,'FIX-TEST-B'),job(futureJob,'FIX-TEST-C')];
+  const noVessel='77777777-7777-4777-8777-777777777777',noDescription='88888888-8888-4888-8888-888888888888',engineJob='99999999-9999-4999-8999-999999999999',earlierJob='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const jobs=[job(first,'FIX-TEST-A'),job(longJob,'FIX-TEST-B'),job(futureJob,'FIX-TEST-C'),{...job(noVessel,'FIX-TEST-D'),vessels:null},{...job(noDescription,'FIX-TEST-E'),vessels:null,description:''},{...job(engineJob,'FIX-TEST-F'),vessel_id:'vessel-1'},{...job(earlierJob,'FIX-TEST-G'),vessel_id:'vessel-1'}];
+  const engines=[{id:'mine-1',vessel_id:'vessel-1',model:'Mine 1',serial_number:'M1'},{id:'mine-2',vessel_id:'vessel-1',model:'Mine 2',serial_number:'M2'},{id:'other-1',vessel_id:'vessel-2',model:'Other 1',serial_number:'O1'}];
   const entries=[{id:'a',job_id:first,employee_id:employee.id,work_date:'2026-11-03',hours:4,description:'First',employees:employee,jobs:jobs[0]},{id:'b',job_id:first,employee_id:employee.id,work_date:'2026-11-04',hours:3,description:'Second',employees:employee,jobs:jobs[0]},{id:'c',job_id:longJob,employee_id:employee.id,work_date:'2026-11-03',hours:1,description:'Long',employees:employee,jobs:jobs[1]},{id:'d',job_id:futureJob,employee_id:employee.id,work_date:'2026-11-03',hours:1,description:'Future',employees:employee,jobs:jobs[2]}];
   const photos=[{id:'still',job_id:first,employee_id:employee.id,work_date:'2026-11-03',storage_path:'test/still.jpg'},{id:'clip-a',job_id:first,employee_id:employee.id,work_date:'2026-11-03',storage_path:'test/clip.mp4'},{id:'clip-b',job_id:first,employee_id:employee.id,work_date:'2026-11-03',storage_path:'test/clip.3GP'}];
   await page.route('https://giwexoouqxioxkjhoxoe.supabase.co/storage/v1/object/public/gear-photos/**',route=>route.fulfill({contentType:'image/png',body:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j4XcAAAAASUVORK5CYII=','base64')}));
+  const allJobs=jobs.map(item=>item.id);
   const writes=[];
   await page.route('https://giwexoouqxioxkjhoxoe.supabase.co/rest/v1/**',async route=>{
     const req=route.request(),url=new URL(req.url());
     if(!['GET','HEAD','OPTIONS'].includes(req.method())){writes.push(req.method());return route.fulfill({status:405,body:'Writes forbidden in this test'});}
-    let data=({jobs,employees:[employee],timesheet_entries:entries,gear_photos:photos})[url.pathname.split('/').pop()]||[];
+    let data=({jobs,employees:[employee],timesheet_entries:entries,gear_photos:photos,engines})[url.pathname.split('/').pop()]||[];
     for(const field of ['id','job_id'])if(url.searchParams.get(field)?.startsWith('eq.'))data=data.filter(row=>row[field]===url.searchParams.get(field).slice(3));
     await route.fulfill({status:200,contentType:'application/json',headers:{'content-range':data.length?`0-${data.length-1}/${data.length}`:'*/0'},body:req.method()==='HEAD'?'':JSON.stringify(req.headers().accept?.includes('vnd.pgrst.object')?data[0]||{}:data)});
   });
@@ -30,7 +33,19 @@ async page => {
   const type=async text=>{await editor().locator('.component-card').first().click();await editor().locator('.richtext').last().click();await page.keyboard.type(text);};
   await page.goto(origin);
   await page.evaluate(()=>{localStorage.setItem('cores_unlocked','true');localStorage.setItem('cores_admin_name','Dev review');});
-  for(const id of [first,longJob,futureJob])await seed(id,null);
+  for(const id of allJobs)await seed(id,null);
+
+  const loaded=async id=>{await loadJob(id);await page.waitForFunction(()=>document.querySelector('iframe[title^="Service report editor"]')?.contentDocument?.querySelector('#job-fill-note')?.textContent.startsWith('Job details loaded'));};
+  const vesselFor=async id=>{await loaded(id);return editor().locator('[data-cover="plantVessel"]').inputValue();};
+  check(await vesselFor(noVessel)==='Inspection request','A job with no vessel uses its description as the vessel name');
+  check(await editor().locator('[data-engine-slot="0"]').isDisabled()&&(await editor().locator('#engine-source-note').innerText()).startsWith('No engines are recorded'),'A job with no vessel engines says so and leaves manual entry open');
+  check(await vesselFor(noDescription)==='Sample customer','A job with no vessel or description uses the customer name');
+  await loaded(engineJob);
+  const engineList=await editor().locator('[data-engine-slot="0"] option').evaluateAll(options=>options.map(option=>option.value));
+  check(engineList.join()===',mine-1,mine-2','The engine list holds only this job’s engines');
+  await seed(earlierJob,{version:1,project:{id:earlierJob,engineIds:['other-1']},cover:{engineType:'Other 1',engineSerial:'O1'},blocks:[]});
+  await loaded(earlierJob);
+  check(await editor().locator('[data-engine-slot="0"]').inputValue()==='other-1'&&await editor().locator('[data-cover="engineType"]').inputValue()==='Other 1','A saved engine from elsewhere is kept and shown');
 
   await loadJob(first);
   await type('CLOSE-AT-ONCE');
@@ -99,6 +114,6 @@ async page => {
   check(await editor().locator('#save-state').innerText()!=='Saved in this browser','An unreadable draft does not report a save');
 
   check(writes.length===0,'No database writes were attempted');
-  for(const id of [first,longJob,futureJob])await seed(id,null);
+  for(const id of allJobs)await seed(id,null);
   return {passed:checks.length,checks};
 }

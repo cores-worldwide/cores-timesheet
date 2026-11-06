@@ -1,5 +1,5 @@
 /* Local report-builder prototype. Job reads use a dev-only local proxy. */
-import {fillFromJob, engineFields, engineModel, migrateReportCover, visitDefaults} from './job-fields.mjs';
+import {fillFromJob, jobEngines, engineFields, engineModel, migrateReportCover, visitDefaults} from './job-fields.mjs';
 import {IMAGE_LAYOUTS,imageLayout,imagePages,reportGroups} from './image-layouts.mjs';
 import {createImageEditor,normalizeImageEdit,editedImageMarkup} from './image-editor.mjs';
 import {readDraft,writeDraft,flushDraft,draftStorageMessage} from './draft-store.mjs';
@@ -266,13 +266,14 @@ import {readDraft,writeDraft,flushDraft,draftStorageMessage} from './draft-store
   function renderEngineChoices() {
     const choices=currentJobDetail?.engines||[];
     const select=$('[data-engine-slot="0"]');
-    const related=choices.filter(engine=>engine.vesselId===currentJobDetail?.job.vesselId);
-    const others=choices.filter(engine=>!related.includes(engine));
+    const related=jobEngines(currentJobDetail);
+    // A saved choice outside this job stays visible so an earlier report is not silently changed.
+    const earlier=choices.filter(engine=>engine.id===state.project?.engineIds?.[0]&&!related.includes(engine));
     const options=list=>list.map(engine=>`<option value="${esc(engine.id)}">${esc([engine.vessel,engine.side,engineModel(engine),engine.serial&&`S/N ${engine.serial}`,engine.role,engine.retired&&'retired'].filter(Boolean).join(' · ')||'Engine record')}</option>`).join('');
-    select.innerHTML='<option value="">Enter details manually</option>'+(related.length?`<optgroup label="This vessel">${options(related)}</optgroup>`:'')+(others.length?`<optgroup label="Other engines">${options(others)}</optgroup>`:'');
+    select.innerHTML='<option value="">Enter details manually</option>'+options(related)+(earlier.length?`<optgroup label="Chosen earlier, not on this job">${options(earlier)}</optgroup>`:'');
     select.value=state.project?.engineIds?.[0]||'';
-    select.disabled=!choices.length;
-    $('#engine-source-note').textContent=choices.length?'Choose the engine for this report. Recorded model/type, serial number, manufacturer and Main/Auxiliary duty fill below.':'No engine records are available for selection. Details can be entered manually.';
+    select.disabled=!related.length&&!earlier.length;
+    $('#engine-source-note').textContent=related.length?'Choose the engine for this report. Recorded model/type, serial number, manufacturer and Main/Auxiliary duty fill below.':'No engines are recorded for this job’s vessel. Enter the details below.';
   }
   async function loadProject() {
     const id=embedded?hostJobId:state.project?.id;

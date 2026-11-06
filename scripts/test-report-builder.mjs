@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {fillFromJob,suggestedEngines,engineFields,migrateReportCover,visitDefaults} from '../docs/mockups/report-builder/job-fields.mjs';
+import {fillFromJob,jobEngines,suggestedEngines,engineFields,migrateReportCover,visitDefaults} from '../docs/mockups/report-builder/job-fields.mjs';
 import {validateDevConfig} from './serve-report-builder.mjs';
 const base=()=>({catalogue:true,job:{id:'job-a',number:'DEMO-1',status:'open',vesselId:'vessel-a',vessel:'Sample vessel',customer:'Sample customer',description:'Requested inspection',contact:'Contact name'},engines:[],services:[]});
 test('the report preview rejects non-dev connections before any request',()=>{
@@ -50,4 +50,19 @@ test('cleared engine details stay cleared while an engine remains selected',()=>
  const d=base();d.engines=[{id:'e1',vesselId:'vessel-a',model:'Model',serial:'S1',manufacturer:'Maker',role:'Main'}];
  const result=fillFromJob({engineType:'',engineSerial:''},d,['e1'],{engineType:true,engineSerial:true}).cover;
  assert.equal(result.engineType,'');assert.equal(result.engineSerial,'');
+});
+test('the vessel name falls back to the job description, then the customer',()=>{
+ const d=base();d.job.vessel='';
+ assert.equal(fillFromJob({},d).cover.plantVessel,'Requested inspection');
+ d.job.description='  ';
+ assert.equal(fillFromJob({},d).cover.plantVessel,'Sample customer');
+ d.job.description='x'.repeat(300);
+ assert.equal(fillFromJob({},d).cover.plantVessel.length,180);
+ assert.equal(fillFromJob({plantVessel:''},d,undefined,{plantVessel:true}).cover.plantVessel,'');
+});
+test('the engine list holds this job’s vessel and serviced engines only',()=>{
+ const d=base();d.engines=[{id:'a',vesselId:'vessel-a'},{id:'b',vesselId:'vessel-b'},{id:'c',vesselId:'vessel-c'},{id:'d',vesselId:''}];d.services=[{engineId:'c'}];
+ assert.deepEqual(jobEngines(d).map(e=>e.id),['a','c']);
+ d.job.vesselId='';d.services=[];
+ assert.deepEqual(jobEngines(d),[]); // Engines with no vessel never match a job with no vessel.
 });

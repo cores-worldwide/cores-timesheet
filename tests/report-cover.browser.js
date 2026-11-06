@@ -26,7 +26,7 @@ async page => {
  const editor=()=>page.frameLocator('iframe[title^="Service report editor"]');
  await editor().getByRole('button',{name:/01 Opening page/}).click();
  await editor().getByRole('combobox',{name:'Select engine',exact:true}).waitFor();
- await page.waitForFunction(()=>document.querySelector('iframe[title^="Service report editor"]').contentDocument.querySelector('[data-engine-slot]')?.options.length===4);
+ await page.waitForFunction(()=>document.querySelector('iframe[title^="Service report editor"]').contentDocument.querySelector('[data-engine-slot]')?.options.length===3);
  const order=await editor().locator('#cover-page>.cover-vessel-hero,#cover-page .cover-form>.cover-section').evaluateAll(nodes=>nodes.map(node=>node.getAttribute('aria-label')||node.getAttribute('aria-labelledby')));
  check(order.join('|')==='Vessel identification|customer-section-title|job-section-title|engine-section-title','The cover follows Vessel, Customer, Job, Engine order');
  check(await editor().locator('#vessel-photo-preview').isHidden(),'The vessel photo is optional');
@@ -54,10 +54,10 @@ async page => {
  check(await editor().getByRole('textbox',{name:'Destination',exact:true}).inputValue()==='Legacy port, NS','Existing location details migrate into Destination');
  check(await editor().locator('[data-cover="postalZip"],[data-cover="purchaseOrder"],[data-cover="arrivalDate"],[data-cover="arrivalTime"]').count()===0,'Postal code, PO and arrival-time inputs are removed');
  check(await editor().getByRole('combobox',{name:'Select engine',exact:true}).inputValue()==='','Several candidate engines require an explicit choice');
- check((await editor().getByRole('combobox',{name:'Select engine',exact:true}).innerText()).includes('Other vessel'),'Engine choices include vessel/model/serial context across the catalogue');
- await editor().getByRole('combobox',{name:'Select engine',exact:true}).selectOption('engine-other');
- check(await editor().getByRole('textbox',{name:'Engine type',exact:true}).inputValue()==='Model C'&&await editor().getByRole('textbox',{name:'Engine serial number',exact:true}).inputValue()==='SERIAL-C'&&await editor().getByRole('textbox',{name:'Manufacturer',exact:true}).inputValue()==='Maker C','Engine selection fills recorded type, serial and manufacturer');
- check(await editor().getByRole('combobox',{name:'Engine duty',exact:true}).inputValue()==='Auxiliary','Main/Auxiliary duty fills from the recorded engine category');
+ check(!(await editor().getByRole('combobox',{name:'Select engine',exact:true}).innerText()).includes('Model C'),'Engines from other vessels are not offered');
+ await editor().getByRole('combobox',{name:'Select engine',exact:true}).selectOption('engine-b');
+ check(await editor().getByRole('textbox',{name:'Engine type',exact:true}).inputValue()==='Model B'&&await editor().getByRole('textbox',{name:'Engine serial number',exact:true}).inputValue()==='SERIAL-B'&&await editor().getByRole('textbox',{name:'Manufacturer',exact:true}).inputValue()==='Maker B','Engine selection fills recorded type, serial and manufacturer');
+ check(await editor().getByRole('combobox',{name:'Engine duty',exact:true}).inputValue()==='Main','Main/Auxiliary duty fills from the recorded engine category');
  check(await editor().getByRole('textbox',{name:'Vessel',exact:true}).inputValue()==='Sample vessel'&&await editor().getByRole('textbox',{name:'Job number',exact:true}).inputValue()==='COVER-TEST','Selecting an engine leaves the report attached to its original job');
  await editor().locator('[data-cover="visitStart"]').fill('2026-09-28');await editor().locator('[data-cover="visitEnd"]').fill('2026-10-10');
  await page.evaluate(jobId=>document.querySelector('iframe[title^="Service report editor"]').contentWindow.postMessage({type:'cores-report-context',jobId,number:'COVER-TEST',range:{start:'2026-10-02',end:'2026-10-04'},participants:['Technician A']},location.origin),jobId);
@@ -73,7 +73,7 @@ async page => {
  await editor().getByRole('textbox',{name:'Author location',exact:true}).waitFor();
  check(await editor().getByRole('textbox',{name:'Author location',exact:true}).inputValue()==='Sample office'&&await editor().getByRole('textbox',{name:'Requested by',exact:true}).inputValue()==='Customer representative','Authored cover fields survive reopening');
  check(await editor().locator('[data-cover="visitStart"]').inputValue()==='2026-09-28'&&await editor().locator('[data-cover="visitEnd"]').inputValue()==='2026-10-10','Manual visit dates survive reopening');
- check(await editor().getByRole('combobox',{name:'Select engine',exact:true}).inputValue()==='engine-other','The chosen engine survives reopening');
+ check(await editor().getByRole('combobox',{name:'Select engine',exact:true}).inputValue()==='engine-b','The chosen engine survives reopening');
  check(await editor().locator('#vessel-photo-preview .edited-image').count()===1,'The vessel photo and its adjustments survive reopening');
  check(await editor().locator('.body-heading h2').innerText()==='SERVICE & INSPECTION REPORT'&&await editor().locator('.body-heading .eyebrow').count()===0,'The professional report heading appears once in the body heading');
  check(await editor().locator('input.block-title').inputValue()==='Job Summary','Existing default summary headings migrate to Job Summary');
