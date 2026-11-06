@@ -2,7 +2,7 @@
 import {fillFromJob, engineFields, engineModel, migrateReportCover, visitDefaults} from './job-fields.mjs';
 import {IMAGE_LAYOUTS,imageLayout,imagePages,reportGroups} from './image-layouts.mjs';
 import {createImageEditor,normalizeImageEdit,editedImageMarkup} from './image-editor.mjs';
-import {readDraft,writeDraft,draftStorageMessage} from './draft-store.mjs';
+import {readDraft,writeDraft,flushDraft,draftStorageMessage} from './draft-store.mjs';
 (async () => {
   'use strict';
   const params = new URLSearchParams(location.search);
@@ -11,6 +11,7 @@ import {readDraft,writeDraft,draftStorageMessage} from './draft-store.mjs';
   const STORE_KEY = embedded ? `cores-service-report-dev-${hostJobId}-v1` : 'cores-report-builder-mockup-v1';
   document.body.classList.toggle('embedded',embedded);
   const MAX_FILE_BYTES = 4 * 1024 * 1024;
+  const ENGINE_COVER_FIELDS=['engineType','engineSerial','engineManufacturer','engineRole'];
   const COVER_DEFAULTS = {
     projectNo:'',writtenBy:'',authorLocation:'',visitStart:'',visitEnd:'',destination:'',participants:'',serviceReason:'',
     customerName:'',requestedBy:'',plantVessel:'',engineType:'',engineSerial:'',engineManufacturer:'',engineRole:'',
@@ -48,7 +49,7 @@ import {readDraft,writeDraft,draftStorageMessage} from './draft-store.mjs';
   };
   const sampleState = () => ({
     version: 1,
-    visitDateManual:{start:false,end:false},participantsManual:false,
+    visitDateManual:{start:false,end:false},participantsManual:false,coverEdited:{},
     cover: { ...COVER_DEFAULTS },
     blocks: embedded ? [] : [
       { id: uid(), type: 'text', title: 'Work performed', html: '<ul><li>Removed access covers and inspected the cylinder head assemblies.</li><li>Cleaned and checked the valve components, recording the inspection findings.</li><li>Reassembled the inspected components and completed function checks.</li></ul>', sourceIds: ['sample-1', 'sample-2', 'sample-3'] },
@@ -89,6 +90,7 @@ import {readDraft,writeDraft,draftStorageMessage} from './draft-store.mjs';
       if (event.source!==window.parent || event.origin!==window.location.origin) return;
       if(event.data?.type==='cores-report-context'&&event.data.jobId===hostJobId){applyReportContext(event.data);return;}
       if(event.data?.type==='cores-report-import') { importSections(event.data); return; }
+      if(event.data?.type==='cores-report-flush'&&event.data.jobId===hostJobId) { flushForClose(event.data.id); return; }
       if(event.data?.type!=='cores-report-response') return;
       const pending=parentRequests.get(event.data.requestId);
       if (!pending) return;
@@ -116,7 +118,9 @@ import {readDraft,writeDraft,draftStorageMessage} from './draft-store.mjs';
 
   try {
     const saved = await readDraft(STORE_KEY);
-    if (saved?.version === 1 && Array.isArray(saved.blocks) && saved.blocks.length <= 100) {
+    if (saved !== null && saved !== undefined) {
+      // Never start empty over a draft this version cannot read: the first autosave would replace it.
+      if (saved.version !== 1 || !Array.isArray(saved.blocks)) throw new Error('Unsupported draft');
       state = { version: 1, blocks: saved.blocks.filter(block => block && typeof block.id === 'string' && ['text', 'media', 'break'].includes(block.type)).map(block => {
         if (block.type === 'text') return { id: block.id, type: 'text', title: String(block.title === 'What Was Done — whole job' ? 'Job Summary' : block.title || ''), sourceLabel:String(block.sourceLabel||''), html: cleanHTML(block.html), sourceIds: Array.isArray(block.sourceIds) ? block.sourceIds.filter(id => typeof id==='string' && id.length<=100) : [] };
         if (block.type === 'media') return { id: block.id, type: 'media', title: String(block.title || ''), sourceLabel:String(block.sourceLabel||''), layout: imageLayout(block.layout), items: (Array.isArray(block.items) ? block.items : []).filter(item => item && safeURL(item.url)).map(item => ({ id: String(item.id || uid()), kind: ['image', 'pdf', 'attachment'].includes(item.kind) ? item.kind : 'attachment', name: String(item.name || 'Attachment'), url: item.url, caption: String(item.caption || ''), edit:normalizeImageEdit(item.edit) })) };
@@ -127,6 +131,7 @@ import {readDraft,writeDraft,draftStorageMessage} from './draft-store.mjs';
       state.coverArchive=saved.coverArchive||saved.cover||{};
       state.visitDateManual=saved.visitDateManual||{start:!!(saved.cover?.visitStart||saved.cover?.arrivalDate),end:!!saved.cover?.visitEnd};
       state.participantsManual=saved.participantsManual??!!saved.cover?.participants;
+      state.coverEdited=Object.fromEntries(Object.keys(COVER_DEFAULTS).filter(key=>saved.coverEdited?.[key]===true).map(key=>[key,true]));
       if (typeof saved.project?.id === 'string' && /^[a-f0-9-]{36}$/i.test(saved.project.id)) state.project = {id:saved.project.id, engineIds:Array.isArray(saved.project.engineIds) ? saved.project.engineIds.slice(0,2).map(id => typeof id === 'string' ? id : '') : []};
       selectedId = state.blocks[0]?.id || null;
       $('#save-state').textContent = 'Saved in this browser';
@@ -170,12 +175,16 @@ import {readDraft,writeDraft,draftStorageMessage} from './draft-store.mjs';
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => saveDraft(), 650);
   }
+  async function flushForClose(id) {
+    const saved=draftReadFailed||await saveDraft();
+    window.parent.postMessage({type:'cores-report-flushed',id,jobId:hostJobId,error:saved&&!draftReadFailed?'':(lastSaveError||'The saved draft could not be read, so nothing new was saved.')},window.location.origin);
+  }
   async function importSections(request) {
     if(request.jobId!==hostJobId||typeof request.id!=='string')return;
     const reply=error=>window.parent.postMessage({type:'cores-report-imported',id:request.id,jobId:hostJobId,error},window.location.origin);
     if(importedRequests.has(request.id)){reply();return;}
     try {
-      if(!Array.isArray(request.sections)||!request.sections.length||state.blocks.length+request.sections.length>100)throw new Error('A report can contain up to 100 sections.');
+      if(!Array.isArray(request.sections)||!request.sections.length)throw new Error('There was nothing to add to the report.');
       const blocks=request.sections.map(section=>{
         const common={id:uid(),title:String(section.title||'New section').slice(0,180),sourceLabel:String(section.sourceLabel||'From Job Reports').slice(0,80)};
         if(section.type==='text')return {...common,type:'text',html:cleanHTML(section.html),sourceIds:Array.isArray(section.sourceIds)?section.sourceIds.filter(id=>typeof id==='string'&&id.length<=100):[]};
@@ -249,7 +258,7 @@ import {readDraft,writeDraft,draftStorageMessage} from './draft-store.mjs';
     state.cover=visitDefaults(state.cover,reportContext.range,state.visitDateManual);
     if(!state.participantsManual)state.cover.participants=reportContext.participants.join(', ');
     $('#job-source-status').textContent=`Job ${fixedProjectNumber||'—'} · fixed for this report`;
-    $('#visit-date-help').textContent=reportContext.range.start||reportContext.range.end?`Report date range: ${reportContext.range.start||'—'} to ${reportContext.range.end||'—'}. Dates can be adjusted for this visit.`:'No report date range is available yet. Enter the visit dates.';
+    $('#visit-date-help').textContent=reportContext.range.start||reportContext.range.end?`Work dates on this report: ${reportContext.range.start||'—'} to ${reportContext.range.end||'—'}. Dates can be adjusted for this visit.`:'No work dates are recorded yet. Enter the visit dates.';
     syncCoverInputs();
     if(before!==JSON.stringify({cover:state.cover,manual:state.visitDateManual}))changed();
   }
@@ -279,7 +288,7 @@ import {readDraft,writeDraft,draftStorageMessage} from './draft-store.mjs';
       currentJobDetail=detail;
       fixedProjectNumber=String(detail.job.number||fixedProjectNumber);
       const previous=JSON.stringify({cover:state.cover,project:state.project});
-      const filled=fillFromJob(state.cover,detail,state.project?.id===id?state.project.engineIds:undefined);
+      const filled=fillFromJob(state.cover,detail,state.project?.id===id?state.project.engineIds:undefined,state.coverEdited);
       state.cover=filled.cover;state.project={id,engineIds:filled.engineIds};
       if(previous!==JSON.stringify({cover:state.cover,project:state.project}))changed();
       state.cover.projectNo=fixedProjectNumber;
@@ -504,6 +513,7 @@ import {readDraft,writeDraft,draftStorageMessage} from './draft-store.mjs';
     if (!Object.hasOwn(COVER_DEFAULTS, key)||key==='projectNo') return;
     if(key==='visitStart'||key==='visitEnd')state.visitDateManual={...state.visitDateManual,[key==='visitStart'?'start':'end']:true};
     if(key==='participants')state.participantsManual=true;
+    state.coverEdited={...state.coverEdited,[key]:true};
     state.cover[key] = event.target.value;
     updateCoverOutputs();
     changed();
@@ -514,6 +524,7 @@ import {readDraft,writeDraft,draftStorageMessage} from './draft-store.mjs';
     const id=event.target.value;
     state.project={id:embedded?hostJobId:currentJobDetail.job.id,engineIds:id?[id]:[]};
     Object.assign(state.cover,engineFields(currentJobDetail,[id]));
+    state.coverEdited=Object.fromEntries(Object.entries(state.coverEdited||{}).filter(([key])=>!ENGINE_COVER_FIELDS.includes(key)));
     syncCoverInputs();changed();
   });
   $('#use-report-visit-dates').addEventListener('click',()=>{
@@ -530,6 +541,7 @@ import {readDraft,writeDraft,draftStorageMessage} from './draft-store.mjs';
     setTimeout(() => window.print(), 100);
   });
   $('#reset-demo').addEventListener('click', () => {
+    if (embedded) return; // A real job's draft is never reset from the sample control.
     if (!window.confirm('Replace this browser’s sample draft with the original demo?')) return;
     clearTimeout(saveTimer);
     state = sampleState();
@@ -673,6 +685,13 @@ import {readDraft,writeDraft,draftStorageMessage} from './draft-store.mjs';
   window.addEventListener('beforeunload', event => {
     if(pendingSaves||['Draft not saved','Unsaved changes'].includes($('#save-state').textContent)){
       saveDraft();event.preventDefault();event.returnValue='';
+    }
+  });
+  // Closing the builder or leaving the job removes this frame without a beforeunload.
+  window.addEventListener('pagehide',()=>{
+    if(!draftReadFailed&&(pendingSaves||['Draft not saved','Unsaved changes'].includes($('#save-state').textContent))){
+      if(embedded&&fixedProjectNumber)state.cover.projectNo=fixedProjectNumber;
+      flushDraft(STORE_KEY,state);
     }
   });
   document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden'&&$('#save-state').textContent==='Unsaved changes')saveDraft();});

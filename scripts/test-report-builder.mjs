@@ -41,3 +41,13 @@ test('visit defaults follow the report range while manual dates remain intact',(
  assert.deepEqual(visitDefaults(cover,{start:'2026-10-01',end:'2026-10-09'}),{visitStart:'2026-10-01',visitEnd:'2026-10-09'});
  assert.deepEqual(visitDefaults(cover,{start:'2026-10-01',end:'2026-10-09'},{start:true,end:true}),cover);
 });
+test('a field the author cleared is not refilled from the job',()=>{
+ const edited={plantVessel:true,serviceReason:true};
+ const result=fillFromJob({plantVessel:'',serviceReason:'',customerName:''},base(),[],edited).cover;
+ assert.equal(result.plantVessel,'');assert.equal(result.serviceReason,'');assert.equal(result.customerName,'Sample customer');
+});
+test('cleared engine details stay cleared while an engine remains selected',()=>{
+ const d=base();d.engines=[{id:'e1',vesselId:'vessel-a',model:'Model',serial:'S1',manufacturer:'Maker',role:'Main'}];
+ const result=fillFromJob({engineType:'',engineSerial:''},d,['e1'],{engineType:true,engineSerial:true}).cover;
+ assert.equal(result.engineType,'');assert.equal(result.engineSerial,'');
+});

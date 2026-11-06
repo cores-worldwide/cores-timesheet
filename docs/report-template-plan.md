@@ -7,7 +7,7 @@ The report builder lives inside Job Reports on dev. Production release is not ap
 - [Job Reports on dev](http://127.0.0.1:5212/cores-timesheet/#/reports): open a job → **Build service report**. Refresh an already-open page after editor updates.
 - Local branch `dev-report-builder`, checkout `/private/tmp/cores-report-builder-dev`, based on `origin/main` at `9ed8379`. The original checkout's unfinished SMS changes remain untouched. The local branch keeps the implementation if the temporary checkout is removed.
 - Start with `npm run dev -- --host 127.0.0.1 --port 5212 --strictPort`. The checkout uses the existing ignored `.env.development.local` through a symlink. Install dependencies and restore that link if recreating the checkout. The green DEV banner and exact dev-project guard are required.
-- Source: `docs/mockups/report-builder/`; `scripts/copy-report-builder.mjs` copies the editor into ignored `public/report-builder/` for dev/build. React integration: `src/components/ReportBuilder.jsx`, `src/components/Reports.jsx`, `src/utils/reportBuilderData.js`. Standalone preview remains available for layout QA; the integrated page supplies the job/date/crew context.
+- Source: `docs/mockups/report-builder/`; `scripts/copy-report-builder.mjs` copies the editor into ignored `public/report-builder/` for `npm run dev` only, so a production build does not publish it. A production release will need to decide how the editor ships. React integration: `src/components/ReportBuilder.jsx`, `src/components/Reports.jsx`, `src/utils/reportBuilderData.js`. Standalone preview remains available for layout QA; the integrated page supplies the job/date/crew context.
 
 ## Opening page
 
@@ -21,7 +21,7 @@ Jim's supplied Cores letterhead is retained. Labels and fields share compact row
 | Engine | Select engine; engine type/model; serial number; manufacturer; Main/Auxiliary duty |
 
 - **Job number is fixed.** There is no in-report job dropdown or navigation request. The parent job supplies the number, overwriting obsolete stored numbers. Choose another job outside the editor in Job Reports.
-- **Visit dates:** start/finish default to the selected report date filters, or this job's earliest/latest visible work dates when viewing all time. Manual dates persist through context changes and reopening. **Use report dates** restores automatic defaults.
+- **Visit dates (Jim, 2026-11-06):** start/finish default to the first and last actual work dates shown on the job page, never the filter's own dates. If the filter shows no work for this job, the whole job's dates and crew are used. Manual dates persist through context changes and reopening. **Use report dates** restores automatic defaults.
 - **Participants** default to this report's crew. Authored participants remain editable. Customer/vessel and reason defaults use available job records without replacing non-empty report edits. Author location and destination are not inferred from a vessel name; the customer requester is not guessed from a generic contact record.
 - **Engine selection:** all dev engine records are labelled by vessel, maker/model, serial, side and category, with this vessel's records grouped first. A single job-linked engine may be suggested; several candidates require a choice. Selecting fills recorded model/type, serial, manufacturer and an explicit Main/Auxiliary category. Genset/Emergency/etc. are not assumed to mean Auxiliary. Manual details remain possible. A read-only check found 70 existing dev engines, all with vessel labels, without warnings.
 - PO, arrival time, postal/ZIP, hours, RPM, horsepower and the separate report-date input are no longer opening-page fields. Legacy location/arrival/engine values migrate where their meaning matches; the old cover is retained in `coverArchive` for recovery. The company letterhead address stays intact.
@@ -37,6 +37,7 @@ Jim's supplied Cores letterhead is retained. Labels and fields share compact row
 
 ## Draft storage and recovery
 
+- Close waits for a confirmed save and stays open with a warning if it fails; leaving the job saves on the way out. A draft this version cannot read is left untouched and saving is blocked. Fields the author edits or clears are not refilled from the job. Reset sample report exists only in the standalone preview. There is no section limit.
 - Separate drafts per job: IndexedDB database `cores-report-drafts`, store `drafts`, keys `cores-service-report-dev-<job-id>-v1`. Standalone QA uses `cores-report-builder-mockup-v1`.
 - Earlier localStorage drafts are read when no IndexedDB copy exists. Only a successfully committed replacement permits removal of that draft's old copy. Image-heavy reports no longer depend on localStorage's small quota.
 - Writes snapshot their input and queue. The image dialog shows progress, blocks duplicate clicks/closing during a write, and closes only after commit. Failures preserve the previous saved edit and leave adjustments open for retry. Read failures block overwriting an unread draft. Project context is read-only; no Supabase records/settings are changed.
@@ -54,6 +55,7 @@ Jim's supplied Cores letterhead is retained. Labels and fields share compact row
 
 ## Verification and remaining work
 
+- 2026-11-06 review fixes: `tests/report-review-fixes.browser.js` (14 checks), all browser fixtures and unit tests pass, run with mocked job data and database writes blocked. Videos can still be selected as photos (open).
 - Seven mapping/dev-guard checks pass for safe job defaults, engine choice, legacy field migration and date overrides.
 - Thirty-one cover browser checks pass: field order, optional photo upload/edit/reopen, locked job, engine catalogue/selection, date defaults/manual overrides/reset, participants, legacy fields/title migration, inline customer/date labels, optional-photo omission, mobile width, save/reopen, and zero database-write requests.
 - Letter PDFs with and without a vessel photo, all requested fields and a 600-character reason were extracted/rendered and visually checked at the final print font size. Each cover stays on page one; body text begins on page two.

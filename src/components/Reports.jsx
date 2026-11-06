@@ -747,8 +747,10 @@ export default function Reports() {
     const selectedPhotos=reportSelection.jobId===job.id ? visiblePhotos.filter(p=>reportSelection.photos.includes(p.id)) : []
     const addSection=(section,disabled=false,label)=>reportBuilderAvailable&&<button type="button" aria-label={label||`Add ${section.title} to report`} disabled={disabled||!!reportImport} onClick={()=>importReportSections(job.id,[section])} style={{padding:'0.3rem 0.7rem',border:'1px solid #0066cc',borderRadius:4,background:'#f4f9ff',color:'#0059b3',cursor:disabled||reportImport?'default':'pointer',fontSize:'0.8rem',opacity:disabled||reportImport?.jobId===job.id?0.6:1}}>{label?.startsWith('Add selected')?label.replace(' to report',''):'Add to report'}</button>
     const workLog=reportTable('Full Work Log',['Date','Employee','Hours','Description'],[...jobEntries].sort((a,b)=>a.work_date.localeCompare(b.work_date)).map(e=>[e.work_date,e.employees?.name||'—',e.hours,e.description]))
-    const reportWorkDates=jobEntries.map(entry=>entry.work_date).filter(Boolean).sort()
-    const reportContext={range:{start:dateFrom||reportWorkDates[0]||dateTo||'',end:dateTo||reportWorkDates.at(-1)||dateFrom||''},participants:Object.values(crewMap).map(({emp})=>emp.name).filter(Boolean)}
+    // Actual work dates and crew: what the current filter shows, or the whole job if it shows nothing.
+    const reportEntries=jobEntries.length?jobEntries:entries.filter(entry=>entry.job_id===job.id)
+    const reportWorkDates=reportEntries.map(entry=>entry.work_date).filter(Boolean).sort()
+    const reportContext={range:{start:reportWorkDates[0]||'',end:reportWorkDates.at(-1)||''},participants:[...new Set(reportEntries.map(entry=>entry.employees?.name).filter(Boolean))]}
 
     return (
       <div style={{ padding: '2rem', maxWidth: '1100px', margin: '0 auto' }}>

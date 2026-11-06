@@ -17,8 +17,11 @@ async page => {
   const half=await page.locator('.layout-half .media-figure').evaluateAll(figures=>figures.map(f=>{const r=f.getBoundingClientRect();return{x:r.x,y:r.y,width:r.width,height:r.height};}));
   check(Math.abs(half[0].x-half[1].x)<1&&half[1].y>half[0].y+half[0].height,'Half-page images stack vertically');
   check(await page.locator('.layout-quarter').count()===2,'A fifth quarter-page image continues onto another page');
+  // On screen the first card also carries section controls, so compare the printed layout.
+  await page.emulateMedia({media:'print'});
   const quarter=await page.locator('.layout-quarter').first().locator('.media-figure').evaluateAll(figures=>figures.map(f=>{const r=f.getBoundingClientRect();return{x:r.x,y:r.y};}));
-  check(quarter[0].y===quarter[1].y&&quarter[2].y>quarter[0].y&&quarter[1].x>quarter[0].x,'Quarter-page images form a 2 by 2 grid');
+  await page.emulateMedia({media:'screen'});
+  check(Math.abs(quarter[0].y-quarter[1].y)<1&&quarter[2].y>quarter[0].y&&quarter[1].x>quarter[0].x,'Quarter-page images form a 2 by 2 grid');
   const section=page.locator('.media-block[data-id="quarter"]');
   await section.getByRole('combobox',{name:'Image size',exact:true}).selectOption('full');
   check(await section.locator('.image-sheet').count()===5,'Changing size repaginates all images');

@@ -26,9 +26,9 @@ export function visitDefaults(cover,range,manual={}) {
  if(!manual.end)next.visitEnd=range.end||'';
  return next;
 }
-export function fillFromJob(cover,detail,engineIds=suggestedEngines(detail)) {
+export function fillFromJob(cover,detail,engineIds=suggestedEngines(detail),edited={}) {
  const next={...cover,projectNo:text(detail.job.number)};
- for(const [field,value] of Object.entries({customerName:detail.job.customer,plantVessel:detail.job.vessel,serviceReason:text(detail.job.description).slice(0,600)}))if(!next[field])next[field]=text(value);
- if(engineIds.length&&!next.engineType&&!next.engineSerial)Object.assign(next,engineFields(detail,engineIds));
+ for(const [field,value] of Object.entries({customerName:detail.job.customer,plantVessel:detail.job.vessel,serviceReason:text(detail.job.description).slice(0,600)}))if(!next[field]&&!edited[field])next[field]=text(value);
+ if(engineIds.length&&!next.engineType&&!next.engineSerial&&!edited.engineType&&!edited.engineSerial)Object.assign(next,engineFields(detail,engineIds));
  return {cover:next,engineIds,descriptionShortened:text(detail.job.description).length>600};
 }

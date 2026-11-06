@@ -9,6 +9,10 @@ export default function ReportBuilder({job,reportContext,importRequest,onImportC
   const frame=useRef(null);
   const [ready,setReady]=useState(false);
   const sent=useRef(null);
+  const [closing,setClosing]=useState(false);
+  const closeRequest=useRef(null);
+  const closeTimer=useRef(null);
+  const closeRisk=useRef(false);
   const complete=useRef(onImportComplete);
   complete.current=onImportComplete;
   const context=useRef(null);
@@ -36,6 +40,10 @@ export default function ReportBuilder({job,reportContext,importRequest,onImportC
         if(!event.data.error)frame.current?.scrollIntoView({behavior:'smooth',block:'start'});
         return;
       }
+      if(event.data?.type==='cores-report-flushed'&&event.data.id===closeRequest.current){
+        if(event.data.error)closeFailed(event.data.error);else finishClose();
+        return;
+      }
       if(event.data?.type!=='cores-report-request')return;
       const {requestId,resource,jobId}=event.data;
       if(typeof requestId!=='string'||requestId.length>100)return;
@@ -52,12 +60,35 @@ export default function ReportBuilder({job,reportContext,importRequest,onImportC
     window.addEventListener('message',receive);
     return()=>{live=false;window.removeEventListener('message',receive);};
   },[open,job.id]);
+  useEffect(()=>()=>clearTimeout(closeTimer.current),[]);
+  function finishClose() {
+    clearTimeout(closeTimer.current);
+    closeRequest.current=null;
+    closeRisk.current=false;
+    setClosing(false);setError('');setReady(false);setOpen(false);
+  }
+  function closeFailed(message) {
+    clearTimeout(closeTimer.current);
+    closeRequest.current=null;
+    closeRisk.current=true;
+    setClosing(false);
+    setError(`${message} The report is still open. Try again, or click Close once more to leave without saving the latest changes.`);
+  }
+  function toggleBuilder() {
+    if(!open){setError('');setReady(false);setOpen(true);return;}
+    if(!ready||closeRisk.current){finishClose();return;}
+    const id=crypto.randomUUID();
+    closeRequest.current=id;
+    setClosing(true);setError('');
+    frame.current?.contentWindow?.postMessage({type:'cores-report-flush',id,jobId:job.id},window.location.origin);
+    closeTimer.current=setTimeout(()=>closeFailed('The report did not confirm its save.'),15000);
+  }
   if(!reportBuilderAvailable)return null;
   const src=`${import.meta.env.BASE_URL}report-builder/index.html?embedded=1&job=${encodeURIComponent(job.id)}`;
   return <section className="no-print" aria-label="Service report builder" style={{margin:'0 0 1.5rem',border:'1px solid #d4e2ec',borderRadius:7,background:'#fff',overflow:'hidden'}}>
     <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:16,padding:'1rem 1.1rem',flexWrap:'wrap'}}>
       <div><div style={{display:'flex',alignItems:'center',gap:9}}><strong>Service report</strong><span style={{fontSize:10,color:'#287548',background:'#edf7ef',padding:'3px 6px',borderRadius:3}}>DEV PREVIEW</span></div><p style={{margin:'6px 0 0',color:'#7b8d9b',fontSize:12}}>Opening page, text sections, pictures and PDF attachments. Each job keeps its own draft in this browser.</p></div>
-      <button disabled={!!importRequest} onClick={()=>{setError('');setReady(false);setOpen(value=>!value);}} style={primary}>{open?'Close report builder':'Build service report'}</button>
+      <button disabled={!!importRequest||closing} onClick={toggleBuilder} style={primary}>{closing?'Saving…':open?'Close report builder':'Build service report'}</button>
     </div>
     {error&&<p role="alert" style={{color:'#a33',margin:'0 1rem 1rem'}}>{error}</p>}
     {open&&<iframe key={job.id} ref={frame} src={src} title={`Service report editor for project ${job.job_number}`} style={{display:'block',width:'100%',height:'calc(100vh - 160px)',minHeight:580,maxHeight:1100,scrollMarginTop:76,border:0,borderTop:'1px solid #dce5ec',background:'#edf1f4'}} onError={()=>setError('The report editor could not be opened. Refresh this dev page and try again.')} />}
