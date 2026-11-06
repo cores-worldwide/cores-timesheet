@@ -1,4 +1,5 @@
 node_modules/
+public/report-builder/
 dist/
 public/pdfjs/
 .env.local

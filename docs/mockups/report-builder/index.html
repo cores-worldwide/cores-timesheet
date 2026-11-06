@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#112d48">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23112d48'/%3E%3Ctext x='7' y='25' fill='%239cd7d2' font-family='Arial' font-size='26' font-weight='bold'%3EC%3C/text%3E%3C/svg%3E">
+  <title>Cores — Report builder mockup</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-photo" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8" cy="9" r="1.5"/><path d="m4 18 5-5 4 3 3-5 5 7"/></symbol>
+    <symbol id="i-document" viewBox="0 0 24 24"><path d="M14 3H5v18h14V8l-5-5Z M14 3v6h5M8 13h8M8 17h6"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v3"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="i-grip" viewBox="0 0 24 24"><circle cx="9" cy="5" r=".8"/><circle cx="15" cy="5" r=".8"/><circle cx="9" cy="12" r=".8"/><circle cx="15" cy="12" r=".8"/><circle cx="9" cy="19" r=".8"/><circle cx="15" cy="19" r=".8"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V3H3v13h5"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M9 6V3h6v3M6 6l1 15h10l1-15M10 10v7M14 10v7"/></symbol>
+    <symbol id="i-up" viewBox="0 0 24 24"><path d="m5 13 7-7 7 7M12 6v14"/></symbol>
+    <symbol id="i-down" viewBox="0 0 24 24"><path d="m5 11 7 7 7-7M12 18V4"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M6 18 18 6"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  </svg>
+
+  <header class="topbar screen-only">
+    <a href="#" class="brand" aria-label="Cores report builder"><span class="logo-crop brand-logo"><img src="assets/cores-letterhead-reference.png" alt=""></span><span>CORES<small>WORLDWIDE</small></span></a>
+    <div class="breadcrumb">Job reports <svg class="icon"><use href="#i-arrow"/></svg><strong>Report builder</strong></div>
+    <span class="local-badge"><span></span> DEV DATABASE · READ ONLY</span>
+    <span class="avatar" title="Office view">N</span>
+  </header>
+
+  <div class="report-toolbar screen-only">
+    <div class="report-title"><span class="eyebrow">PROJECT <span data-cover-inline="projectNo">-</span> · <span data-cover-inline="plantVessel">-</span></span><h1>Service &amp; inspection report <span class="draft-label">Draft</span></h1></div>
+    <div class="report-actions"><span id="save-state" role="status">Sample draft</span><button class="button secondary" id="save-draft"><svg class="icon"><use href="#i-check"/></svg>Save draft</button><button class="button secondary" id="toggle-preview"><svg class="icon"><use href="#i-eye"/></svg><span>Preview</span></button><button class="button primary" id="print-report"><svg class="icon"><use href="#i-download"/></svg>Print / PDF</button></div>
+  </div>
+
+  <div class="workspace">
+    <aside class="component-tray screen-only" aria-label="Report components">
+      <div class="tray-heading"><span class="eyebrow">YOUR REPORT</span><span class="quiet">2 parts</span></div>
+      <button class="page-nav" id="show-cover"><span class="page-number">01</span><span>Opening page<small>Fixed layout</small></span><svg class="icon"><use href="#i-lock"/></svg></button>
+      <button class="page-nav active" id="show-body"><span class="page-number">02</span><span>Report body<small>Build with components</small></span><svg class="icon"><use href="#i-document"/></svg></button>
+      <div class="tray-divider"></div>
+      <span class="eyebrow">ADD A COMPONENT</span>
+      <p class="tray-intro">Drag into the report, or click to add.</p>
+      <button class="component-card" draggable="true" data-component="text"><span class="component-glyph">Aa</span><span><strong>Text box</strong><small>Notes, findings &amp; bullet points</small></span><svg class="icon add-icon"><use href="#i-plus"/></svg></button>
+      <button class="component-card" draggable="true" data-component="media"><span class="component-glyph"><svg class="icon"><use href="#i-photo"/></svg></span><span><strong>Images &amp; files</strong><small>Pictures, PDFs &amp; descriptions</small></span><svg class="icon add-icon"><use href="#i-plus"/></svg></button>
+      <button class="component-card" draggable="true" data-component="break"><span class="component-glyph break-glyph">↵</span><span><strong>Page break</strong><small>Start a fresh page</small></span><svg class="icon add-icon"><use href="#i-plus"/></svg></button>
+      <div class="tray-divider"></div>
+      <span class="eyebrow">START WITH EXISTING NOTES</span>
+      <p class="tray-intro">Choose work notes, then edit them to suit the report.</p>
+      <button class="timesheet-button" id="open-timesheets"><svg class="icon"><use href="#i-clock"/></svg>Pull from timesheets<svg class="icon"><use href="#i-arrow"/></svg></button>
+      <div class="tray-bottom"><svg class="icon"><use href="#i-lock"/></svg><p><strong>One consistent style.</strong><br>Fonts, spacing and photo frames follow the template.</p></div>
+      <button class="reset-button" id="reset-demo">Reset sample report</button>
+    </aside>
+
+    <main class="canvas-area" id="canvas-area">
+      <div class="canvas-caption screen-only"><span id="canvas-label">REPORT BODY</span><span>Letter · Portrait <span class="dot-separator">·</span> <span id="component-count">2 components</span></span></div>
+      <div class="format-toolbar screen-only" id="format-toolbar" aria-label="Text formatting">
+        <span class="format-label">Text</span><button data-format="bold" title="Bold" aria-label="Bold"><b>B</b></button><button data-format="italic" title="Italic" aria-label="Italic"><i>I</i></button><button data-format="underline" title="Underline" aria-label="Underline"><u>U</u></button><span class="toolbar-divider"></span><button data-format="insertUnorderedList" title="Bullet list" aria-label="Bullet list">☷</button><button data-format="insertOrderedList" title="Numbered list" aria-label="Numbered list">≡¹</button><span class="toolbar-divider"></span><button data-format="justifyLeft" title="Align left" aria-label="Align left"><span class="align-icon left"></span></button><button data-format="justifyCenter" title="Align center" aria-label="Align center"><span class="align-icon center"></span></button><button data-format="justifyRight" title="Align right" aria-label="Align right"><span class="align-icon right"></span></button><button data-format="justifyFull" title="Justify" aria-label="Justify"><span class="align-icon full"></span></button><span class="toolbar-divider"></span><button data-format="outdent" title="Decrease indent" aria-label="Decrease indent">⇤</button><button data-format="indent" title="Increase indent" aria-label="Increase indent">⇥</button><span class="format-hint" id="format-hint">Click text to format it</span>
+      </div>
+
+      <section class="paper cover-paper" id="cover-page" aria-label="Opening page" hidden>
+        <div class="paper-letterhead cover-letterhead"><div class="company-identity"><span class="logo-crop cover-logo"><img src="assets/cores-letterhead-reference.png" alt="Cores Worldwide logo"></span><div class="letterhead-copy"><strong>Cores Worldwide Inc.</strong><span>674 Hwy 214, Belnan, NS B2S 2N2 CANADA</span><span class="letterhead-contacts"><span>Tel: +1 (902) 883 1611</span> <span>Fax: +1 (902) 883 9690</span> <span>Email: <a href="mailto:info@coresworldwide.com">info@coresworldwide.com</a></span></span></div></div></div>
+        <div class="cover-report-heading"><div><span class="eyebrow">MARINE &amp; INDUSTRIAL SERVICES</span><h2>Service &amp; inspection report</h2></div><span class="cover-layout-label screen-only">FIXED PAGE · EDITABLE DETAILS</span></div>
+
+        <div class="cover-form" aria-label="Front page report details">
+          <section class="cover-section" aria-labelledby="project-section-title">
+            <h3 id="project-section-title"><span>01</span>Project details</h3>
+            <div class="cover-field-grid project-field-grid">
+              <div class="cover-field project-lookup" id="project-lookup">
+                <label class="project-field-label" for="project-job-search">Project no.</label>
+                <div class="job-lookup-control screen-only"><input id="project-job-search" data-cover="projectNo" data-job-lookup role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="project-job-list" autocomplete="off" placeholder="Choose a project…" disabled><button type="button" id="toggle-project-jobs" aria-label="Show projects" disabled>⌄</button></div>
+                <span class="field-display" data-cover-output="projectNo"></span>
+                <div class="project-job-panel screen-only" id="project-job-panel" hidden>
+                  <div class="job-status-filters" role="group" aria-label="Project status"><button type="button" data-job-status="all" aria-pressed="true">Open &amp; closed</button><button type="button" data-job-status="open" aria-pressed="false">Open</button><button type="button" data-job-status="closed" aria-pressed="false">Closed</button></div>
+                  <div class="project-job-list" id="project-job-list" role="listbox" aria-label="Projects"></div>
+                  <p class="job-selection-help">A different project refreshes front-page job details. Body text and files are kept for review.</p>
+                </div>
+              </div>
+              <label class="cover-field"><span>Written by</span><input data-cover="writtenBy" maxlength="120" placeholder="Report author"><span class="field-display" data-cover-output="writtenBy"></span></label>
+              <label class="cover-field"><span>Report date</span><input data-cover="reportDate" type="date"><span class="field-display" data-cover-output="reportDate"></span></label>
+            </div>
+            <div class="job-source-line screen-only"><span id="job-source-status" role="status">Loading dev projects…</span><button type="button" id="retry-project-jobs" hidden>Retry</button></div>
+            <div class="job-fill-note screen-only" id="job-fill-note" role="status" hidden></div>
+          </section>
+
+          <section class="cover-section" aria-labelledby="site-section-title">
+            <h3 id="site-section-title"><span>02</span>Plant / vessel &amp; location</h3>
+            <div class="cover-field-grid site-field-grid">
+              <label class="cover-field"><span>Plant / vessel</span><input data-cover="plantVessel" maxlength="180" placeholder="Plant or vessel name"><span class="field-display" data-cover-output="plantVessel"></span></label>
+              <label class="cover-field"><span>City</span><input data-cover="city" maxlength="100" placeholder="City"><span class="field-display" data-cover-output="city"></span></label>
+              <label class="cover-field"><span>Province / state</span><input data-cover="provinceState" maxlength="80" placeholder="Province / state"><span class="field-display" data-cover-output="provinceState"></span></label>
+              <label class="cover-field"><span>Postal / ZIP code</span><input data-cover="postalZip" maxlength="30" placeholder="Postal / ZIP"><span class="field-display" data-cover-output="postalZip"></span></label>
+            </div>
+          </section>
+
+          <section class="cover-section" aria-labelledby="visit-section-title">
+            <h3 id="visit-section-title"><span>03</span>Visit details</h3>
+            <div class="cover-field-grid visit-field-grid">
+              <label class="cover-field"><span>Purchase order no.</span><input data-cover="purchaseOrder" maxlength="80" placeholder="PO reference"><span class="field-display" data-cover-output="purchaseOrder"></span></label>
+              <label class="cover-field"><span>Date of arrival</span><input data-cover="arrivalDate" type="date"><span class="field-display" data-cover-output="arrivalDate"></span></label>
+              <label class="cover-field"><span>Time of arrival</span><input data-cover="arrivalTime" type="time"><span class="field-display" data-cover-output="arrivalTime"></span></label>
+              <label class="cover-field"><span>Customer contact</span><input data-cover="customerContact" maxlength="180" placeholder="Contact name or role"><span class="field-display" data-cover-output="customerContact"></span></label>
+            </div>
+          </section>
+
+          <section class="cover-section engine-section" aria-labelledby="engine-section-title">
+            <h3 id="engine-section-title"><span>04</span>Engine details</h3>
+            <div class="engine-source-controls screen-only" id="engine-source-controls" hidden><span id="engine-source-note"></span><div><label>Engine 1 <select data-engine-slot="0" aria-label="Choose engine for slot 1"></select></label><label>Engine 2 <select data-engine-slot="1" aria-label="Choose engine for slot 2"></select></label></div></div>
+            <div class="engine-column-headings" aria-hidden="true"><span>Engine</span><span>Model</span><span>Serial no.</span><span>Hours</span><span>RPM</span><span>HP</span></div>
+            <div class="engine-row" role="group" aria-label="Engine 1">
+              <span class="engine-row-label">Engine 1</span>
+              <label class="cover-field"><span class="engine-mobile-label">Model</span><input data-cover="engine1Model" aria-label="Engine 1 model" maxlength="100" placeholder="Model"><span class="field-display" data-cover-output="engine1Model"></span></label>
+              <label class="cover-field"><span class="engine-mobile-label">Serial no.</span><input data-cover="engine1Serial" aria-label="Engine 1 serial number" maxlength="100" placeholder="Serial number"><span class="field-display" data-cover-output="engine1Serial"></span></label>
+              <label class="cover-field"><span class="engine-mobile-label">Hours</span><input data-cover="engine1Hours" aria-label="Engine 1 hours" inputmode="decimal" maxlength="30" placeholder="Hours"><span class="field-display" data-cover-output="engine1Hours"></span></label>
+              <label class="cover-field"><span class="engine-mobile-label">RPM</span><input data-cover="engine1Rpm" aria-label="Engine 1 RPM" inputmode="decimal" maxlength="30" placeholder="RPM"><span class="field-display" data-cover-output="engine1Rpm"></span></label>
+              <label class="cover-field"><span class="engine-mobile-label">HP</span><input data-cover="engine1Hp" aria-label="Engine 1 horsepower" inputmode="decimal" maxlength="30" placeholder="HP"><span class="field-display" data-cover-output="engine1Hp"></span></label>
+            </div>
+            <div class="engine-row" role="group" aria-label="Engine 2">
+              <span class="engine-row-label">Engine 2</span>
+              <label class="cover-field"><span class="engine-mobile-label">Model</span><input data-cover="engine2Model" aria-label="Engine 2 model" maxlength="100" placeholder="Model"><span class="field-display" data-cover-output="engine2Model"></span></label>
+              <label class="cover-field"><span class="engine-mobile-label">Serial no.</span><input data-cover="engine2Serial" aria-label="Engine 2 serial number" maxlength="100" placeholder="Serial number"><span class="field-display" data-cover-output="engine2Serial"></span></label>
+              <label class="cover-field"><span class="engine-mobile-label">Hours</span><input data-cover="engine2Hours" aria-label="Engine 2 hours" inputmode="decimal" maxlength="30" placeholder="Hours"><span class="field-display" data-cover-output="engine2Hours"></span></label>
+              <label class="cover-field"><span class="engine-mobile-label">RPM</span><input data-cover="engine2Rpm" aria-label="Engine 2 RPM" inputmode="decimal" maxlength="30" placeholder="RPM"><span class="field-display" data-cover-output="engine2Rpm"></span></label>
+              <label class="cover-field"><span class="engine-mobile-label">HP</span><input data-cover="engine2Hp" aria-label="Engine 2 horsepower" inputmode="decimal" maxlength="30" placeholder="HP"><span class="field-display" data-cover-output="engine2Hp"></span></label>
+            </div>
+          </section>
+
+          <section class="cover-section reason-section" aria-labelledby="reason-section-title">
+            <h3 id="reason-section-title"><span>05</span>Reason for service request<span class="reason-length screen-only"><span id="reason-character-count">0</span>/600</span></h3>
+            <label class="cover-field reason-field"><textarea data-cover="serviceReason" aria-label="Reason for service request" maxlength="600" rows="3" placeholder="Briefly describe why service was requested…"></textarea><span class="field-display" data-cover-output="serviceReason"></span></label>
+          </section>
+        </div>
+        <div class="company-contact"><strong>Cores Worldwide Inc.</strong><span>Tel: +1 (902) 883 1611 <b>·</b> Fax: +1 (902) 883 9690 <b>·</b> info@coresworldwide.com</span></div>
+        <div class="paper-footer"><span>PROJECT <span data-cover-inline="projectNo">0000</span><span class="sample-report-label"> · SAMPLE REPORT</span></span><span>01</span></div>
+      </section>
+
+      <section class="paper body-paper" id="body-page" aria-label="Editable report body">
+        <div class="paper-letterhead"><div class="body-company-identity"><span class="logo-crop body-logo"><img src="assets/cores-letterhead-reference.png" alt="Cores Worldwide logo"></span><div class="paper-brand">CORES<small>WORLDWIDE</small></div></div><span>PROJECT <span data-cover-inline="projectNo">0000</span> <span class="dot-separator">/</span> <span data-cover-inline="plantVessel">MV EXAMPLE</span></span></div>
+        <div class="body-heading"><span class="eyebrow">SERVICE &amp; INSPECTION REPORT</span><h2>Work carried out</h2><p>Engine inspection &amp; service <span class="dot-separator">·</span> 3–6 November 2026</p></div>
+        <div id="report-blocks"></div>
+        <button class="add-at-end screen-only" id="add-at-end"><svg class="icon"><use href="#i-plus"/></svg>Add a component <span>or drag one here</span></button>
+        <div class="paper-footer"><span>CORES WORLDWIDE · PROJECT <span data-cover-inline="projectNo">0000</span><span class="sample-report-label"> · SAMPLE REPORT</span></span><span>02</span></div>
+      </section>
+      <p class="canvas-footnote screen-only">Job details read from the dev database. Timesheet-note examples and illustrations are samples.</p>
+    </main>
+
+    <aside class="outline-panel screen-only" aria-label="Report outline"><span class="eyebrow">REPORT OUTLINE</span><div id="report-outline"></div><div class="outline-tip"><span class="tip-mark">↕</span><strong>Make it your own</strong><p>Drag a component’s handle to change its position. Text and pictures keep the same report style.</p></div><div class="sample-note"><span class="sample-dot"></span><p>Dev project records<br><small>Timesheet notes remain samples</small></p></div></aside>
+  </div>
+
+  <dialog id="timesheet-dialog" aria-labelledby="timesheet-title"><div class="dialog-heading"><span class="dialog-icon"><svg class="icon"><use href="#i-clock"/></svg></span><button class="icon-button close-dialog" aria-label="Close timesheet notes"><svg class="icon"><use href="#i-close"/></svg></button><span class="eyebrow">SAMPLE JOB 0000</span><h2 id="timesheet-title">Start with the work notes.</h2><p>Choose what belongs in this report. You can edit every word afterwards.</p></div><div class="source-note">These are fictional timesheet entries for the mockup.</div><div class="timesheet-list" id="timesheet-list"></div><div class="import-options"><span>Insert as</span><label><input type="radio" name="import-style" value="bullets" checked> Bullet points</label><label><input type="radio" name="import-style" value="paragraphs"> Paragraphs</label></div><div class="dialog-footer"><span id="selected-notes-count">0 notes selected</span><button class="button secondary close-dialog">Cancel</button><button class="button primary" id="insert-notes" disabled>Add selected notes</button></div></dialog>
+
+  <dialog id="add-dialog" aria-labelledby="add-title"><div class="simple-dialog"><button class="icon-button close-dialog" aria-label="Close component picker"><svg class="icon"><use href="#i-close"/></svg></button><span class="eyebrow">BUILD YOUR REPORT</span><h2 id="add-title">What would you like to add?</h2><button class="picker-option" data-add="text"><span class="component-glyph">Aa</span><span><strong>Text box</strong><small>A heading, paragraphs or a list</small></span><svg class="icon"><use href="#i-plus"/></svg></button><button class="picker-option" data-add="media"><span class="component-glyph"><svg class="icon"><use href="#i-photo"/></svg></span><span><strong>Images &amp; files</strong><small>A framed image or PDF, with a description</small></span><svg class="icon"><use href="#i-plus"/></svg></button><button class="picker-option" data-add="break"><span class="component-glyph">↵</span><span><strong>Page break</strong><small>Start the next section on a new page</small></span><svg class="icon"><use href="#i-plus"/></svg></button></div></dialog>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <input type="file" id="file-picker" multiple hidden>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
