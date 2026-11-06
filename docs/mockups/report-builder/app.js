@@ -1,6 +1,6 @@
 /* Local report-builder prototype. Job reads use a dev-only local proxy. */
 import {fillFromJob, suggestedEngines, engineFields, engineModel} from './job-fields.mjs';
-import {IMAGE_LAYOUTS,imageLayout,imagePages} from './image-layouts.mjs';
+import {IMAGE_LAYOUTS,imageLayout,imagePages,reportGroups} from './image-layouts.mjs';
 import {createImageEditor,normalizeImageEdit,editedImageMarkup} from './image-editor.mjs';
 (() => {
   'use strict';
@@ -356,7 +356,7 @@ import {createImageEditor,normalizeImageEdit,editedImageMarkup} from './image-ed
   }
   function selectBlock(id, scroll = false) {
     selectedId = id;
-    $$('.report-block').forEach(el => el.classList.toggle('selected', el.dataset.id === id));
+    $$('.report-block,.report-image-card').forEach(el => el.classList.toggle('selected', el.dataset.id === id));
     $$('.outline-row[data-id]').forEach(el => el.classList.toggle('active', el.dataset.id === id));
     const block = state.blocks.find(b => b.id === id);
     $('#format-hint').textContent = block?.type === 'text' ? 'Select text to format it' : 'Click text to format it';
@@ -387,15 +387,26 @@ import {createImageEditor,normalizeImageEdit,editedImageMarkup} from './image-ed
   function renderOutline() {
     $('#report-outline').innerHTML = `<button class="outline-row outline-fixed" data-show-cover="true">${icon('document')}<span>Opening page</span>${icon('lock')}</button>${state.blocks.map(block => `<button class="outline-row ${block.id === selectedId ? 'active' : ''}" data-id="${block.id}">${block.type === 'media' ? icon('photo') : block.type === 'break' ? '<span>↵</span>' : '<span>Aa</span>'}<span>${esc(block.title || (block.type === 'break' ? 'Page break' : 'Untitled section'))}</span></button>`).join('')}`;
   }
+  function renderQuarterPages(entries) {
+    const cards=entries.flatMap(({block,index})=>block.items.map((item,itemIndex)=>({block,index,item,first:itemIndex===0})));
+    const pages=imagePages(cards,'quarter');
+    return pages.map((page,pageIndex)=>`<div class="image-sheet layout-quarter quarter-shared-sheet" data-image-page="${pageIndex+1}"><div class="image-sheet-letterhead"><strong>Cores Worldwide Inc.</strong><span>PROJECT <span data-cover-inline="projectNo">${esc(state.cover.projectNo||'—')}</span></span></div><div class="image-sheet-heading"><strong>Supporting photographs</strong><span>Quarter page · ${pageIndex+1} of ${pages.length}</span></div><div class="image-sheet-grid">${page.map(({block,index,item,first})=>`<section class="${first?'report-block':'report-image-card'} media-block quarter-card ${block.id===selectedId?'selected':''}" data-id="${esc(block.id)}" aria-label="Quarter-page image: ${esc(item.name)}">${first?`<div class="drop-slot screen-only" data-drop-index="${index}"></div>${blockActions(block,index)}<input class="block-title" aria-label="Section heading" value="${esc(block.title)}" placeholder="Section heading"><div class="media-settings screen-only"><label>Image size <select aria-label="Image size">${Object.entries(IMAGE_LAYOUTS).map(([value,option])=>`<option value="${value}" ${value==='quarter'?'selected':''}>${option.label}</option>`).join('')}</select></label></div>`:`<div class="quarter-continuation-heading">${esc(block.title||'Supporting image')}</div>`}${mediaItem(item)}${first?`<div class="upload-more screen-only"><button class="small-text-button" data-action="upload">${icon('plus')}Add images or files</button></div>`:''}</section>`).join('')}</div></div>`).join('');
+  }
   function render() {
     previewURLs.forEach(url => URL.revokeObjectURL(url));
     previewURLs = [];
     activeEditor = null;
     savedRange = null;
     let html = '<div class="drop-slot screen-only" data-drop-index="0"></div>';
-    state.blocks.forEach((block, index) => { html += renderBlock(block, index) + `<div class="drop-slot screen-only" data-drop-index="${index + 1}"></div>`; });
+    reportGroups(state.blocks).forEach(group=>{
+      if(group.kind==='quarters'){
+        html+=renderQuarterPages(group.entries)+`<div class="drop-slot screen-only" data-drop-index="${group.entries.at(-1).index+1}"></div>`;
+      }else html+=renderBlock(group.block,group.index)+`<div class="drop-slot screen-only" data-drop-index="${group.index+1}"></div>`;
+    });
     if (!state.blocks.length) html += '<div class="empty-state"><strong>Your report starts here.</strong><p>Add a text box, or drop in images and files.<br>The template takes care of the formatting.</p></div>';
     $('#report-blocks').innerHTML = html;
+    $('#body-page').classList.toggle('starts-with-media',state.blocks[0]?.type==='media'&&!!state.blocks[0].items.length);
+    $('#body-page').classList.toggle('ends-with-media',state.blocks.at(-1)?.type==='media'&&!!state.blocks.at(-1).items.length);
     $('#component-count').textContent = `${state.blocks.length} component${state.blocks.length === 1 ? '' : 's'}`;
     renderOutline();
     syncCoverInputs();
@@ -625,7 +636,7 @@ import {createImageEditor,normalizeImageEdit,editedImageMarkup} from './image-ed
   $('#report-outline').addEventListener('click', event => { const row = event.target.closest('.outline-row'); if (!row) return; if (previewing) setPreview(false); if (row.dataset.showCover) showPage('cover'); else { showPage('body'); selectBlock(row.dataset.id, true); } });
   const openImageEditor=createImageEditor($('#image-editor-dialog'));
   $('#report-blocks').addEventListener('click', event => {
-    const el = event.target.closest('.report-block');
+    const el = event.target.closest('.report-block,.report-image-card');
     if (!el) return;
     const id = el.dataset.id;
     selectBlock(id);
@@ -638,7 +649,7 @@ import {createImageEditor,normalizeImageEdit,editedImageMarkup} from './image-ed
         const previous=item.edit;
         item.edit=edit;
         if(!saveDraft()){item.edit=previous;return false;}
-        render();selectBlock(block.id,true);toast('Image crop and size saved. The original is unchanged.');return true;
+        render();selectBlock(block.id);$(`[data-item-id="${CSS.escape(item.id)}"]`)?.scrollIntoView({behavior:'smooth',block:'center'});toast('Image crop and size saved. The original is unchanged.');return true;
       });
       return;
     }
@@ -653,20 +664,20 @@ import {createImageEditor,normalizeImageEdit,editedImageMarkup} from './image-ed
     else if (action === 'upload') openFilePicker(id);
   });
   $('#report-blocks').addEventListener('focusin', event => {
-    const el = event.target.closest('.report-block');
+    const el = event.target.closest('.report-block,.report-image-card');
     if (el) selectBlock(el.dataset.id);
     if (event.target.matches('.richtext')) activeEditor = event.target;
   });
   $('#report-blocks').addEventListener('input', event => {
-    const el = event.target.closest('.report-block');
+    const el = event.target.closest('.report-block,.report-image-card');
     if (!el) return;
     const block = state.blocks.find(b => b.id === el.dataset.id);
-    if (event.target.matches('.block-title')) { block.title = event.target.value; $$('.image-sheet-heading>strong',el).forEach(heading=>heading.textContent=block.title||'Supporting images'); renderOutline(); }
+    if (event.target.matches('.block-title')) { block.title = event.target.value; $$('.image-sheet-heading>strong',el).forEach(heading=>heading.textContent=block.title||'Supporting images'); $$('.quarter-continuation-heading').filter(heading=>heading.closest('[data-id]')?.dataset.id===block.id).forEach(heading=>heading.textContent=block.title||'Supporting image'); renderOutline(); }
     else if (event.target.closest('.richtext')) block.html = cleanHTML(event.target.closest('.richtext').innerHTML);
     else if (event.target.matches('.media-caption')) { const itemId = event.target.closest('[data-item-id]').dataset.itemId; const item = block.items.find(i => i.id === itemId); if (item) item.caption = event.target.value; event.target.nextElementSibling.textContent=event.target.value; sizeCaption(event.target); }
     changed();
   });
-  $('#report-blocks').addEventListener('change', event => { if (event.target.matches('select[aria-label="Image size"]')) { const block = state.blocks.find(b => b.id === event.target.closest('.report-block').dataset.id); block.layout = imageLayout(event.target.value); render(); changed(); } });
+  $('#report-blocks').addEventListener('change', event => { if (event.target.matches('select[aria-label="Image size"]')) { const block = state.blocks.find(b => b.id === event.target.closest('.report-block,.report-image-card').dataset.id); block.layout = imageLayout(event.target.value); render(); changed(); } });
   $('#report-blocks').addEventListener('paste', event => {
     if (!event.target.closest('.richtext')) return;
     event.preventDefault();
