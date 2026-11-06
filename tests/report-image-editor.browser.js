@@ -1,17 +1,19 @@
 async page => {
+  // Fixture seeding replaces stored state; do not let the previous fixture flush on unload.
+  await page.addInitScript(()=>addEventListener('beforeunload',event=>event.stopImmediatePropagation(),true));
   const checks=[];
   const check=(ok,label)=>{if(!ok)throw new Error(label);checks.push(label);};
   const base='http://127.0.0.1:5212/cores-timesheet/report-builder/';
   await page.route('**/api/jobs',route=>route.fulfill({contentType:'application/json',body:'{"environment":"dev","jobs":[]}'}));
   await page.goto(base+'index.html');
-  const original=await page.evaluate(()=>localStorage.getItem('cores-report-builder-mockup-v1'));
+  const original=await page.evaluate(async()=>(await import('/cores-timesheet/report-builder/draft-store.mjs')).readDraft('cores-report-builder-mockup-v1'));
   const url=await page.evaluate(()=>{const c=document.createElement('canvas');c.width=400;c.height=200;const ctx=c.getContext('2d');ctx.fillStyle='#ff0000';ctx.fillRect(0,0,200,200);ctx.fillStyle='#0000ff';ctx.fillRect(200,0,200,200);return c.toDataURL('image/png');});
-  await page.evaluate(url=>localStorage.setItem('cores-report-builder-mockup-v1',JSON.stringify({version:1,cover:{projectNo:'CROP-QA'},blocks:[{id:'crop-block',type:'media',title:'Image editing check',layout:'full',items:[{id:'crop-item',kind:'image',name:'crop-source.png',url,caption:'CROP CAPTION — Only the blue half should appear.'}]}]})),url);
+  await page.evaluate(async url=>(await import('/cores-timesheet/report-builder/draft-store.mjs')).writeDraft('cores-report-builder-mockup-v1',{version:1,cover:{projectNo:'CROP-QA'},blocks:[{id:'crop-block',type:'media',title:'Image editing check',layout:'full',items:[{id:'crop-item',kind:'image',name:'crop-source.png',url,caption:'CROP CAPTION — Only the blue half should appear.'}]}]}),url);
   await page.reload();
   const dialog=page.getByRole('dialog',{name:'Edit image',exact:true});
   const open=async()=>{await page.getByRole('button',{name:'Edit image crop-source.png',exact:true}).first().click();await page.waitForFunction(()=>!document.querySelector('[data-image-save]').disabled);};
   const setSlider=async(selector,value)=>dialog.locator(selector).evaluate((el,value)=>{el.value=value;el.dispatchEvent(new Event('input',{bubbles:true}));},String(value));
-  const stored=()=>page.evaluate(()=>JSON.parse(localStorage.getItem('cores-report-builder-mockup-v1')).blocks[0].items[0]);
+  const stored=()=>page.evaluate(async()=>(await (await import('/cores-timesheet/report-builder/draft-store.mjs')).readDraft('cores-report-builder-mockup-v1')).blocks[0].items[0]);
   await open();
   const bounds=await dialog.locator('.crop-surface').boundingBox();
   await page.mouse.move(bounds.x+bounds.width*.52,bounds.y+bounds.height*.03);
@@ -58,6 +60,6 @@ async page => {
   await dialog.getByRole('button',{name:'Apply image changes',exact:true}).click();
   check((await stored()).edit.crop.width===1&&(await stored()).edit.scale===100,'Reset can be applied after reopening an edited image');
   await page.setViewportSize({width:1440,height:1000});
-  await page.evaluate(original=>{if(original===null)localStorage.removeItem('cores-report-builder-mockup-v1');else localStorage.setItem('cores-report-builder-mockup-v1',original);},original);await page.reload();
+  await page.evaluate(async original=>(await import('/cores-timesheet/report-builder/draft-store.mjs')).writeDraft('cores-report-builder-mockup-v1',original),original);await page.reload();
   return {passed:checks.length,checks};
 }

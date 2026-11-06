@@ -1,4 +1,6 @@
 async page => {
+  // Fixture seeding replaces stored state; do not let the previous fixture flush on unload.
+  await page.addInitScript(()=>addEventListener('beforeunload',event=>event.stopImmediatePropagation(),true));
   const checks=[];
   const check=(ok,label)=>{if(!ok)throw new Error(label);checks.push(label);};
   const origin='http://127.0.0.1:5212/cores-timesheet/';
@@ -21,7 +23,7 @@ async page => {
   });
   await page.route('https://giwexoouqxioxkjhoxoe.supabase.co/storage/v1/object/public/gear-photos/**',route=>route.fulfill({contentType:'image/png',body:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j4XcAAAAASUVORK5CYII=','base64')}));
   await page.goto(origin);
-  await page.evaluate(ids=>{localStorage.setItem('cores_unlocked','true');localStorage.setItem('cores_admin_name','Dev review');ids.forEach(id=>localStorage.removeItem(`cores-service-report-dev-${id}-v1`));},[first,second]);
+  await page.evaluate(async ids=>{localStorage.setItem('cores_unlocked','true');localStorage.setItem('cores_admin_name','Dev review');await Promise.all(ids.map(async id=>(await import('/cores-timesheet/report-builder/draft-store.mjs')).writeDraft(`cores-service-report-dev-${id}-v1`,null)));},[first,second]);
   await page.goto(`${origin}#/reports?job=${first}`);
   await page.reload();
   await page.getByRole('button',{name:'Add What Was Done to report',exact:true}).click();
@@ -52,6 +54,7 @@ async page => {
   await page.waitForFunction(()=>!document.querySelector('iframe[title^="Service report editor"]').contentDocument.querySelector('[data-image-save]').disabled);
   await imageDialog.getByRole('slider',{name:'Image size in frame',exact:true}).evaluate(input=>{input.value='70';input.dispatchEvent(new Event('input',{bubbles:true}));});
   await imageDialog.getByRole('button',{name:'Apply image changes',exact:true}).click();
+  await imageDialog.waitFor({state:'hidden'});
   check(await editor().locator('.media-frame .edited-image').count()===1,'The embedded editor adjusts an imported storage photograph');
 
   const notes=editor().locator('.report-block').filter({has:editor().locator('input[value="Work performed"]')});
@@ -59,7 +62,7 @@ async page => {
   check(await notes.locator('script').count()===0,'Source note markup is escaped');
   check(await editor().locator('.media-figure').count()===1,'Only the selected photograph is imported');
   await page.getByRole('button',{name:'Add Full Work Log to report',exact:true}).click();
-  await page.waitForFunction(id=>JSON.parse(localStorage.getItem(`cores-service-report-dev-${id}-v1`)||'{}').blocks?.length===6,first);
+  await page.waitForFunction(async id=>(await (await import('/cores-timesheet/report-builder/draft-store.mjs')).readDraft(`cores-service-report-dev-${id}-v1`))?.blocks?.length===6,first);
   await page.reload();
   await page.getByRole('button',{name:'Build service report',exact:true}).click();
   await editor().locator('.report-block').nth(5).waitFor();
@@ -80,7 +83,7 @@ async page => {
   await editor().locator('#report-blocks').waitFor();
   check(await editor().locator('.report-block').count()===0,'Another job keeps a separate draft');
   check(writes.length===0,'No database writes were attempted');
-  await page.evaluate(ids=>ids.forEach(id=>localStorage.removeItem(`cores-service-report-dev-${id}-v1`)),[first,second]);
+  await page.evaluate(async ids=>Promise.all(ids.map(async id=>(await import('/cores-timesheet/report-builder/draft-store.mjs')).writeDraft(`cores-service-report-dev-${id}-v1`,null))),[first,second]);
   await page.unrouteAll({behavior:'wait'});
   return {passed:checks.length,checks};
 }

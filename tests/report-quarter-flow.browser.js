@@ -1,14 +1,16 @@
 async page => {
+  // Fixture seeding replaces stored state; do not let the previous fixture flush on unload.
+  await page.addInitScript(()=>addEventListener('beforeunload',event=>event.stopImmediatePropagation(),true));
  const checks=[];
  const check=(ok,label)=>{if(!ok)throw new Error(label);checks.push(label);};
  const base='http://127.0.0.1:5212/cores-timesheet/report-builder/';
  await page.route('**/api/jobs',route=>route.fulfill({contentType:'application/json',body:'{"environment":"dev","jobs":[]}'}));
  await page.goto(base+'index.html');
- const original=await page.evaluate(()=>localStorage.getItem('cores-report-builder-mockup-v1'));
+ const original=await page.evaluate(async()=>(await import('/cores-timesheet/report-builder/draft-store.mjs')).readDraft('cores-report-builder-mockup-v1'));
  const photo=(id,caption)=>({id,kind:'image',name:id+'.svg',url:'assets/engine-study.svg',caption});
  const block=(id,items)=>({id,type:'media',layout:'quarter',title:'Section '+id.toUpperCase(),items});
  const blocks=[block('a',[photo('a1','LEFT CAPTION — Separate image A')]),block('b',[photo('b1','RIGHT CAPTION — Separate image B')]),block('c',[photo('c1','THIRD CAPTION'),photo('c2','FOURTH CAPTION')]),block('d',[photo('d1','FIFTH CAPTION')]),{id:'after',type:'text',title:'Following section',html:'<p>FOLLOWING TEXT — Starts after the images.</p>',sourceIds:[]}];
- await page.evaluate(blocks=>localStorage.setItem('cores-report-builder-mockup-v1',JSON.stringify({version:1,cover:{projectNo:'QUARTER-QA'},blocks})),blocks);await page.reload();
+ await page.evaluate(async blocks=>(await import('/cores-timesheet/report-builder/draft-store.mjs')).writeDraft('cores-report-builder-mockup-v1',{version:1,cover:{projectNo:'QUARTER-QA'},blocks}),blocks);await page.reload();
  await page.locator('.quarter-shared-sheet').first().waitFor();
  const pair=()=>page.locator('[data-item-id]').evaluateAll(items=>Object.fromEntries(items.filter(el=>['a1','b1'].includes(el.dataset.itemId)).map(el=>{const r=el.getBoundingClientRect();return [el.dataset.itemId,{x:r.x,y:r.y,width:r.width}];})));
  const {a1:a,b1:b}=await pair();
@@ -24,6 +26,7 @@ async page => {
  await page.waitForFunction(()=>!document.querySelector('[data-image-save]').disabled);
  await page.getByRole('dialog',{name:'Edit image',exact:true}).getByRole('slider',{name:'Image size in frame',exact:true}).evaluate(input=>{input.value='80';input.dispatchEvent(new Event('input',{bubbles:true}));});
  await page.getByRole('button',{name:'Apply image changes',exact:true}).click();
+ await page.getByRole('dialog',{name:'Edit image',exact:true}).waitFor({state:'hidden'});
  check(await page.locator('[data-item-id="c2"] .edited-image').count()===1,'Image editing works on continuation cards');
  check(await page.locator('[data-item-id="c1"] .edited-image').count()===0,'Editing one shared-page image leaves its neighbour unchanged');
  const aBlock=page.locator('.report-block[data-id="a"]');
@@ -35,7 +38,8 @@ async page => {
  const {a1:movedA,b1:movedB}=await pair();
  check(movedB.x<movedA.x&&Math.abs(movedA.y-movedB.y)<1,'Moving a section changes its position in the shared row');
  await aBlock.getByRole('button',{name:'Move component up',exact:true}).click();
- await page.waitForFunction(()=>JSON.parse(localStorage.getItem('cores-report-builder-mockup-v1')).blocks.find(b=>b.id==='c').items[1].caption==='FOURTH EDITED CAPTION');
+ await page.waitForFunction(async()=>(await (await import('/cores-timesheet/report-builder/draft-store.mjs')).readDraft('cores-report-builder-mockup-v1')).blocks.find(b=>b.id==='c').items[1].caption==='FOURTH EDITED CAPTION');
+ await page.waitForFunction(()=>document.querySelector('#save-state').textContent==='Saved in this browser');
  await page.reload();
  check(await page.getByRole('textbox',{name:'Description for c2.svg',exact:true}).inputValue()==='FOURTH EDITED CAPTION','Shared-page captions survive reload');
  check(await page.locator('[data-item-id="c2"] .edited-image').count()===1,'Shared-page image adjustments survive reload');
@@ -50,6 +54,6 @@ async page => {
  await page.setViewportSize({width:390,height:844});
  check(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'Shared image pages fit a phone viewport');
  await page.setViewportSize({width:1440,height:1000});
- await page.evaluate(original=>{if(original===null)localStorage.removeItem('cores-report-builder-mockup-v1');else localStorage.setItem('cores-report-builder-mockup-v1',original);},original);await page.reload();
+ await page.evaluate(async original=>(await import('/cores-timesheet/report-builder/draft-store.mjs')).writeDraft('cores-report-builder-mockup-v1',original),original);await page.reload();
  return {passed:checks.length,checks};
 }

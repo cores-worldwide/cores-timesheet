@@ -26,7 +26,7 @@ export function createImageEditor(dialog) {
   const surface=$('.crop-surface'),selection=$('.crop-selection');
   const source=$('.crop-source'),preview=$('.image-edit-preview');
   const save=$('[data-image-save]'),status=$('[data-image-status]');
-  let draft=null,item=null,apply=null,version=0,drag=null;
+  let draft=null,item=null,apply=null,version=0,drag=null,saving=false;
   function update() {
     if(!draft)return;
     const c=draft.crop;
@@ -94,7 +94,23 @@ export function createImageEditor(dialog) {
   });
   dialog.addEventListener('change',event=>{if(draft&&event.target.hasAttribute('data-crop-value')){draft.crop=normalizeCrop({...draft.crop,[event.target.dataset.cropValue]:Number(event.target.value)/100});update();}});
   $('[data-image-reset]').addEventListener('click',()=>{if(draft){draft.crop=normalizeCrop();draft.scale=100;update();}});
-  save.addEventListener('click',()=>{if(draft&&apply(normalizeImageEdit(draft)))dialog.close();else if(draft)status.textContent='The edit could not be saved. Free browser storage and try again.';});
+  save.addEventListener('click',async()=>{
+    if(!draft||saving)return;
+    saving=true;dialog.dataset.saving='true';
+    save.disabled=true;$('fieldset').disabled=true;
+    dialog.querySelectorAll('.close-dialog').forEach(button=>button.disabled=true);
+    status.textContent='Saving image changes…';
+    try {
+      if(await apply(normalizeImageEdit(draft)))dialog.close();
+      else status.textContent='The image changes could not be saved. Your adjustments are still open; try again.';
+    }catch(error){status.textContent=error.message||'The image changes could not be saved. Your adjustments are still open; try again.';}
+    finally {
+      saving=false;delete dialog.dataset.saving;
+      dialog.querySelectorAll('.close-dialog').forEach(button=>button.disabled=false);
+      if(dialog.open&&draft){save.disabled=false;$('fieldset').disabled=false;update();}
+    }
+  });
+  dialog.addEventListener('cancel',event=>{if(saving)event.preventDefault();});
   dialog.addEventListener('close',()=>{version++;draft=null;item=null;apply=null;drag=null;source.removeAttribute('src');preview.replaceChildren();});
   return async (nextItem,onApply)=>{
     const request=++version;

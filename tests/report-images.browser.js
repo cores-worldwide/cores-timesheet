@@ -1,13 +1,15 @@
 async page => {
+  // Fixture seeding replaces stored state; do not let the previous fixture flush on unload.
+  await page.addInitScript(()=>addEventListener('beforeunload',event=>event.stopImmediatePropagation(),true));
   const checks=[];
   const check=(ok,label)=>{if(!ok)throw new Error(label);checks.push(label);};
   const base='http://127.0.0.1:5212/cores-timesheet/report-builder/';
   await page.route('**/api/jobs',route=>route.fulfill({contentType:'application/json',body:JSON.stringify({environment:'dev',jobs:[]})}));
   await page.goto(base+'index.html');
-  const original=await page.evaluate(()=>localStorage.getItem('cores-report-builder-mockup-v1'));
+  const original=await page.evaluate(async()=>(await import('/cores-timesheet/report-builder/draft-store.mjs')).readDraft('cores-report-builder-mockup-v1'));
   const picture=(id,caption)=>({id,kind:'image',name:id+'.svg',url:'assets/'+(id.includes('quarter')?'valve-study.svg':'engine-study.svg'),caption});
   const blocks=[{id:'full',type:'media',title:'Full-page photograph',layout:'full',items:[picture('full-1','FULL CAPTION — One image fills the available report page, with its description underneath.')]},{id:'half',type:'media',title:'Half-page photographs',layout:'half',items:[picture('half-1','HALF TOP CAPTION — First image.'),picture('half-2','HALF BOTTOM CAPTION — Second image.')]},{id:'quarter',type:'media',title:'Quarter-page photographs',layout:'quarter',items:Array.from({length:5},(_,i)=>picture('quarter-'+(i+1),'QUARTER CAPTION '+(i+1)+' — '+(i===0?'A longer inspection description that wraps beneath the image while the frame keeps its proportions. '.repeat(4):'Supporting image and description.')))},{id:'after',type:'text',title:'Recommendations',html:'<p>TEXT AFTER IMAGES — This section starts on a fresh page.</p>',sourceIds:[]}];
-  await page.evaluate(blocks=>localStorage.setItem('cores-report-builder-mockup-v1',JSON.stringify({version:1,cover:{projectNo:'IMAGE-QA',plantVessel:'Sample vessel'},blocks})),blocks);
+  await page.evaluate(async blocks=>(await import('/cores-timesheet/report-builder/draft-store.mjs')).writeDraft('cores-report-builder-mockup-v1',{version:1,cover:{projectNo:'IMAGE-QA',plantVessel:'Sample vessel'},blocks}),blocks);
   await page.reload();
   await page.locator('.image-sheet').first().waitFor();
   check(await page.locator('.layout-full').count()===1,'Full-page layout puts one image on each page');
@@ -24,7 +26,7 @@ async page => {
   check(await section.locator('.image-sheet').count()===3,'Half-page layout supports an incomplete final page');
   await section.getByRole('combobox',{name:'Image size',exact:true}).selectOption('quarter');
   await page.getByRole('textbox',{name:'Description for half-1.svg',exact:true}).fill('HALF EDITED CAPTION — Preserved on reload and in print.');
-  await page.waitForFunction(()=>JSON.parse(localStorage.getItem('cores-report-builder-mockup-v1')||'{}').blocks?.find(b=>b.id==='half')?.items[0].caption.startsWith('HALF EDITED'));
+  await page.waitForFunction(()=>document.querySelector('#save-state').textContent==='Saved in this browser');
   await page.reload();
   check(await page.locator('.media-block[data-id="quarter"]').getByRole('combobox',{name:'Image size',exact:true}).inputValue()==='quarter','Image size survives reload');
   check((await page.getByRole('textbox',{name:'Description for half-1.svg',exact:true}).inputValue()).startsWith('HALF EDITED'),'Edited image captions survive reload');
@@ -38,7 +40,7 @@ async page => {
   await page.pdf({path:'tmp/pdfs/image-layouts-qa.pdf',format:'Letter',printBackground:true,preferCSSPageSize:true});
   await page.emulateMedia({media:'screen'});
   await page.locator('.media-block[data-id="half"]').screenshot({path:'tmp/pdfs/half-page-editor.png'});
-  await page.evaluate(original=>{if(original===null)localStorage.removeItem('cores-report-builder-mockup-v1');else localStorage.setItem('cores-report-builder-mockup-v1',original);},original);
+  await page.evaluate(async original=>(await import('/cores-timesheet/report-builder/draft-store.mjs')).writeDraft('cores-report-builder-mockup-v1',original),original);
   await page.reload();
   return {passed:checks.length,checks};
 }

@@ -2,7 +2,8 @@
 import {fillFromJob, suggestedEngines, engineFields, engineModel} from './job-fields.mjs';
 import {IMAGE_LAYOUTS,imageLayout,imagePages,reportGroups} from './image-layouts.mjs';
 import {createImageEditor,normalizeImageEdit,editedImageMarkup} from './image-editor.mjs';
-(() => {
+import {readDraft,writeDraft,draftStorageMessage} from './draft-store.mjs';
+(async () => {
   'use strict';
   const params = new URLSearchParams(location.search);
   const hostJobId = /^[a-f0-9-]{36}$/i.test(params.get('job') || '') ? params.get('job') : '';
@@ -70,6 +71,11 @@ import {createImageEditor,normalizeImageEdit,editedImageMarkup} from './image-ed
   let importTarget = null;
   let saveTimer;
   let toastTimer;
+  let saveVersion=0;
+  let saveAttempt=0;
+  let pendingSaves=0;
+  let draftReadFailed=false;
+  let lastSaveError='';
   let dragging = null;
   let previewURLs = [];
   let projectJobs = [];
@@ -115,7 +121,7 @@ import {createImageEditor,normalizeImageEdit,editedImageMarkup} from './image-ed
   }
 
   try {
-    const saved = JSON.parse(localStorage.getItem(STORE_KEY) || 'null');
+    const saved = await readDraft(STORE_KEY);
     if (saved?.version === 1 && Array.isArray(saved.blocks) && saved.blocks.length <= 100) {
       state = { version: 1, blocks: saved.blocks.filter(block => block && typeof block.id === 'string' && ['text', 'media', 'break'].includes(block.type)).map(block => {
         if (block.type === 'text') return { id: block.id, type: 'text', title: String(block.title || ''), sourceLabel:String(block.sourceLabel||''), html: cleanHTML(block.html), sourceIds: Array.isArray(block.sourceIds) ? block.sourceIds.filter(id => typeof id==='string' && id.length<=100) : [] };
@@ -127,7 +133,11 @@ import {createImageEditor,normalizeImageEdit,editedImageMarkup} from './image-ed
       selectedId = state.blocks[0]?.id || null;
       $('#save-state').textContent = 'Saved in this browser';
     }
-  } catch { /* A fresh sample is safe when browser storage is unavailable. */ }
+  } catch {
+    draftReadFailed=true;
+    $('#save-state').textContent='Saved draft unavailable';
+    toast('The saved draft could not be read. Keep this page open and reload before editing; existing drafts have not been replaced.');
+  }
 
   function toast(message) {
     clearTimeout(toastTimer);
@@ -135,25 +145,33 @@ import {createImageEditor,normalizeImageEdit,editedImageMarkup} from './image-ed
     $('#toast').classList.add('visible');
     toastTimer = setTimeout(() => $('#toast').classList.remove('visible'), 4000);
   }
-  function saveDraft(explicit = false) {
+  async function saveDraft(explicit = false) {
     clearTimeout(saveTimer);
+    const version=saveVersion;
+    const attempt=++saveAttempt;
+    pendingSaves++;
+    $('#save-state').textContent='Saving…';
     try {
-      localStorage.setItem(STORE_KEY, JSON.stringify(state));
-      $('#save-state').textContent = 'Saved in this browser';
+      if(draftReadFailed)throw new Error('Read failed');
+      await writeDraft(STORE_KEY,state);
+      if(attempt===saveAttempt)$('#save-state').textContent=version===saveVersion?'Saved in this browser':'Unsaved changes';
+      lastSaveError='';
       if (explicit) toast('Draft saved in this browser.');
       return true;
-    } catch {
-      $('#save-state').textContent = 'Draft not saved';
-      toast('Browser storage is full. Remove a large file before saving this sample draft.');
+    } catch(error) {
+      lastSaveError=draftReadFailed?'The saved draft could not be read. Reload before saving so the existing report is not replaced.':draftStorageMessage(error);
+      if(attempt===saveAttempt)$('#save-state').textContent = 'Draft not saved';
+      toast(lastSaveError);
       return false;
-    }
+    } finally {pendingSaves--;}
   }
   function changed() {
+    saveVersion++;
     $('#save-state').textContent = 'Unsaved changes';
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => saveDraft(), 650);
   }
-  function importSections(request) {
+  async function importSections(request) {
     if(request.jobId!==hostJobId||typeof request.id!=='string')return;
     const reply=error=>window.parent.postMessage({type:'cores-report-imported',id:request.id,jobId:hostJobId,error},window.location.origin);
     if(importedRequests.has(request.id)){reply();return;}
@@ -167,7 +185,7 @@ import {createImageEditor,normalizeImageEdit,editedImageMarkup} from './image-ed
       });
       const previous=state.blocks;
       state.blocks=[...previous,...blocks];
-      if(!saveDraft()){state.blocks=previous;throw new Error('The browser could not save these sections. Free browser storage and try again.');}
+      if(!await saveDraft()){state.blocks=previous;throw new Error(lastSaveError);}
       importedRequests.add(request.id);
       selectedId=blocks[0].id;
       if(previewing)setPreview(false);
@@ -258,7 +276,7 @@ import {createImageEditor,normalizeImageEdit,editedImageMarkup} from './image-ed
     closeProjects();
     if (!projectJobs.some(job => job.id === id)) return;
     if (embedded && id!==hostJobId && !restore) {
-      if (!saveDraft()) return;
+      if (!await saveDraft()) return;
       $('#job-fill-note').hidden=false;
       $('#job-fill-note').textContent='Opening that job’s report…';
       try { await requestParent('open-job',id); }
@@ -601,8 +619,8 @@ import {createImageEditor,normalizeImageEdit,editedImageMarkup} from './image-ed
   $('#show-body').addEventListener('click', () => { if (previewing) setPreview(false); showPage('body'); });
   $('#toggle-preview').addEventListener('click', () => setPreview(!previewing));
   $('#save-draft').addEventListener('click', () => saveDraft(true));
-  $('#print-report').addEventListener('click', () => {
-    saveDraft();
+  $('#print-report').addEventListener('click', async () => {
+    if(!await saveDraft())return;
     toast('Choose “Save as PDF” in the print window. PDFs are listed as attachments in this mockup.');
     setTimeout(() => window.print(), 100);
   });
@@ -628,7 +646,7 @@ import {createImageEditor,normalizeImageEdit,editedImageMarkup} from './image-ed
   $('#add-at-end').addEventListener('click', () => $('#add-dialog').showModal());
   $$('[data-add]').forEach(button => button.addEventListener('click', () => { $('#add-dialog').close(); addComponent(button.dataset.add); }));
   $$('.close-dialog').forEach(button => button.addEventListener('click', () => button.closest('dialog').close()));
-  $$('dialog').forEach(dialog => dialog.addEventListener('click', event => { if (event.target === dialog) { const rect = dialog.getBoundingClientRect(); if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) dialog.close(); } }));
+  $$('dialog').forEach(dialog => dialog.addEventListener('click', event => { if (event.target === dialog && dialog.dataset.saving!=='true') { const rect = dialog.getBoundingClientRect(); if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) dialog.close(); } }));
   $('#open-timesheets').addEventListener('click', () => openNotes());
   $('#timesheet-list').addEventListener('change', updateSelectedNotes);
   $('#insert-notes').addEventListener('click', insertNotes);
@@ -645,10 +663,10 @@ import {createImageEditor,normalizeImageEdit,editedImageMarkup} from './image-ed
     const editButton=event.target.closest('[data-edit-image]');
     if(editButton){
       const item=block.items?.find(item=>item.id===editButton.dataset.editImage&&item.kind==='image');
-      if(item)openImageEditor(item,edit=>{
+      if(item)openImageEditor(item,async edit=>{
         const previous=item.edit;
         item.edit=edit;
-        if(!saveDraft()){item.edit=previous;return false;}
+        if(!await saveDraft()){item.edit=previous;throw new Error(lastSaveError);}
         render();selectBlock(block.id);$(`[data-item-id="${CSS.escape(item.id)}"]`)?.scrollIntoView({behavior:'smooth',block:'center'});toast('Image crop and size saved. The original is unchanged.');return true;
       });
       return;
@@ -716,7 +734,12 @@ import {createImageEditor,normalizeImageEdit,editedImageMarkup} from './image-ed
     dragging = null;
     $$('.drop-slot').forEach(el => el.classList.remove('drag-active'));
   });
-  window.addEventListener('beforeunload', event => { if ($('#save-state').textContent === 'Draft not saved' || $('#save-state').textContent === 'Unsaved changes') { if (!saveDraft()) { event.preventDefault(); event.returnValue = ''; } } });
+  window.addEventListener('beforeunload', event => {
+    if(pendingSaves||['Draft not saved','Unsaved changes'].includes($('#save-state').textContent)){
+      saveDraft();event.preventDefault();event.returnValue='';
+    }
+  });
+  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden'&&$('#save-state').textContent==='Unsaved changes')saveDraft();});
   render();
   showPage('body');
   loadProjects();
