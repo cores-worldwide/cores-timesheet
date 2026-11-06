@@ -11,6 +11,8 @@ import { getAdminName } from './PasswordGate'
 import { fetchAll } from '../utils/fetchAll'
 import JobFiles from './JobFiles'
 import ReportBuilder from './ReportBuilder'
+import {reportBuilderAvailable} from '../utils/reportBuilderData'
+import {reportText, reportTable, reportNotes, reportPhotos} from '../utils/reportSections'
 
 const card = { padding: '1.25rem', background: '#fff', borderRadius: '6px', border: '1px solid #e0e0e0', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }
 const badge = (s) => ({ padding: '0.2rem 0.6rem', borderRadius: '12px', fontSize: '0.8rem', fontWeight: 600, background: s === 'open' ? '#e6f4ea' : '#f0f0f0', color: s === 'open' ? '#2d6a38' : '#666' })
@@ -63,11 +65,33 @@ export default function Reports() {
   // Date-range summary for the job being viewed: { jobId, from, to, text }.
   // Generated on demand and never saved, so it can't overwrite the whole-job one.
   const [rangeSummary, setRangeSummary] = useState(null)
+  const [reportImport, setReportImport] = useState(null)
+  const [reportSelection, setReportSelection] = useState({jobId:null,notes:[],photos:[]})
+  const [reportNotice, setReportNotice] = useState('')
+  function toggleReportItem(jobId, kind, id) {
+    setReportSelection(previous=>{
+      const next=previous.jobId===jobId ? previous : {jobId,notes:[],photos:[]}
+      return {...next,[kind]:next[kind].includes(id)?next[kind].filter(value=>value!==id):[...next[kind],id]}
+    })
+  }
+  function importReportSections(jobId, sections) {
+    if(!reportBuilderAvailable||reportImport)return
+    setReportNotice('Adding to report…')
+    setReportImport({id:crypto.randomUUID(),jobId,sections})
+  }
+  function finishReportImport(id, success) {
+    if(reportImport?.id!==id)return
+    setReportImport(null)
+    setReportNotice(success?'Added to the report. You can edit the copy in the builder above.':'The section was not added. See the report builder above for details.')
+    if(success)setReportSelection(previous=>({...previous,notes:reportImport.sections.some(section=>section.sourceLabel==='From timesheets')?[]:previous.notes,photos:reportImport.sections.some(section=>section.type==='media')?[]:previous.photos}))
+  }
+
 
   // Navigation
   const [activeTab, setActiveTab] = useState('jobs')
   const [selectedJob, setSelectedJob] = useState(null)
   const [selectedEmployee, setSelectedEmployee] = useState(null)
+  useEffect(()=>{setReportImport(null);setReportNotice('');setReportSelection({jobId:null,notes:[],photos:[]})},[selectedJob?.id])
   const [navHistory, setNavHistory] = useState([])
 
   // Global job status filter
@@ -718,6 +742,12 @@ export default function Reports() {
       return acc
     }, {})
 
+    const selectedNotes=reportSelection.jobId===job.id ? jobEntries.filter(e=>reportSelection.notes.includes(e.id)) : []
+    const visiblePhotos=gearPhotos.filter(p=>jobEntries.some(e=>p.job_id===job.id&&p.employee_id===e.employee_id&&p.work_date===e.work_date))
+    const selectedPhotos=reportSelection.jobId===job.id ? visiblePhotos.filter(p=>reportSelection.photos.includes(p.id)) : []
+    const addSection=(section,disabled=false,label)=>reportBuilderAvailable&&<button type="button" aria-label={label||`Add ${section.title} to report`} disabled={disabled||!!reportImport} onClick={()=>importReportSections(job.id,[section])} style={{padding:'0.3rem 0.7rem',border:'1px solid #0066cc',borderRadius:4,background:'#f4f9ff',color:'#0059b3',cursor:disabled||reportImport?'default':'pointer',fontSize:'0.8rem',opacity:disabled||reportImport?.jobId===job.id?0.6:1}}>{label?.startsWith('Add selected')?label.replace(' to report',''):'Add to report'}</button>
+    const workLog=reportTable('Full Work Log',['Date','Employee','Hours','Description'],[...jobEntries].sort((a,b)=>a.work_date.localeCompare(b.work_date)).map(e=>[e.work_date,e.employees?.name||'—',e.hours,e.description]))
+
     return (
       <div style={{ padding: '2rem', maxWidth: '1100px', margin: '0 auto' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
@@ -732,7 +762,8 @@ export default function Reports() {
         </div>
         <p style={{ color: '#666', marginBottom: '1.5rem' }}>{job.description}</p>
 
-        <ReportBuilder job={job} onSelectJob={goToJob} />
+        <ReportBuilder key={job.id} job={job} onSelectJob={goToJob} importRequest={reportImport} onImportComplete={finishReportImport} />
+        {reportBuilderAvailable&&reportNotice&&<p role="status" style={{color:'#32634a',fontSize:'0.85rem'}}>{reportNotice}</p>}
 
         {(() => {
           // Compares against ALL of the job's entries (unfiltered by the page's
@@ -775,6 +806,7 @@ export default function Reports() {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', gap: '0.5rem', flexWrap: 'wrap' }}>
                 <h4 style={{ color: '#555', margin: 0 }}>What Was Done</h4>
                 <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  {addSection(reportText('What Was Done — whole job',job.work_summary),!job.work_summary?.trim(),'Add What Was Done to report')}
                   {rangeActive && rangeEntryCount > 0 && (
                     <button onClick={() => summarizeJobRange(job.id, dateFrom, dateTo)} disabled={!!summarizing} style={btn(summarizing)}>
                       {summarizing === 'range' ? 'Summarizing…' : `📅 Summarize ${rangeText} only`}
@@ -796,6 +828,7 @@ export default function Reports() {
                     📅 {rangeText} only — work outside these dates is left out
                   </div>
                   {renderParagraphs(toParagraphs(shownRange.text))}
+                  {addSection(reportText(`What Was Done — ${rangeText}`,shownRange.text),!shownRange.text?.trim(),'Add date-range summary to report')}
                 </div>
               )}
               {summaryParagraphs.length > 0 ? (
@@ -819,7 +852,7 @@ export default function Reports() {
           )
         })()}
 
-        <h4 style={{ color: '#555', marginBottom: '0.75rem' }}>Crew</h4>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,marginBottom:'0.75rem'}}><h4 style={{color:'#555',margin:0}}>Crew</h4>{addSection(reportTable('Crew',['Employee','Hours','% of Job'],Object.values(crewMap).sort((a,b)=>b.hours-a.hours).map(({emp,hours})=>[emp.name,fmtHours(hours),`${totalJobHours>0?Math.round(hours/totalJobHours*100):0}%`])),!Object.keys(crewMap).length)}</div>
         <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '2rem' }}>
           <thead>
             <tr style={{ background: '#f5f5f5', borderBottom: '2px solid #ddd' }}>
@@ -841,7 +874,7 @@ export default function Reports() {
 
         <JobFiles job={job} />
 
-        <h4 style={{ color: '#555', marginBottom: '0.75rem' }}>Supplies Used</h4>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,marginBottom:'0.75rem'}}><h4 style={{color:'#555',margin:0}}>Supplies Used</h4>{addSection(reportTable('Supplies Used',['Date','Employee','Supply','Qty','Description'],[...jobSupplies].sort((a,b)=>a.work_date.localeCompare(b.work_date)).map(s=>[s.work_date,s.employees?.name||'—',s.supply_name,s.quantity,s.description])),!jobSupplies.length)}</div>
         {jobSupplies.length > 0 ? (
           <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '2rem' }}>
             <thead>
@@ -885,16 +918,28 @@ export default function Reports() {
           ))}
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: '0.75rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap:12, flexWrap:'wrap', marginBottom: '0.75rem' }}>
           <h4 style={{ color: '#555', margin: 0 }}>Full Work Log</h4>
+          {addSection(workLog,!jobEntries.length)}
           <button onClick={() => exportWorkLog(job, jobEntries)}
             style={{ marginLeft: 'auto', padding: '0.3rem 0.7rem', border: '1px solid #2d6a38', borderRadius: 4, background: '#fff', color: '#2d6a38', cursor: 'pointer', fontSize: '0.8rem' }}>
             Export Work Log CSV
           </button>
         </div>
+        {reportBuilderAvailable&&<div style={{padding:'0.75rem',marginBottom:12,background:'#f4f9ff',border:'1px solid #d4e2ec',borderRadius:5}}>
+          <p style={{margin:'0 0 8px',fontSize:13}}>Select work notes or individual photos below, then add editable copies to the report. Crew, supplies and the work log use the current date filters; the whole-job summary includes all dates.</p>
+          <div style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}}>
+            <span style={{fontSize:12}}>{selectedNotes.length} notes · {selectedPhotos.length} photos selected</span>
+            {addSection(reportNotes(selectedNotes),!selectedNotes.length,'Add selected notes to report')}
+            {addSection(reportPhotos(selectedPhotos,gearPhotoUrl),!selectedPhotos.length,'Add selected photos to report')}
+            <button disabled={!!reportImport||!selectedNotes.length&&!selectedPhotos.length} onClick={()=>importReportSections(job.id,[...(selectedNotes.length?[reportNotes(selectedNotes)]:[]),...(selectedPhotos.length?[reportPhotos(selectedPhotos,gearPhotoUrl)]:[])])}>Add all selected</button>
+            <button onClick={()=>setReportSelection({jobId:job.id,notes:[],photos:[]})}>Clear selection</button>
+          </div>
+        </div>}
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ background: '#f5f5f5', borderBottom: '2px solid #ddd' }}>
+              {reportBuilderAvailable&&<th style={{padding:8}}><input type="checkbox" aria-label="Select all visible work notes" checked={jobEntries.some(e=>e.description?.trim())&&selectedNotes.length===jobEntries.filter(e=>e.description?.trim()).length} onChange={event=>setReportSelection(previous=>({jobId:job.id,notes:event.target.checked?jobEntries.filter(e=>e.description?.trim()).map(e=>e.id):[],photos:previous.jobId===job.id?previous.photos:[]}))}/></th>}
               <th style={{ padding: '0.6rem 0.75rem', textAlign: 'left' }}>Date</th>
               <th style={{ padding: '0.6rem 0.75rem', textAlign: 'left' }}>Employee</th>
               <th style={{ padding: '0.6rem 0.75rem', textAlign: 'center' }}>Hours</th>
@@ -912,6 +957,7 @@ export default function Reports() {
                 p.job_id === job.id && p.employee_id === e.employee_id && p.work_date === e.work_date)
               return (
                 <tr key={e.id} style={{ borderBottom: '1px solid #eee' }}>
+                  {reportBuilderAvailable&&<td style={{padding:8}}><input type="checkbox" aria-label={`Include work note ${e.id}`} disabled={!e.description?.trim()} checked={selectedNotes.some(note=>note.id===e.id)} onChange={()=>toggleReportItem(job.id,'notes',e.id)}/></td>}
                   <td style={{ padding: '0.6rem 0.75rem', color: '#888', whiteSpace: 'nowrap' }}>
                     {new Date(e.work_date + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}
                   </td>
@@ -925,6 +971,7 @@ export default function Reports() {
                         onClick={() => openPhotoGroup(`${job.job_number} — ${e.employees?.name} — ${e.work_date}`, entryPhotos)}
                       >📷 {entryPhotos.length}</span>
                     ) : '—'}
+                    {reportBuilderAvailable&&entryPhotos.length>0&&<details style={{marginTop:6,textAlign:'left'}}><summary style={{cursor:'pointer',fontSize:12}}>Select photos</summary><div style={{display:'flex',flexWrap:'wrap',gap:8,paddingTop:8}}>{entryPhotos.map(photo=><label key={photo.id} style={{display:'flex',alignItems:'center',gap:4}}><input type="checkbox" aria-label={`Include photograph ${photo.id}`} checked={selectedPhotos.some(p=>p.id===photo.id)} onChange={()=>toggleReportItem(job.id,'photos',photo.id)}/><img src={gearPhotoUrl(photo.thumb_path||photo.storage_path)} alt={`Job photograph from ${photo.work_date}`} loading="lazy" style={{width:56,height:44,objectFit:'cover',borderRadius:3}}/></label>)}</div></details>}
                   </td>
                 </tr>
               )

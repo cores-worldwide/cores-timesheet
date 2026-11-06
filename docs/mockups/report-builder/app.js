@@ -1,5 +1,6 @@
 /* Local report-builder prototype. Job reads use a dev-only local proxy. */
 import {fillFromJob, suggestedEngines, engineFields, engineModel} from './job-fields.mjs';
+import {IMAGE_LAYOUTS,imageLayout,imagePages} from './image-layouts.mjs';
 (() => {
   'use strict';
   const params = new URLSearchParams(location.search);
@@ -27,11 +28,11 @@ import {fillFromJob, suggestedEngines, engineFields, engineModel} from './job-fi
   const uid = () => globalThis.crypto?.randomUUID?.() || `block-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const esc = (value = '') => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const icon = (name) => `<svg class="icon" aria-hidden="true"><use href="#i-${name}"/></svg>`;
-  const safeURL = value => typeof value === 'string' && (/^data:(image\/(?:png|jpeg|jpg|gif|webp|bmp|avif)|application\/pdf|application\/octet-stream);base64,/i.test(value) || /^assets\/[\w-]+\.svg$/.test(value));
+  const safeURL = value => typeof value === 'string' && (/^data:(image\/(?:png|jpeg|jpg|gif|webp|bmp|avif)|application\/pdf|application\/octet-stream);base64,/i.test(value) || /^assets\/[\w-]+\.svg$/.test(value) || (embedded && /^https:\/\/giwexoouqxioxkjhoxoe\.supabase\.co\/storage\/v1\/object\/public\/gear-photos\/[^\s"<>?#]+$/.test(value)));
   const cleanHTML = html => {
     const template = document.createElement('template');
     template.innerHTML = String(html || '');
-    const allowed = new Set(['P', 'DIV', 'BR', 'UL', 'OL', 'LI', 'B', 'STRONG', 'I', 'EM', 'U', 'SPAN', 'BLOCKQUOTE']);
+    const allowed = new Set(['P', 'DIV', 'BR', 'UL', 'OL', 'LI', 'B', 'STRONG', 'I', 'EM', 'U', 'SPAN', 'BLOCKQUOTE', 'TABLE', 'THEAD', 'TBODY', 'TR', 'TH', 'TD']);
     const clean = node => {
       [...node.children].forEach(el => {
         if (['SCRIPT', 'STYLE', 'IFRAME', 'OBJECT', 'IMG', 'SVG', 'LINK', 'META'].includes(el.tagName)) { el.remove(); return; }
@@ -52,7 +53,7 @@ import {fillFromJob, suggestedEngines, engineFields, engineModel} from './job-fi
     cover: { ...COVER_DEFAULTS },
     blocks: embedded ? [] : [
       { id: uid(), type: 'text', title: 'Work performed', html: '<ul><li>Removed access covers and inspected the cylinder head assemblies.</li><li>Cleaned and checked the valve components, recording the inspection findings.</li><li>Reassembled the inspected components and completed function checks.</li></ul>', sourceIds: ['sample-1', 'sample-2', 'sample-3'] },
-      { id: uid(), type: 'media', title: 'Supporting images', layout: 'two', items: [
+      { id: uid(), type: 'media', title: 'Supporting images', layout: 'quarter', items: [
         { id: uid(), kind: 'image', name: 'engine-reference.svg', url: 'assets/engine-study.svg', caption: 'Engine assembly before inspection. Illustrative sample.' },
         { id: uid(), kind: 'image', name: 'valve-detail.svg', url: 'assets/valve-study.svg', caption: 'Valve component reference view. Illustrative sample.' },
       ] },
@@ -79,12 +80,15 @@ import {fillFromJob, suggestedEngines, engineFields, engineModel} from './job-fi
   let currentJobDetail = null;
   let availableNotes = embedded ? [] : SAMPLE_NOTES;
   const parentRequests = new Map();
+  const importedRequests = new Set();
   if (embedded) {
     $('.canvas-footnote').textContent='This job’s draft is saved in this browser. Job and timesheet records are read-only.';
     $('.job-selection-help').textContent='Choosing another project opens that job’s report. Each job keeps its own draft.';
     $('.sample-note p').innerHTML='Dev database<br><small>Job-specific timesheet notes</small>';
     window.addEventListener('message',event => {
-      if (event.source!==window.parent || event.origin!==window.location.origin || event.data?.type!=='cores-report-response') return;
+      if (event.source!==window.parent || event.origin!==window.location.origin) return;
+      if(event.data?.type==='cores-report-import') { importSections(event.data); return; }
+      if(event.data?.type!=='cores-report-response') return;
       const pending=parentRequests.get(event.data.requestId);
       if (!pending) return;
       clearTimeout(pending.timer);
@@ -113,8 +117,8 @@ import {fillFromJob, suggestedEngines, engineFields, engineModel} from './job-fi
     const saved = JSON.parse(localStorage.getItem(STORE_KEY) || 'null');
     if (saved?.version === 1 && Array.isArray(saved.blocks) && saved.blocks.length <= 100) {
       state = { version: 1, blocks: saved.blocks.filter(block => block && typeof block.id === 'string' && ['text', 'media', 'break'].includes(block.type)).map(block => {
-        if (block.type === 'text') return { id: block.id, type: 'text', title: String(block.title || ''), html: cleanHTML(block.html), sourceIds: Array.isArray(block.sourceIds) ? block.sourceIds.filter(id => typeof id==='string' && id.length<=100) : [] };
-        if (block.type === 'media') return { id: block.id, type: 'media', title: String(block.title || ''), layout: block.layout === 'two' ? 'two' : 'one', items: (Array.isArray(block.items) ? block.items : []).filter(item => item && safeURL(item.url)).map(item => ({ id: String(item.id || uid()), kind: ['image', 'pdf', 'attachment'].includes(item.kind) ? item.kind : 'attachment', name: String(item.name || 'Attachment'), url: item.url, caption: String(item.caption || '') })) };
+        if (block.type === 'text') return { id: block.id, type: 'text', title: String(block.title || ''), sourceLabel:String(block.sourceLabel||''), html: cleanHTML(block.html), sourceIds: Array.isArray(block.sourceIds) ? block.sourceIds.filter(id => typeof id==='string' && id.length<=100) : [] };
+        if (block.type === 'media') return { id: block.id, type: 'media', title: String(block.title || ''), sourceLabel:String(block.sourceLabel||''), layout: imageLayout(block.layout), items: (Array.isArray(block.items) ? block.items : []).filter(item => item && safeURL(item.url)).map(item => ({ id: String(item.id || uid()), kind: ['image', 'pdf', 'attachment'].includes(item.kind) ? item.kind : 'attachment', name: String(item.name || 'Attachment'), url: item.url, caption: String(item.caption || '') })) };
         return { id: block.id, type: 'break' };
       }) };
       state.cover = Object.fromEntries(Object.entries(COVER_DEFAULTS).map(([key, fallback]) => [key, typeof saved.cover?.[key] === 'string' ? saved.cover[key].slice(0, key === 'serviceReason' ? 600 : 180) : fallback]));
@@ -147,6 +151,29 @@ import {fillFromJob, suggestedEngines, engineFields, engineModel} from './job-fi
     $('#save-state').textContent = 'Unsaved changes';
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => saveDraft(), 650);
+  }
+  function importSections(request) {
+    if(request.jobId!==hostJobId||typeof request.id!=='string')return;
+    const reply=error=>window.parent.postMessage({type:'cores-report-imported',id:request.id,jobId:hostJobId,error},window.location.origin);
+    if(importedRequests.has(request.id)){reply();return;}
+    try {
+      if(!Array.isArray(request.sections)||!request.sections.length||state.blocks.length+request.sections.length>100)throw new Error('A report can contain up to 100 sections.');
+      const blocks=request.sections.map(section=>{
+        const common={id:uid(),title:String(section.title||'New section').slice(0,180),sourceLabel:String(section.sourceLabel||'From Job Reports').slice(0,80)};
+        if(section.type==='text')return {...common,type:'text',html:cleanHTML(section.html),sourceIds:Array.isArray(section.sourceIds)?section.sourceIds.filter(id=>typeof id==='string'&&id.length<=100):[]};
+        if(section.type!=='media'||!Array.isArray(section.items)||!section.items.length||section.items.some(item=>item.kind!=='image'||!safeURL(item.url)))throw new Error('A selected photograph could not be imported.');
+        return {...common,type:'media',layout:'quarter',items:section.items.map(item=>({id:uid(),kind:'image',name:String(item.name||'Job photograph'),url:item.url,caption:String(item.caption||'')}))};
+      });
+      const previous=state.blocks;
+      state.blocks=[...previous,...blocks];
+      if(!saveDraft()){state.blocks=previous;throw new Error('The browser could not save these sections. Free browser storage and try again.');}
+      importedRequests.add(request.id);
+      selectedId=blocks[0].id;
+      if(previewing)setPreview(false);
+      showPage('body');render();selectBlock(selectedId,true);
+      toast('Added to the report. Headings, text, table cells and captions can be edited.');
+      reply();
+    }catch(error){reply(error.message||'The sections could not be added.');}
   }
   function coverDisplayValue(key) {
     const value = state.cover[key] || '';
@@ -315,7 +342,7 @@ import {fillFromJob, suggestedEngines, engineFields, engineModel} from './job-fi
   }
   function makeBlock(type) {
     if (type === 'text') return { id: uid(), type: 'text', title: 'New section', html: '', sourceIds: [] };
-    if (type === 'media') return { id: uid(), type: 'media', title: 'Images & descriptions', layout: 'two', items: [] };
+    if (type === 'media') return { id: uid(), type: 'media', title: 'Images & descriptions', layout: 'quarter', items: [] };
     return { id: uid(), type: 'break' };
   }
   function showPage(page) {
@@ -336,22 +363,25 @@ import {fillFromJob, suggestedEngines, engineFields, engineModel} from './job-fi
   }
   const actionButton = (action, label, symbol, extra = '') => `<button class="icon-button ${extra}" data-action="${action}" title="${label}" aria-label="${label}">${icon(symbol)}</button>`;
   function blockActions(block, index) {
-    return `<div class="block-topline screen-only"><button class="icon-button grip" draggable="true" data-drag-id="${block.id}" title="Drag to move component" aria-label="Drag to move component">${icon('grip')}</button><span class="block-tag">${block.type === 'text' ? 'TEXT BOX' : block.type === 'media' ? 'IMAGES & FILES' : 'PAGE BREAK'}</span>${block.sourceIds?.length ? `<span class="source-badge">${embedded?'From timesheets':'From sample timesheets'}</span>` : ''}<div class="block-actions"><button class="icon-button" data-action="up" title="Move component up" aria-label="Move component up" ${index === 0 ? 'disabled' : ''}>${icon('up')}</button><button class="icon-button" data-action="down" title="Move component down" aria-label="Move component down" ${index === state.blocks.length - 1 ? 'disabled' : ''}>${icon('down')}</button>${actionButton('duplicate', 'Duplicate component', 'copy')}${actionButton('remove', 'Remove component', 'trash', 'danger')}</div></div>`;
+    return `<div class="block-topline screen-only"><button class="icon-button grip" draggable="true" data-drag-id="${block.id}" title="Drag to move component" aria-label="Drag to move component">${icon('grip')}</button><span class="block-tag">${block.type === 'text' ? 'TEXT BOX' : block.type === 'media' ? 'IMAGES & FILES' : 'PAGE BREAK'}</span>${block.sourceLabel || block.sourceIds?.length ? `<span class="source-badge">${esc(block.sourceLabel || (embedded?'From timesheets':'From sample timesheets'))}</span>` : ''}<div class="block-actions"><button class="icon-button" data-action="up" title="Move component up" aria-label="Move component up" ${index === 0 ? 'disabled' : ''}>${icon('up')}</button><button class="icon-button" data-action="down" title="Move component down" aria-label="Move component down" ${index === state.blocks.length - 1 ? 'disabled' : ''}>${icon('down')}</button>${actionButton('duplicate', 'Duplicate component', 'copy')}${actionButton('remove', 'Remove component', 'trash', 'danger')}</div></div>`;
   }
   function mediaItem(item) {
     let preview;
     if (item.kind === 'image') preview = `<img src="${esc(item.url)}" alt="${esc(item.caption || item.name)}">`;
     else if (item.kind === 'pdf') preview = `<iframe src="${esc(pdfPreviewURL(item.url))}#toolbar=0&navpanes=0&view=FitH" title="PDF preview: ${esc(item.name)}"></iframe><span class="attachment-print-label">PDF attachment<br>${esc(item.name)}</span>`;
     else preview = `<div class="file-preview">${icon('document')}<strong>${esc(item.name)}</strong><span>Attached file · open to view</span></div>`;
-    return `<figure class="media-figure" data-item-id="${item.id}"><div class="media-frame">${preview}</div><textarea class="media-caption" aria-label="Description for ${esc(item.name)}" placeholder="Add a description for this image or file…" rows="2">${esc(item.caption)}</textarea><div class="media-item-actions screen-only"><span title="${esc(item.name)}">${esc(item.name)}</span><a href="${esc(item.url)}" target="_blank" rel="noopener" download="${esc(item.name)}">Open original</a><button class="icon-button danger" data-remove-item="${item.id}" title="Remove file" aria-label="Remove ${esc(item.name)}">${icon('close')}</button></div></figure>`;
+    return `<figure class="media-figure" data-item-id="${item.id}"><div class="media-frame">${preview}</div><textarea class="media-caption" aria-label="Description for ${esc(item.name)}" placeholder="Add a description for this image or file…" rows="2">${esc(item.caption)}</textarea><div class="media-caption-print">${esc(item.caption)}</div><div class="media-item-actions screen-only"><span title="${esc(item.name)}">${esc(item.name)}</span><a href="${esc(item.url)}" target="_blank" rel="noopener" download="${esc(item.name)}">Open original</a><button class="icon-button danger" data-remove-item="${item.id}" title="Remove file" aria-label="Remove ${esc(item.name)}">${icon('close')}</button></div></figure>`;
   }
   function renderBlock(block, index) {
     const top = blockActions(block, index);
     if (block.type === 'break') return `<section class="report-block pagebreak-block ${block.id === selectedId ? 'selected' : ''}" data-id="${block.id}" aria-label="Page break component">${top}</section>`;
     const title = `<input class="block-title" aria-label="Section heading" value="${esc(block.title)}" placeholder="Section heading">`;
     if (block.type === 'text') return `<section class="report-block ${block.id === selectedId ? 'selected' : ''}" data-id="${block.id}" aria-label="Text component: ${esc(block.title)}">${top}${title}<div class="richtext" contenteditable="${!previewing}" role="textbox" aria-label="Section text" aria-multiline="true" data-placeholder="Type your text, or pull notes from timesheets…">${cleanHTML(block.html)}</div><div class="block-bottomline screen-only"><button class="small-text-button" data-action="import">${icon('clock')}Add timesheet notes</button></div></section>`;
-    const upload = block.items.length ? `<div class="media-grid ${block.layout === 'two' ? 'two-up' : ''}">${block.items.map(mediaItem).join('')}</div><div class="upload-more screen-only"><button class="small-text-button" data-action="upload">${icon('plus')}Add images or files</button><span>Every file has its own description</span></div>` : `<div class="upload-zone screen-only" data-upload-drop="${block.id}">${icon('photo')}<strong>Drop images, PDFs or files here</strong><span>Each one gets its own description below.</span><button class="button secondary" data-action="upload">Choose files</button><small>Mockup limit: 4 MB per file · Files stay in this browser</small></div>`;
-    return `<section class="report-block ${block.id === selectedId ? 'selected' : ''}" data-id="${block.id}" aria-label="Media component: ${esc(block.title)}">${top}${title}<div class="media-settings screen-only"><label>Arrangement <select aria-label="Image arrangement"><option value="one" ${block.layout === 'one' ? 'selected' : ''}>One across</option><option value="two" ${block.layout === 'two' ? 'selected' : ''}>Two across</option></select></label><span class="quiet">Pictures keep their proportions</span></div>${upload}</section>`;
+    const layout=imageLayout(block.layout);
+    const spec=IMAGE_LAYOUTS[layout];
+    const pages=imagePages(block.items,layout);
+    const upload = block.items.length ? pages.map((items,index)=>`<div class="image-sheet layout-${layout}" data-image-page="${index+1}"><div class="image-sheet-letterhead"><strong>Cores Worldwide Inc.</strong><span>PROJECT <span data-cover-inline="projectNo">${esc(state.cover.projectNo||'—')}</span></span></div><div class="image-sheet-heading"><strong>${esc(block.title||'Supporting images')}</strong><span>${spec.label} · ${index+1} of ${pages.length}</span></div><div class="image-sheet-grid">${items.map(mediaItem).join('')}</div></div>`).join('')+`<div class="upload-more screen-only"><button class="small-text-button" data-action="upload">${icon('plus')}Add images or files</button><span>Every file has its own description</span></div>` : `<div class="upload-zone screen-only" data-upload-drop="${block.id}">${icon('photo')}<strong>Drop images, PDFs or files here</strong><span>Each one gets its own description below.</span><button class="button secondary" data-action="upload">Choose files</button><small>Mockup limit: 4 MB per file · Files stay in this browser</small></div>`;
+    return `<section class="report-block media-block ${block.id === selectedId ? 'selected' : ''}" data-id="${block.id}" aria-label="Media component: ${esc(block.title)}">${top}${title}<div class="media-settings screen-only"><label>Image size <select aria-label="Image size">${Object.entries(IMAGE_LAYOUTS).map(([value,option])=>`<option value="${value}" ${layout===value?'selected':''}>${option.label} — ${option.count} per page</option>`).join('')}</select></label><span class="quiet">Captions sit below each image. Pictures keep their proportions.</span></div>${upload}</section>`;
   }
   function renderOutline() {
     $('#report-outline').innerHTML = `<button class="outline-row outline-fixed" data-show-cover="true">${icon('document')}<span>Opening page</span>${icon('lock')}</button>${state.blocks.map(block => `<button class="outline-row ${block.id === selectedId ? 'active' : ''}" data-id="${block.id}">${block.type === 'media' ? icon('photo') : block.type === 'break' ? '<span>↵</span>' : '<span>Aa</span>'}<span>${esc(block.title || (block.type === 'break' ? 'Page break' : 'Untitled section'))}</span></button>`).join('')}`;
@@ -618,12 +648,12 @@ import {fillFromJob, suggestedEngines, engineFields, engineModel} from './job-fi
     const el = event.target.closest('.report-block');
     if (!el) return;
     const block = state.blocks.find(b => b.id === el.dataset.id);
-    if (event.target.matches('.block-title')) { block.title = event.target.value; renderOutline(); }
-    else if (event.target.matches('.richtext')) block.html = cleanHTML(event.target.innerHTML);
-    else if (event.target.matches('.media-caption')) { const itemId = event.target.closest('[data-item-id]').dataset.itemId; const item = block.items.find(i => i.id === itemId); if (item) item.caption = event.target.value; sizeCaption(event.target); }
+    if (event.target.matches('.block-title')) { block.title = event.target.value; $$('.image-sheet-heading>strong',el).forEach(heading=>heading.textContent=block.title||'Supporting images'); renderOutline(); }
+    else if (event.target.closest('.richtext')) block.html = cleanHTML(event.target.closest('.richtext').innerHTML);
+    else if (event.target.matches('.media-caption')) { const itemId = event.target.closest('[data-item-id]').dataset.itemId; const item = block.items.find(i => i.id === itemId); if (item) item.caption = event.target.value; event.target.nextElementSibling.textContent=event.target.value; sizeCaption(event.target); }
     changed();
   });
-  $('#report-blocks').addEventListener('change', event => { if (event.target.matches('select[aria-label="Image arrangement"]')) { const block = state.blocks.find(b => b.id === event.target.closest('.report-block').dataset.id); block.layout = event.target.value; render(); changed(); } });
+  $('#report-blocks').addEventListener('change', event => { if (event.target.matches('select[aria-label="Image size"]')) { const block = state.blocks.find(b => b.id === event.target.closest('.report-block').dataset.id); block.layout = imageLayout(event.target.value); render(); changed(); } });
   $('#report-blocks').addEventListener('paste', event => {
     if (!event.target.closest('.richtext')) return;
     event.preventDefault();
@@ -666,4 +696,5 @@ import {fillFromJob, suggestedEngines, engineFields, engineModel} from './job-fi
   render();
   showPage('body');
   loadProjects();
+  if(embedded)window.parent.postMessage({type:'cores-report-ready',jobId:hostJobId},window.location.origin);
 })();

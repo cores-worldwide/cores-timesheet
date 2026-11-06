@@ -3,19 +3,40 @@ import {reportBuilderAvailable,readReportJobs,readReportJob,readReportNotes,read
 
 const primary={padding:'0.6rem 1rem',border:0,borderRadius:5,background:'#0066cc',color:'#fff',fontWeight:600,cursor:'pointer'};
 
-export default function ReportBuilder({job,onSelectJob}) {
+export default function ReportBuilder({job,onSelectJob,importRequest,onImportComplete}) {
   const [open,setOpen]=useState(false);
   const [error,setError]=useState('');
   const frame=useRef(null);
+  const [ready,setReady]=useState(false);
+  const sent=useRef(null);
+  const complete=useRef(onImportComplete);
+  complete.current=onImportComplete;
   const selectJob=useRef(onSelectJob);
   selectJob.current=onSelectJob;
+  useEffect(()=>{setReady(false);sent.current=null;},[job.id]);
+  useEffect(()=>{if(importRequest?.jobId===job.id){setError('');setOpen(true);}},[importRequest,job.id]);
+  useEffect(()=>{
+    if(!open||!ready||importRequest?.jobId!==job.id||sent.current===importRequest.id)return;
+    sent.current=importRequest.id;
+    frame.current?.contentWindow?.postMessage({type:'cores-report-import',...importRequest},window.location.origin);
+    const timer=setTimeout(()=>{setError('The section was not confirmed. Close and reopen the builder before trying again.');complete.current?.(importRequest.id,false);},10000);
+    return()=>clearTimeout(timer);
+  },[open,ready,importRequest,job.id]);
   useEffect(()=>{
     if(!reportBuilderAvailable||!open)return;
     let live=true;
     let navigationVersion=0;
     const receive=async event=>{
       const source=frame.current?.contentWindow;
-      if(event.source!==source||event.origin!==window.location.origin||event.data?.type!=='cores-report-request')return;
+      if(event.source!==source||event.origin!==window.location.origin)return;
+      if(event.data?.type==='cores-report-ready'&&event.data.jobId===job.id){setReady(true);return;}
+      if(event.data?.type==='cores-report-imported'&&event.data.jobId===job.id&&event.data.id===sent.current){
+        setError(event.data.error||'');
+        complete.current?.(event.data.id,!event.data.error);
+        if(!event.data.error)frame.current?.scrollIntoView({behavior:'smooth',block:'start'});
+        return;
+      }
+      if(event.data?.type!=='cores-report-request')return;
       const {requestId,resource,jobId}=event.data;
       if(typeof requestId!=='string'||requestId.length>100)return;
       const reply=(payload,message)=>{
@@ -46,7 +67,7 @@ export default function ReportBuilder({job,onSelectJob}) {
   return <section className="no-print" aria-label="Service report builder" style={{margin:'0 0 1.5rem',border:'1px solid #d4e2ec',borderRadius:7,background:'#fff',overflow:'hidden'}}>
     <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:16,padding:'1rem 1.1rem',flexWrap:'wrap'}}>
       <div><div style={{display:'flex',alignItems:'center',gap:9}}><strong>Service report</strong><span style={{fontSize:10,color:'#287548',background:'#edf7ef',padding:'3px 6px',borderRadius:3}}>DEV PREVIEW</span></div><p style={{margin:'6px 0 0',color:'#7b8d9b',fontSize:12}}>Opening page, text sections, pictures and PDF attachments. Each job keeps its own draft in this browser.</p></div>
-      <button onClick={()=>{setError('');setOpen(value=>!value);}} style={primary}>{open?'Close report builder':'Build service report'}</button>
+      <button disabled={!!importRequest} onClick={()=>{setError('');setReady(false);setOpen(value=>!value);}} style={primary}>{open?'Close report builder':'Build service report'}</button>
     </div>
     {error&&<p role="alert" style={{color:'#a33',margin:'0 1rem 1rem'}}>{error}</p>}
     {open&&<iframe key={job.id} ref={frame} src={src} title={`Service report editor for project ${job.job_number}`} style={{display:'block',width:'100%',height:'calc(100vh - 160px)',minHeight:580,maxHeight:1100,scrollMarginTop:76,border:0,borderTop:'1px solid #dce5ec',background:'#edf1f4'}} onError={()=>setError('The report editor could not be opened. Refresh this dev page and try again.')} />}

@@ -195,3 +195,44 @@ dialog{border:0;padding:0;border-radius:12px;box-shadow:0 25px 90px #112d4840;ma
   #cover-page .company-contact { margin-top: auto; padding-top: 15px; margin-bottom: 12px; }
   #cover-page .paper-footer { margin-top: 0; }
 }
+
+/* Imported Job Reports tables remain editable and share the report typography. */
+.richtext table{width:100%;border-collapse:collapse;table-layout:fixed;margin:12px 0;font-size:.9em}.richtext th,.richtext td{border:1px solid #d7dfe5;padding:8px;text-align:left;vertical-align:top;overflow-wrap:anywhere}.richtext th{background:#f1f5f7;font-weight:700}.richtext thead{display:table-header-group}@media print{.richtext tr{break-inside:avoid}}
+
+/* Each media section chooses the size of its images, including their captions. */
+.media-settings{flex-wrap:wrap;gap:10px}.media-settings .quiet{line-height:1.5}
+.media-caption-print{display:none}
+.image-sheet{margin:16px 0 24px;border:1px solid #dce4e8;padding:18px;background:#fff}
+.image-sheet-letterhead{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-bottom:12px;border-bottom:2px solid var(--navy);font-size:11px;color:var(--navy)}
+.image-sheet-letterhead>span{font-size:8px;letter-spacing:.5px}
+.image-sheet-heading{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:14px 0;font-size:13px}
+.image-sheet-heading>span{font-size:9px;color:var(--muted);white-space:nowrap}
+.image-sheet-grid{display:grid;gap:18px;aspect-ratio:188 / 204;grid-template-columns:1fr;grid-template-rows:minmax(0,1fr)}
+.layout-half .image-sheet-grid{grid-template-rows:repeat(2,minmax(0,1fr))}
+.layout-quarter .image-sheet-grid{grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:repeat(2,minmax(0,1fr))}
+.image-sheet .media-figure{display:flex;flex-direction:column;min-height:0}
+.image-sheet .media-frame{flex:1;min-height:0}
+.image-sheet .media-frame img,.image-sheet .media-frame iframe{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+.image-sheet .media-caption{flex:none;resize:none;font-size:11px;min-height:36px}
+.image-sheet .media-item-actions{flex:none}
+@media(max-width:620px){.image-sheet{padding:10px}.image-sheet-grid{gap:10px}.image-sheet .media-caption{font-size:9px}.image-sheet-heading{flex-wrap:wrap;gap:5px}.image-sheet-letterhead{font-size:9px}.image-sheet-letterhead>span{font-size:7px}.image-sheet .media-item-actions>span{display:none}}
+@media print{
+ #body-page{display:block!important}
+ #body-page:has(#report-blocks>.media-block:first-of-type .image-sheet)>.paper-letterhead,
+ #body-page:has(#report-blocks>.media-block:first-of-type .image-sheet)>.body-heading,
+ #body-page:has(#report-blocks>.media-block:last-of-type .image-sheet)>.paper-footer{display:none!important}
+ .media-block>.block-title{display:none}
+ .media-block:has(.image-sheet),.media-block:has(.image-sheet)+.drop-slot+.report-block{break-before:page;page-break-before:always}
+ .image-sheet{break-before:page;page-break-before:always;break-inside:avoid;page-break-inside:avoid;border:0;padding:0;margin:0}
+ .image-sheet-letterhead{height:13mm;font-size:11pt;padding:0 0 3mm}
+ .image-sheet-letterhead>span{font-size:8pt}
+ .image-sheet-heading{height:13mm;padding:3mm 0;font-size:12pt}
+ .image-sheet-heading>span{font-size:8pt}
+ .image-sheet-grid{height:204mm;aspect-ratio:auto;gap:6mm}
+ .image-sheet .media-caption{display:none!important}
+ .image-sheet .media-caption-print{display:block;flex:none;white-space:pre-wrap;overflow-wrap:anywhere;font-size:9pt;line-height:1.4;padding:3mm 0 0;min-height:10mm}
+ .image-sheet .media-frame{min-height:0}
+ .image-sheet .media-frame img{height:100%;width:100%;object-fit:contain}
+ .image-sheet .media-frame iframe{display:none}
+ .image-sheet .media-frame:has(iframe){min-height:0}
+}

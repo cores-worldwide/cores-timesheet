@@ -1,0 +1,6 @@
+// Snapshots of the visible Job Reports data; none of these helpers write records.
+const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+export const reportText = (title, text) => ({type:'text',title,sourceLabel:'From Job Reports',html:String(text || '').split(/\n\s*\n/).filter(p=>p.trim()).map(p=>`<p>${esc(p).replace(/\n/g,'<br>')}</p>`).join('')});
+export const reportTable = (title, headings, rows) => ({type:'text',title,sourceLabel:'From Job Reports',html:`<table><thead><tr>${headings.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.map(row=>`<tr>${row.map(cell=>`<td>${esc(cell).replace(/\n/g,'<br>')}</td>`).join('')}</tr>`).join('')}</tbody></table>`});
+export const reportNotes = notes => ({type:'text',title:'Work performed',sourceLabel:'From timesheets',sourceIds:notes.map(n=>n.id),html:`<ul>${notes.map(n=>`<li>${esc(n.description)}</li>`).join('')}</ul>`});
+export const reportPhotos = (photos, urlFor) => ({type:'media',title:'Supporting photographs',sourceLabel:'From Job Reports',layout:'quarter',items:photos.map(p=>({kind:'image',name:p.storage_path.split('/').pop() || 'Job photograph',url:urlFor(p.storage_path),caption:p.work_date || ''}))});
