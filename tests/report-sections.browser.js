@@ -26,10 +26,10 @@ async page => {
   await page.evaluate(async ids=>{localStorage.setItem('cores_unlocked','true');localStorage.setItem('cores_admin_name','Dev review');await Promise.all(ids.map(async id=>(await import('/cores-timesheet/report-builder/draft-store.mjs')).writeDraft(`cores-service-report-dev-${id}-v1`,null)));},[first,second]);
   await page.goto(`${origin}#/reports?job=${first}`);
   await page.reload();
-  await page.getByRole('button',{name:'Add What Was Done to report',exact:true}).click();
+  await page.getByRole('button',{name:'Add Job Summary to report',exact:true}).click();
   const editor=()=>page.frameLocator('iframe[title^="Service report editor"]');
   await editor().getByRole('textbox',{name:'Section heading',exact:true}).waitFor();
-  check(await editor().getByRole('textbox',{name:'Section heading',exact:true}).inputValue()==='What Was Done — whole job','Adding a lower section opens the builder and inserts a copy');
+  check(await editor().getByRole('textbox',{name:'Section heading',exact:true}).inputValue()==='Job Summary','Adding a lower section opens the builder and inserts a copy');
   await editor().getByRole('textbox',{name:'Section heading',exact:true}).fill('Edited summary');
   await editor().locator('.richtext').fill('Edited report wording');
   check(await page.getByText('Inspected assemblies.',{exact:true}).isVisible(),'Editing report text leaves the source summary unchanged');

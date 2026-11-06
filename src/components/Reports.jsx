@@ -747,6 +747,8 @@ export default function Reports() {
     const selectedPhotos=reportSelection.jobId===job.id ? visiblePhotos.filter(p=>reportSelection.photos.includes(p.id)) : []
     const addSection=(section,disabled=false,label)=>reportBuilderAvailable&&<button type="button" aria-label={label||`Add ${section.title} to report`} disabled={disabled||!!reportImport} onClick={()=>importReportSections(job.id,[section])} style={{padding:'0.3rem 0.7rem',border:'1px solid #0066cc',borderRadius:4,background:'#f4f9ff',color:'#0059b3',cursor:disabled||reportImport?'default':'pointer',fontSize:'0.8rem',opacity:disabled||reportImport?.jobId===job.id?0.6:1}}>{label?.startsWith('Add selected')?label.replace(' to report',''):'Add to report'}</button>
     const workLog=reportTable('Full Work Log',['Date','Employee','Hours','Description'],[...jobEntries].sort((a,b)=>a.work_date.localeCompare(b.work_date)).map(e=>[e.work_date,e.employees?.name||'—',e.hours,e.description]))
+    const reportWorkDates=jobEntries.map(entry=>entry.work_date).filter(Boolean).sort()
+    const reportContext={range:{start:dateFrom||reportWorkDates[0]||dateTo||'',end:dateTo||reportWorkDates.at(-1)||dateFrom||''},participants:Object.values(crewMap).map(({emp})=>emp.name).filter(Boolean)}
 
     return (
       <div style={{ padding: '2rem', maxWidth: '1100px', margin: '0 auto' }}>
@@ -762,7 +764,7 @@ export default function Reports() {
         </div>
         <p style={{ color: '#666', marginBottom: '1.5rem' }}>{job.description}</p>
 
-        <ReportBuilder key={job.id} job={job} onSelectJob={goToJob} importRequest={reportImport} onImportComplete={finishReportImport} />
+        <ReportBuilder key={job.id} job={job} reportContext={reportContext} importRequest={reportImport} onImportComplete={finishReportImport} />
         {reportBuilderAvailable&&reportNotice&&<p role="status" style={{color:'#32634a',fontSize:'0.85rem'}}>{reportNotice}</p>}
 
         {(() => {
@@ -804,9 +806,9 @@ export default function Reports() {
           return (
             <>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', gap: '0.5rem', flexWrap: 'wrap' }}>
-                <h4 style={{ color: '#555', margin: 0 }}>What Was Done</h4>
+                <h4 style={{ color: '#555', margin: 0 }}>Job Summary</h4>
                 <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                  {addSection(reportText('What Was Done — whole job',job.work_summary),!job.work_summary?.trim(),'Add What Was Done to report')}
+                  {addSection(reportText('Job Summary',job.work_summary),!job.work_summary?.trim(),'Add Job Summary to report')}
                   {rangeActive && rangeEntryCount > 0 && (
                     <button onClick={() => summarizeJobRange(job.id, dateFrom, dateTo)} disabled={!!summarizing} style={btn(summarizing)}>
                       {summarizing === 'range' ? 'Summarizing…' : `📅 Summarize ${rangeText} only`}
@@ -828,7 +830,7 @@ export default function Reports() {
                     📅 {rangeText} only — work outside these dates is left out
                   </div>
                   {renderParagraphs(toParagraphs(shownRange.text))}
-                  {addSection(reportText(`What Was Done — ${rangeText}`,shownRange.text),!shownRange.text?.trim(),'Add date-range summary to report')}
+                  {addSection(reportText(`Job Summary — ${rangeText}`,shownRange.text),!shownRange.text?.trim(),'Add date-range summary to report')}
                 </div>
               )}
               {summaryParagraphs.length > 0 ? (

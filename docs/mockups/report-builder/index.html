@@ -35,7 +35,7 @@
   </header>
 
   <div class="report-toolbar screen-only">
-    <div class="report-title"><span class="eyebrow">PROJECT <span data-cover-inline="projectNo">-</span> · <span data-cover-inline="plantVessel">-</span></span><h1>Service &amp; inspection report <span class="draft-label">Draft</span></h1></div>
+    <div class="report-title"><span class="eyebrow">PROJECT <span data-cover-inline="projectNo">-</span> · <span data-cover-inline="plantVessel">-</span></span><h1>SERVICE &amp; INSPECTION REPORT <span class="draft-label">Draft</span></h1></div>
     <div class="report-actions"><span id="save-state" role="status">Sample draft</span><button class="button secondary" id="save-draft"><svg class="icon"><use href="#i-check"/></svg>Save draft</button><button class="button secondary" id="toggle-preview"><svg class="icon"><use href="#i-eye"/></svg><span>Preview</span></button><button class="button primary" id="print-report"><svg class="icon"><use href="#i-download"/></svg>Print / PDF</button></div>
   </div>
 
@@ -66,74 +66,26 @@
 
       <section class="paper cover-paper" id="cover-page" aria-label="Opening page" hidden>
         <div class="paper-letterhead cover-letterhead"><div class="company-identity"><span class="logo-crop cover-logo"><img src="assets/cores-letterhead-reference.png" alt="Cores Worldwide logo"></span><div class="letterhead-copy"><strong>Cores Worldwide Inc.</strong><span>674 Hwy 214, Belnan, NS B2S 2N2 CANADA</span><span class="letterhead-contacts"><span>Tel: +1 (902) 883 1611</span> <span>Fax: +1 (902) 883 9690</span> <span>Email: <a href="mailto:info@coresworldwide.com">info@coresworldwide.com</a></span></span></div></div></div>
-        <div class="cover-report-heading"><div><span class="eyebrow">MARINE &amp; INDUSTRIAL SERVICES</span><h2>Service &amp; inspection report</h2></div><span class="cover-layout-label screen-only">FIXED PAGE · EDITABLE DETAILS</span></div>
 
+        <section class="cover-vessel-hero" aria-label="Vessel identification">
+          <div class="cover-vessel-intro"><label class="cover-field vessel-name-field"><span>Vessel</span><input data-cover="plantVessel" aria-label="Vessel" maxlength="180" placeholder="Vessel name"><span class="field-display" data-cover-output="plantVessel"></span></label><h2>SERVICE &amp; INSPECTION REPORT</h2></div>
+          <div class="cover-photo-slot"><div id="vessel-photo-preview" class="vessel-photo-preview" hidden></div><div class="vessel-photo-actions screen-only"><button type="button" class="small-text-button" id="choose-vessel-photo">Add vessel photo (optional)</button><button type="button" class="small-text-button" id="edit-vessel-photo" hidden>Edit image</button><button type="button" class="small-text-button" id="remove-vessel-photo" hidden>Remove photo</button></div><input type="file" id="vessel-photo-picker" accept="image/png,image/jpeg,image/webp,image/gif,image/avif" hidden></div>
+        </section>
         <div class="cover-form" aria-label="Front page report details">
-          <section class="cover-section" aria-labelledby="project-section-title">
-            <h3 id="project-section-title"><span>01</span>Project details</h3>
-            <div class="cover-field-grid project-field-grid">
-              <div class="cover-field project-lookup" id="project-lookup">
-                <label class="project-field-label" for="project-job-search">Project no.</label>
-                <div class="job-lookup-control screen-only"><input id="project-job-search" data-cover="projectNo" data-job-lookup role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="project-job-list" autocomplete="off" placeholder="Choose a project…" disabled><button type="button" id="toggle-project-jobs" aria-label="Show projects" disabled>⌄</button></div>
-                <span class="field-display" data-cover-output="projectNo"></span>
-                <div class="project-job-panel screen-only" id="project-job-panel" hidden>
-                  <div class="job-status-filters" role="group" aria-label="Project status"><button type="button" data-job-status="all" aria-pressed="true">Open &amp; closed</button><button type="button" data-job-status="open" aria-pressed="false">Open</button><button type="button" data-job-status="closed" aria-pressed="false">Closed</button></div>
-                  <div class="project-job-list" id="project-job-list" role="listbox" aria-label="Projects"></div>
-                  <p class="job-selection-help">A different project refreshes front-page job details. Body text and files are kept for review.</p>
-                </div>
-              </div>
-              <label class="cover-field"><span>Written by</span><input data-cover="writtenBy" maxlength="120" placeholder="Report author"><span class="field-display" data-cover-output="writtenBy"></span></label>
-              <label class="cover-field"><span>Report date</span><input data-cover="reportDate" type="date"><span class="field-display" data-cover-output="reportDate"></span></label>
-            </div>
-            <div class="job-source-line screen-only"><span id="job-source-status" role="status">Loading dev projects…</span><button type="button" id="retry-project-jobs" hidden>Retry</button></div>
+<section class="cover-section" aria-labelledby="customer-section-title"><h3 id="customer-section-title"><span>01</span>Customer</h3><div class="cover-field-grid report-customer-grid"><label class="cover-field"><span>Customer name</span><input data-cover="customerName" aria-label="Customer name" type="text" placeholder="Customer name" maxlength="180"><span class="field-display" data-cover-output="customerName"></span></label><label class="cover-field"><span>Requested by</span><input data-cover="requestedBy" aria-label="Requested by" type="text" placeholder="Customer requester" maxlength="180"><span class="field-display" data-cover-output="requestedBy"></span></label></div></section>
+<section class="cover-section" aria-labelledby="job-section-title"><h3 id="job-section-title"><span>02</span>Job</h3>
+            <div class="cover-field-grid author-name-grid"><label class="cover-field"><span>Author name</span><input data-cover="writtenBy" aria-label="Author name" type="text" placeholder="Report author" maxlength="120"><span class="field-display" data-cover-output="writtenBy"></span></label><label class="cover-field"><span>Author location</span><input data-cover="authorLocation" aria-label="Author location" type="text" placeholder="Author location" maxlength="180"><span class="field-display" data-cover-output="authorLocation"></span></label></div>
+            <div class="cover-field-grid author-dates-grid"><label class="cover-field"><span>Job started</span><input data-cover="visitStart" aria-label="Job started" type="date" placeholder="" ><span class="field-display" data-cover-output="visitStart"></span></label><label class="cover-field"><span>Job finished</span><input data-cover="visitEnd" aria-label="Job finished" type="date" placeholder="" ><span class="field-display" data-cover-output="visitEnd"></span></label><div class="cover-field"><label for="project-job-search">Job no.</label><div class="job-locked-control screen-only"><input id="project-job-search" data-cover="projectNo" aria-label="Job number" aria-readonly="true" readonly placeholder="Job number"><svg class="icon"><use href="#i-lock"/></svg></div><span class="field-display" data-cover-output="projectNo"></span></div></div>
+            <div class="job-source-line screen-only"><span id="job-source-status" role="status">The job number is fixed for this report.</span><button type="button" id="retry-project-jobs" hidden>Retry job details</button></div>
+            <div class="visit-date-help screen-only"><span id="visit-date-help">Job started and finished default to the report date range.</span><button type="button" class="small-text-button" id="use-report-visit-dates">Use report dates</button></div>
             <div class="job-fill-note screen-only" id="job-fill-note" role="status" hidden></div>
-          </section>
 
-          <section class="cover-section" aria-labelledby="site-section-title">
-            <h3 id="site-section-title"><span>02</span>Plant / vessel &amp; location</h3>
-            <div class="cover-field-grid site-field-grid">
-              <label class="cover-field"><span>Plant / vessel</span><input data-cover="plantVessel" maxlength="180" placeholder="Plant or vessel name"><span class="field-display" data-cover-output="plantVessel"></span></label>
-              <label class="cover-field"><span>City</span><input data-cover="city" maxlength="100" placeholder="City"><span class="field-display" data-cover-output="city"></span></label>
-              <label class="cover-field"><span>Province / state</span><input data-cover="provinceState" maxlength="80" placeholder="Province / state"><span class="field-display" data-cover-output="provinceState"></span></label>
-              <label class="cover-field"><span>Postal / ZIP code</span><input data-cover="postalZip" maxlength="30" placeholder="Postal / ZIP"><span class="field-display" data-cover-output="postalZip"></span></label>
-            </div>
+            <div class="cover-field-grid report-job-grid"><label class="cover-field"><span>Destination</span><input data-cover="destination" aria-label="Destination" type="text" placeholder="City, port or work site" maxlength="180"><span class="field-display" data-cover-output="destination"></span></label><label class="cover-field"><span>Participants</span><textarea data-cover="participants" aria-label="Participants" maxlength="1200" rows="2" placeholder="Participants"></textarea><span class="field-display" data-cover-output="participants"></span></label></div>
+            <div class="report-reason"><label class="cover-field"><span>Reason for visit</span><textarea data-cover="serviceReason" aria-label="Reason for visit" maxlength="600" rows="3" placeholder="Reason for visit"></textarea><span class="field-display" data-cover-output="serviceReason"></span></label><span class="reason-length screen-only"><span id="reason-character-count">0</span>/600</span></div>
           </section>
-
-          <section class="cover-section" aria-labelledby="visit-section-title">
-            <h3 id="visit-section-title"><span>03</span>Visit details</h3>
-            <div class="cover-field-grid visit-field-grid">
-              <label class="cover-field"><span>Purchase order no.</span><input data-cover="purchaseOrder" maxlength="80" placeholder="PO reference"><span class="field-display" data-cover-output="purchaseOrder"></span></label>
-              <label class="cover-field"><span>Date of arrival</span><input data-cover="arrivalDate" type="date"><span class="field-display" data-cover-output="arrivalDate"></span></label>
-              <label class="cover-field"><span>Time of arrival</span><input data-cover="arrivalTime" type="time"><span class="field-display" data-cover-output="arrivalTime"></span></label>
-              <label class="cover-field"><span>Customer contact</span><input data-cover="customerContact" maxlength="180" placeholder="Contact name or role"><span class="field-display" data-cover-output="customerContact"></span></label>
-            </div>
-          </section>
-
-          <section class="cover-section engine-section" aria-labelledby="engine-section-title">
-            <h3 id="engine-section-title"><span>04</span>Engine details</h3>
-            <div class="engine-source-controls screen-only" id="engine-source-controls" hidden><span id="engine-source-note"></span><div><label>Engine 1 <select data-engine-slot="0" aria-label="Choose engine for slot 1"></select></label><label>Engine 2 <select data-engine-slot="1" aria-label="Choose engine for slot 2"></select></label></div></div>
-            <div class="engine-column-headings" aria-hidden="true"><span>Engine</span><span>Model</span><span>Serial no.</span><span>Hours</span><span>RPM</span><span>HP</span></div>
-            <div class="engine-row" role="group" aria-label="Engine 1">
-              <span class="engine-row-label">Engine 1</span>
-              <label class="cover-field"><span class="engine-mobile-label">Model</span><input data-cover="engine1Model" aria-label="Engine 1 model" maxlength="100" placeholder="Model"><span class="field-display" data-cover-output="engine1Model"></span></label>
-              <label class="cover-field"><span class="engine-mobile-label">Serial no.</span><input data-cover="engine1Serial" aria-label="Engine 1 serial number" maxlength="100" placeholder="Serial number"><span class="field-display" data-cover-output="engine1Serial"></span></label>
-              <label class="cover-field"><span class="engine-mobile-label">Hours</span><input data-cover="engine1Hours" aria-label="Engine 1 hours" inputmode="decimal" maxlength="30" placeholder="Hours"><span class="field-display" data-cover-output="engine1Hours"></span></label>
-              <label class="cover-field"><span class="engine-mobile-label">RPM</span><input data-cover="engine1Rpm" aria-label="Engine 1 RPM" inputmode="decimal" maxlength="30" placeholder="RPM"><span class="field-display" data-cover-output="engine1Rpm"></span></label>
-              <label class="cover-field"><span class="engine-mobile-label">HP</span><input data-cover="engine1Hp" aria-label="Engine 1 horsepower" inputmode="decimal" maxlength="30" placeholder="HP"><span class="field-display" data-cover-output="engine1Hp"></span></label>
-            </div>
-            <div class="engine-row" role="group" aria-label="Engine 2">
-              <span class="engine-row-label">Engine 2</span>
-              <label class="cover-field"><span class="engine-mobile-label">Model</span><input data-cover="engine2Model" aria-label="Engine 2 model" maxlength="100" placeholder="Model"><span class="field-display" data-cover-output="engine2Model"></span></label>
-              <label class="cover-field"><span class="engine-mobile-label">Serial no.</span><input data-cover="engine2Serial" aria-label="Engine 2 serial number" maxlength="100" placeholder="Serial number"><span class="field-display" data-cover-output="engine2Serial"></span></label>
-              <label class="cover-field"><span class="engine-mobile-label">Hours</span><input data-cover="engine2Hours" aria-label="Engine 2 hours" inputmode="decimal" maxlength="30" placeholder="Hours"><span class="field-display" data-cover-output="engine2Hours"></span></label>
-              <label class="cover-field"><span class="engine-mobile-label">RPM</span><input data-cover="engine2Rpm" aria-label="Engine 2 RPM" inputmode="decimal" maxlength="30" placeholder="RPM"><span class="field-display" data-cover-output="engine2Rpm"></span></label>
-              <label class="cover-field"><span class="engine-mobile-label">HP</span><input data-cover="engine2Hp" aria-label="Engine 2 horsepower" inputmode="decimal" maxlength="30" placeholder="HP"><span class="field-display" data-cover-output="engine2Hp"></span></label>
-            </div>
-          </section>
-
-          <section class="cover-section reason-section" aria-labelledby="reason-section-title">
-            <h3 id="reason-section-title"><span>05</span>Reason for service request<span class="reason-length screen-only"><span id="reason-character-count">0</span>/600</span></h3>
-            <label class="cover-field reason-field"><textarea data-cover="serviceReason" aria-label="Reason for service request" maxlength="600" rows="3" placeholder="Briefly describe why service was requested…"></textarea><span class="field-display" data-cover-output="serviceReason"></span></label>
+<section class="cover-section engine-section" aria-labelledby="engine-section-title"><h3 id="engine-section-title"><span>03</span>Engine</h3>
+            <div class="engine-source-controls screen-only" id="engine-source-controls"><span id="engine-source-note">Choose an engine to fill its recorded details.</span><label>Select engine <select data-engine-slot="0" aria-label="Select engine"><option value="">Enter details manually</option></select></label></div>
+            <div class="cover-field-grid report-engine-grid"><label class="cover-field"><span>Engine type</span><input data-cover="engineType" aria-label="Engine type" type="text" placeholder="Engine model / type" maxlength="180"><span class="field-display" data-cover-output="engineType"></span></label><label class="cover-field"><span>Engine serial number</span><input data-cover="engineSerial" aria-label="Engine serial number" type="text" placeholder="Serial number" maxlength="180"><span class="field-display" data-cover-output="engineSerial"></span></label><label class="cover-field"><span>Manufacturer</span><input data-cover="engineManufacturer" aria-label="Manufacturer" type="text" placeholder="Manufacturer" maxlength="180"><span class="field-display" data-cover-output="engineManufacturer"></span></label><label class="cover-field"><span>Engine duty</span><select data-cover="engineRole" aria-label="Engine duty"><option value="">Select…</option><option value="Main">Main</option><option value="Auxiliary">Auxiliary</option></select><span class="field-display" data-cover-output="engineRole"></span></label></div>
           </section>
         </div>
         <div class="company-contact"><strong>Cores Worldwide Inc.</strong><span>Tel: +1 (902) 883 1611 <b>·</b> Fax: +1 (902) 883 9690 <b>·</b> info@coresworldwide.com</span></div>
@@ -142,7 +94,7 @@
 
       <section class="paper body-paper" id="body-page" aria-label="Editable report body">
         <div class="paper-letterhead"><div class="body-company-identity"><span class="logo-crop body-logo"><img src="assets/cores-letterhead-reference.png" alt="Cores Worldwide logo"></span><div class="paper-brand">CORES<small>WORLDWIDE</small></div></div><span>PROJECT <span data-cover-inline="projectNo">0000</span> <span class="dot-separator">/</span> <span data-cover-inline="plantVessel">MV EXAMPLE</span></span></div>
-        <div class="body-heading"><span class="eyebrow">SERVICE &amp; INSPECTION REPORT</span><h2>Work carried out</h2><p>Engine inspection &amp; service <span class="dot-separator">·</span> 3–6 November 2026</p></div>
+        <div class="body-heading"><h2>SERVICE &amp; INSPECTION REPORT</h2><p>Engine inspection &amp; service <span class="dot-separator">·</span> 3–6 November 2026</p></div>
         <div id="report-blocks"></div>
         <button class="add-at-end screen-only" id="add-at-end"><svg class="icon"><use href="#i-plus"/></svg>Add a component <span>or drag one here</span></button>
         <div class="paper-footer"><span>CORES WORLDWIDE · PROJECT <span data-cover-inline="projectNo">0000</span><span class="sample-report-label"> · SAMPLE REPORT</span></span><span>02</span></div>

@@ -1,124 +1,51 @@
-# Flexible report template — draft plan
+# Service report — dev review
 
-Status: the report builder is now integrated into each job's Job Reports page in an isolated dev checkout. It uses Jim's supplied letterhead/front-page fields, reads open and closed dev jobs, fills available details and imports that job's timesheet notes. Production release is not approved.
+The report builder lives inside Job Reports on dev. Production release is not approved.
 
-## Current dev handoff
+## Review and restart
 
-- [Job Reports on dev](http://127.0.0.1:5212/cores-timesheet/#/reports): open a job and click **Build service report**.
-- Local branch `dev-report-builder`, checkout `/private/tmp/cores-report-builder-dev`, based on current `origin/main` at `9ed8379`. The original checkout's unfinished SMS changes are untouched.
-- Start here with `npm run dev -- --host 127.0.0.1 --port 5212 --strictPort`. The checkout links the existing ignored `.env.development.local`; the app must show the green DEV banner. The builder additionally checks the exact dev project URL and is hidden from production builds.
-- The working editor is embedded in Job Reports to preserve its layout and avoid collisions with existing office-page styles. The host page supplies only allowed dev reads through an origin/source-checked message channel; client keys are not copied into editor assets.
-- Drafts are saved separately for each job in browser storage. Changing the report's project dropdown opens that job's Job Reports page and its own draft. New integrated reports start with an empty body.
-- **Project dropdown:** searchable by project number, vessel, customer or description; defaults to open and closed jobs and has separate status filters. Verified against 96 existing dev jobs (89 open, 7 closed), with no database refresh or test records added.
-- **Autofill:** project number, vessel/plant name, job description as the service-request reason, stored customer contact, and identifiable engine model/serial details. Engine hours are filled only when this job has one unambiguous recorded value. Several possible engines require a choice. Missing location, arrival, PO, RPM and horsepower values stay blank. Sage work-order numbers are not treated as purchase orders.
-- Re-selecting the same project preserves manual edits. Later responses from earlier selections cannot overwrite the latest choice. Switching projects keeps separate drafts; report author/date remain editable.
-- **Pull from timesheets** reads only that job's written work notes, without fetching employee names for that picker. Report edits leave the original entries unchanged.
-- **Add lower sections:** Job Reports offers **Add to report** for the whole-job or date-range summary, Crew, Supplies Used and Full Work Log. Notes and photographs can be selected individually, separately or together. Adding opens the builder and appends editable copies; table cells, headings and captions remain editable. Crew/supplies/work-log copies use the visible date filters; the whole-job summary explicitly includes all dates. Photograph selection stays scoped to the job and matching work-log entry. Existing database records are not modified.
-- **Image sizes:** each image/file section has an **Image size** dropdown: Full page (one image), Half page (two stacked), Quarter page (four in a 2×2 grid). Extra images continue onto another page; incomplete pages keep the selected slot size. Captions sit below each image and proportions are preserved. Existing one-/two-across drafts migrate to half-/quarter-page layouts without losing images or captions. New uploads and selected job photographs default to quarter-page. Different sections can use different sizes. PDF attachments still preview/list rather than merge their source pages.
-- **Reliable image saves:** complete drafts now live in browser IndexedDB database `cores-report-drafts`, object store `drafts`, using the existing per-job keys. Earlier localStorage drafts are read when no IndexedDB copy exists; the old copy is removed only after a successful replacement transaction. This fixes image-heavy reports exceeding the old quota without compressing/replacing originals or changing Supabase. Saves snapshot their input and queue writes; the image dialog shows progress, blocks duplicate clicks/closing during a write, and closes only after commit. Failure keeps the adjustments open with a retry and preserves the last committed edit. Draft-read failure blocks overwriting the existing saved report. Navigation through the project picker waits for saving; leaving with pending/failed edits is guarded.
-- **Save verification and recovery:** 13 browser checks reproduce the old quota failure with a 5.78-million-character, two-image draft and verify legacy migration, full-storage save/reload, pending-save UI, aborted transaction preservation/retry and caption autosave/reload. The 19 integrated section/job checks and 13 shared-quarter-page checks pass against IndexedDB. Four image-edit boundary tests and the app build pass (existing bundle warning). An open report was recovered from the live DOM into both a backup key (`<job-draft-key>-recovery-<timestamp>`) and its normal key, including pending crop values; its six sections/two images were verified in a new dev tab, and Apply image changes was observed saving and closing. Recovery copies remain in that browser's IndexedDB; no report content was copied to repo/vault, and no production or database records were written.
-- **Quarter-page flow:** neighbouring quarter-page sections now share one two-column grid, including sections added separately and sections containing several images. Four images fill a page; the fifth continues on the next. Text, explicit page breaks, other image sizes and empty placeholders separate groups. Saved sections remain distinct: this changes rendering without merging/reformatting stored draft data. Headings, captions, source links and crop/size edits are retained; continuation images keep working Edit/remove/caption controls. Three grouping tests and 13 browser checks cover separate sections, mixed item counts, reorder, size changes, continued-image editing, preview, save/reload and phone width. A four-page fictional PDF was rendered and inspected: cover, four shared quarter-page images, the fifth image, then following text.
-- **Edit image:** uploaded and imported photographs offer a non-destructive editor: draw a crop, move it by drag/arrow keys/position sliders, resize using corner handles or precise crop percentages, zoom, and set image size to 25–100% within its chosen page slot. Cancel discards pending edits; Reset original restores the source view and size, and Apply saves crop/size metadata with the browser draft. The original image URL/data remains intact; captions and page-size choices are preserved. Crops render consistently in the editor and browser print without a canvas copy or storage upload. Image editing is for photographs; PDF/file attachment handling is unchanged.
-- **Photo storage:** imported job photographs remain links to the existing dev storage objects; captions and report wording are browser-draft copies. Removing a source storage object can make its linked report image unavailable. Production report filing/storage remains future work.
-- **Section/layout verification:** 19 fixture browser checks cover section imports, editable tables/text/captions, selected photos, selection preservation, reorder/remove, save/reload, cross-job rejection and separate drafts; an actual dev work note was copied/edited without changing its source or attempting any database write, and its browser draft was restored. Thirteen image-layout browser checks cover grouping, size changes, overflow pages, captions, reload and phone width. Four image-edit boundary/markup tests and 14 editor browser checks cover drawing, moving, corner resize, zoom, precise crop, frame size, apply/cancel/reset, saved edits and phone width. The integrated checks also edit an imported dev-storage photograph. A split-colour synthetic image was cropped to its blue half and resized: both the report screenshot and rendered Letter PDF retained blue pixels and zero excluded red pixels, with the caption present. A six-page Letter PDF was extracted and rendered: cover, full-page, half-page, two quarter-page sheets (five images, including a long caption), then following text, with no blank/interleaved pages or clipped captions. Only fictional images/text were used for PDF QA. Run the two scripts under `tests/` using `playwright-cli run-code --filename=…` against port 5212. `npm run build` passes (existing bundle-size warning).
-- A stale public dev client key was corrected in the existing ignored local dev configuration using an existing public key. No project keys were created/rotated, and no project-level settings changed. No credential values are recorded here.
-- Checks: seven mapping/connection-guard tests; 29 standalone selector browser checks including closed jobs, missing fields, engine choice, failed reads, selection races, save/reload and mobile layout; real dev job selection/autofill; six integrated browser checks covering the selected job, switching to a closed job's separate draft, restoring the first draft, actual job-note import, zero database-write requests and the green dev banner. Browser test drafts were removed. `npm run build` passes. PDF attachments still preview rather than merge into the final PDF.
+- [Job Reports on dev](http://127.0.0.1:5212/cores-timesheet/#/reports): open a job → **Build service report**. Refresh an already-open page after editor updates.
+- Local branch `dev-report-builder`, checkout `/private/tmp/cores-report-builder-dev`, based on `origin/main` at `9ed8379`. The original checkout's unfinished SMS changes remain untouched. The local branch keeps the implementation if the temporary checkout is removed.
+- Start with `npm run dev -- --host 127.0.0.1 --port 5212 --strictPort`. The checkout uses the existing ignored `.env.development.local` through a symlink. Install dependencies and restore that link if recreating the checkout. The green DEV banner and exact dev-project guard are required.
+- Source: `docs/mockups/report-builder/`; `scripts/copy-report-builder.mjs` copies the editor into ignored `public/report-builder/` for dev/build. React integration: `src/components/ReportBuilder.jsx`, `src/components/Reports.jsx`, `src/utils/reportBuilderData.js`. Standalone preview remains available for layout QA; the integrated page supplies the job/date/crew context.
 
-## Review the mockup
+## Opening page
 
-- The earlier standalone mockup remains on branch `report-builder-mockup`; the current review target is Job Reports above. Editor source is under `docs/mockups/report-builder/`; `scripts/copy-report-builder.mjs` copies the required assets for dev/build into ignored `public/report-builder/`.
-- Standalone dev preview, if needed: `node scripts/serve-report-builder.mjs --port 5211`. It reads only the dev database and has no write routes.
-- [Source entry point](mockups/report-builder/index.html), [earlier opening-page screenshot](mockups/report-builder/opening-page.png), [earlier editor screenshot](mockups/report-builder/preview.png).
-- Text and photo/file components can be added, edited, dragged, reordered, duplicated and removed. The text toolbar includes bullets, numbering and alignment. Fictional timesheet notes can be selected and copied into editable text.
-- Image/PDF uploads have individual descriptions; other formats appear as downloadable attachments. PDF preview uses the browser's built-in PDF viewer. Full-, half- and quarter-page image sizes are available.
-- Front-page details and body drafts save in the current browser. Existing saved body drafts remain intact when the new front-page fields are added. This mockup uses browser storage, with a 4 MB per-file limit; this is not the proposed production storage design.
-- **Print limitation:** browser printing includes the opening page, body text and pictures, but lists PDF files as attachments. Merging PDF pages, exact live pagination/repeated page numbers and production-quality export remain design/implementation work.
-- Jim's supplied letterhead screenshot is retained unchanged as `assets/cores-letterhead-reference.png`. The displayed logo uses its white centre band; the header text matches his supplied company name, address, telephone, fax and email. This replaces the earlier website logo/header. Front-page fields use placeholders or fictional values rather than the reference report's populated data.
-- **Browser verification:** text formatting and alignment, selected-note import, actual component drag/drop, move/duplicate/remove, image/PDF/other-file upload and descriptions, arrangement, save/reload, unchanged cover when editing the body, preview, print styles and a 390 px mobile layout were exercised. The PDF preview was also visually checked. Sample drafts were reset after testing. No real timesheet records, database writes or production calls were used.
-- **Front-page verification:** all 22 inputs save/reopen, including both engine entries; project/plant-vessel values carry through to later-page headers. An older body draft was preserved when front-page fields were introduced. Editing and preview fit a 390 px viewport. A real Letter-size browser PDF was extracted and rendered for visual review: all fields and the full 600-character reason remained on page one, with body content starting on page two. These checks used an isolated browser session and fictional values.
+Jim's supplied Cores letterhead is retained. Content order:
 
-## Front-page fields
-
-The supplied field list is arranged into five fixed sections, with labels above values and consistent columns:
-
-| Section | Fields |
+| Group | Fields |
 | --- | --- |
-| Project details | Project no., written by, report date |
-| Plant / vessel and location | Plant / vessel, city, province / state, postal / ZIP code |
-| Visit details | Purchase order no., date of arrival, time of arrival, customer contact |
-| Engine details | Two engine entries, each with model, serial no., hours, RPM and horsepower |
-| Reason for service request | An editable brief summary; the mockup shows its 600-character limit |
+| Vessel | Vessel name prominently at the top; optional vessel photo with add/replace, edit and remove controls |
+| Customer | Customer name; requested by |
+| Job | Author name; author location; job started; job finished; fixed job number; destination; participants; reason for visit |
+| Engine | Select engine; engine type/model; serial number; manufacturer; Main/Auxiliary duty |
 
-The two engine entries retain both serial-number/hour slots in the reference and use the same columns for each engine. Company branding and field positions stay fixed; report-specific values are editable. Autofilling these fields from live project records is future dev work.
+- **Job number is fixed.** There is no in-report job dropdown or navigation request. The parent job supplies the number, overwriting obsolete stored numbers. Choose another job outside the editor in Job Reports.
+- **Visit dates:** start/finish default to the selected report date filters, or this job's earliest/latest visible work dates when viewing all time. Manual dates persist through context changes and reopening. **Use report dates** restores automatic defaults.
+- **Participants** default to this report's crew. Authored participants remain editable. Customer/vessel and reason defaults use available job records without replacing non-empty report edits. Author location and destination are not inferred from a vessel name; the customer requester is not guessed from a generic contact record.
+- **Engine selection:** all dev engine records are labelled by vessel, maker/model, serial, side and category, with this vessel's records grouped first. A single job-linked engine may be suggested; several candidates require a choice. Selecting fills recorded model/type, serial, manufacturer and an explicit Main/Auxiliary category. Genset/Emergency/etc. are not assumed to mean Auxiliary. Manual details remain possible. A read-only check found 70 existing dev engines, all with vessel labels, without warnings.
+- PO, arrival time, postal/ZIP, hours, RPM, horsepower and the separate report-date input are no longer opening-page fields. Legacy location/arrival/engine values migrate where their meaning matches; the old cover is retained in `coverArchive` for recovery. The company letterhead address stays intact.
+- The optional vessel photo uses the same crop/resize editor and browser draft storage as body pictures. Upload limit is 4 MB per file. The title is **SERVICE & INSPECTION REPORT**. Exact old default section headings **What Was Done — whole job** migrate to **Job Summary**; custom headings are retained.
 
-## Confirmed requirements
+## Flexible body and images
 
-- Niki needs a reusable report template.
-- The opening/header page stays mostly static; formatting stays consistent while report data changes.
-- The opening page contains the project, author/date, site/location, visit, engine and service-request fields shown above.
-- Following pages are ad hoc: Niki can drag components into the report as needed.
-- A text component lets her enter report text; a photo component lets her add pictures.
-- Text should be able to start from timesheet descriptions and support basic formatting, including bullets and alignment.
-- Media may include PDFs or other file types; each item needs a text description underneath.
-- Plan the work before building it.
-- Jim will supply an existing report containing most of the information; it needs corrections before becoming the template.
+- Text sections support headings, paragraphs, bullets, numbering and alignment. Components can be dragged, reordered, duplicated and removed.
+- **Add to report** beside Job Summary, date-range summaries, Crew, Supplies Used and Full Work Log inserts editable copies. Individual work notes/photos can also be selected. Editing report copies leaves source records untouched. Crew/supplies/log copies follow the visible date filters; whole-job summaries are explicitly labelled as all dates.
+- Image sizes: full page = one image; half page = two stacked; quarter page = two across/four per page. Neighbouring quarter-page sections share the grid even when added separately. Text, page breaks, other sizes and empty placeholders separate groups; the fifth quarter-page image continues on another page. Captions and original section identities remain intact.
+- **Edit image:** draw a crop, move/resize its boundary, zoom/reposition, enter precise crop percentages, and size the image to 25–100% of its frame. Apply saves crop metadata; Cancel discards pending changes; Reset original restores the source view. Originals are retained. Captions sit below images.
+- Imported job photos link to existing dev storage objects. Local uploads stay in the browser draft. PDF/file attachments preview or open; browser printing lists PDF attachments rather than merging their source pages.
 
-## Proposed report structure
+## Draft storage and recovery
 
-Keep page one separate from the report body so adding or removing body content cannot move it or alter its layout. Use the supplied report to identify the fixed elements and the fields that change for each job.
+- Separate drafts per job: IndexedDB database `cores-report-drafts`, store `drafts`, keys `cores-service-report-dev-<job-id>-v1`. Standalone QA uses `cores-report-builder-mockup-v1`.
+- Earlier localStorage drafts are read when no IndexedDB copy exists. Only a successfully committed replacement permits removal of that draft's old copy. Image-heavy reports no longer depend on localStorage's small quota.
+- Writes snapshot their input and queue. The image dialog shows progress, blocks duplicate clicks/closing during a write, and closes only after commit. Failures preserve the previous saved edit and leave adjustments open for retry. Read failures block overwriting an unread draft. Project context is read-only; no Supabase records/settings are changed.
+- An open draft and pending crop were recovered into its normal key and a backup key ending `-recovery-<timestamp>`. Recovery copies remain in that browser's IndexedDB. No actual report content or crew personal data was copied into repo/vault notes.
 
-From page two, use a sequence of sections. Each section has a heading and content; Niki can add, rename, duplicate, reorder and remove sections. Sections can grow across pages. A new section does not have to start on a new page, but Niki should be able to request a page break when needed.
+## Verification and remaining work
 
-Start with the two component types Jim described:
-
-- **Text box:** optional heading, paragraphs and bullet lists, with shared typography, padding and borders.
-- **Image/file block:** one or more pictures or PDF/file previews, with a consistent arrangement and an editable description underneath each item. Preserve image proportions; agree the initial arrangements from the example report.
-
-Tables, measurement sheets and appended scans remain candidates for a later version if the example report establishes a need.
-
-Provide a blank section and a few useful starting sections rather than requiring every report to contain the same headings. Reusing a previous report should copy its content into a new draft without changing the original. Saving custom section presets can follow once the basic workflow is proven.
-
-## Proposed editing experience
-
-- A component tray beside the report contains **Text** and **Photos**.
-- Niki drags a component to an insertion point in the report, then types or adds pictures directly in it. Provide an **Add** button as an alternative to dragging.
-- Components snap into a vertical order and expand with their content. The template controls alignment, fonts, margins and photo spacing. This keeps reports consistent as their length changes.
-- Each component has simple move, duplicate and remove controls. Dragging also supports reordering.
-- The fixed opening page stays visibly separate from the editable body.
-- A print preview shows actual page breaks and page numbers. Saving/reopening preserves the draft; PDF export produces the reviewed report.
-
-**Home, approved by Jim:** inside a job's Job Reports page. Filing finished output in the job's Files area remains future work; current drafts stay in the browser.
-
-## Small first version
-
-1. Review Jim's example report: retain the useful information, list corrections and agree the opening page.
-2. Prepare a reviewable mockup of the component tray, fixed opening page and editable body. Use fictional sample content to show a short text box, long text and a photo block.
-3. Review the mockup with Jim and Niki before implementing the editor.
-4. Build the agreed dev version with text/photo components, reordering, save/reopen, print preview and PDF output.
-5. Have Niki assemble one representative report and revise the workflow based on that trial.
-
-Review draft access and storage before designing database changes. Store the report as ordered editable components with a shared template, so it can be reopened and revised. Keep manually edited report content separate from live job summaries so refreshing source information cannot overwrite Niki's writing. An exported report should preserve the content reviewed at export time.
-
-## Acceptance checks
-
-- Page one remains unchanged when body sections are edited, reordered or removed.
-- Niki can create a new section with her own heading without developer help.
-- Dragging or clicking Add inserts the expected text/photo component; reordering preserves its content.
-- Short and long reports use the same template successfully.
-- Headings stay with their text; photos stay with captions; long content paginates without overlap or clipping.
-- Saving, closing and reopening preserves content and section order.
-- The delivered PDF matches the reviewed report, with consistent page numbering.
-- All feature writing/testing happens on dev first, followed by Jim's dev review and separate production approval.
-
-## Open decisions
-
-- Is this a customer job/service report, a measurement/inspection report, or something else?
-- Which parts of Jim's forthcoming example report need correction?
-- Which front-page values should be prefilled from job records, and which should be entered by the office?
-- Should finished reports be filed automatically in the job's Files area, or only when the office chooses to file them?
-- Which photo arrangements are essential for version one? Are tables or appended files needed immediately?
-- What does the recipient need: PDF only, an editable copy, or both?
-
-## Existing implementation reviewed
-
-Local `origin/main` at `9ed8379` has job file upload/storage and fixed Scan to Report measurement templates. `JobFiles.jsx` explicitly supports externally written reports; `reportTemplates.js` maps a fixed spreadsheet template. Neither provides the section editor described here. The current working branch contains unrelated unfinished work; this planning task does not change that code.
+- Seven mapping/dev-guard checks pass for safe job defaults, engine choice, legacy field migration and date overrides.
+- Twenty-eight cover browser checks pass: field order, optional photo upload/edit/reopen, locked job, engine catalogue/selection, date defaults/manual overrides/reset, participants, legacy fields/title migration, mobile width, save/reopen, and zero database-write requests.
+- A Letter PDF with all requested fields, a vessel photo and a 600-character reason was extracted/rendered and visually checked. Everything stays on page one; body text begins on page two.
+- Nineteen integrated Job Reports checks pass with the revised cover and Job Summary heading. Earlier checks cover quarter-page flow, image cropping/printing and a deliberately full localStorage area plus interrupted-save retry. Tests are under `tests/`; run browser fixtures with `playwright-cli run-code --filename=…` against port 5212. `npm run build` passes; the existing bundle-size warning remains.
+- Remaining production design: server-backed report filing/shared drafts, final PDF merging/export and real page numbering. Current drafts are browser-local. No app push/deploy or production testing is approved.

@@ -1,9 +1,9 @@
 import React,{useEffect,useRef,useState} from 'react';
-import {reportBuilderAvailable,readReportJobs,readReportJob,readReportNotes,readReportNavigationJob} from '../utils/reportBuilderData';
+import {reportBuilderAvailable,readReportJob,readReportNotes} from '../utils/reportBuilderData';
 
 const primary={padding:'0.6rem 1rem',border:0,borderRadius:5,background:'#0066cc',color:'#fff',fontWeight:600,cursor:'pointer'};
 
-export default function ReportBuilder({job,onSelectJob,importRequest,onImportComplete}) {
+export default function ReportBuilder({job,reportContext,importRequest,onImportComplete}) {
   const [open,setOpen]=useState(false);
   const [error,setError]=useState('');
   const frame=useRef(null);
@@ -11,8 +11,9 @@ export default function ReportBuilder({job,onSelectJob,importRequest,onImportCom
   const sent=useRef(null);
   const complete=useRef(onImportComplete);
   complete.current=onImportComplete;
-  const selectJob=useRef(onSelectJob);
-  selectJob.current=onSelectJob;
+  const context=useRef(null);
+  context.current={jobId:job.id,number:String(job.job_number||''),range:reportContext?.range||{start:'',end:''},participants:reportContext?.participants||[]};
+  useEffect(()=>{if(ready)frame.current?.contentWindow?.postMessage({type:'cores-report-context',...context.current},window.location.origin);},[ready,reportContext,job.id,job.job_number]);
   useEffect(()=>{setReady(false);sent.current=null;},[job.id]);
   useEffect(()=>{if(importRequest?.jobId===job.id){setError('');setOpen(true);}},[importRequest,job.id]);
   useEffect(()=>{
@@ -25,11 +26,10 @@ export default function ReportBuilder({job,onSelectJob,importRequest,onImportCom
   useEffect(()=>{
     if(!reportBuilderAvailable||!open)return;
     let live=true;
-    let navigationVersion=0;
     const receive=async event=>{
       const source=frame.current?.contentWindow;
       if(event.source!==source||event.origin!==window.location.origin)return;
-      if(event.data?.type==='cores-report-ready'&&event.data.jobId===job.id){setReady(true);return;}
+      if(event.data?.type==='cores-report-ready'&&event.data.jobId===job.id){setReady(true);source.postMessage({type:'cores-report-context',...context.current},window.location.origin);return;}
       if(event.data?.type==='cores-report-imported'&&event.data.jobId===job.id&&event.data.id===sent.current){
         setError(event.data.error||'');
         complete.current?.(event.data.id,!event.data.error);
@@ -43,17 +43,7 @@ export default function ReportBuilder({job,onSelectJob,importRequest,onImportCom
         if(live&&source===frame.current?.contentWindow)source.postMessage({type:'cores-report-response',requestId,payload,error:message},window.location.origin);
       };
       try {
-        if(resource==='jobs'){reply(await readReportJobs());return;}
-        if(typeof jobId!=='string'||!/^[a-f0-9-]{36}$/i.test(jobId))throw new Error('Choose a valid project.');
-        if(resource==='open-job'){
-          const version=++navigationVersion;
-          const next=await readReportNavigationJob(jobId);
-          if(!live||version!==navigationVersion)return;
-          reply({environment:'dev',navigated:true});
-          selectJob.current(next);
-          return;
-        }
-        if(jobId!==job.id)throw new Error('Open that job before reading its report details.');
+        if(typeof jobId!=='string'||jobId!==job.id)throw new Error('This report is fixed to its current job.');
         if(resource==='job'){reply(await readReportJob(jobId));return;}
         if(resource==='notes'){reply(await readReportNotes(jobId));return;}
         throw new Error('Unsupported report request.');

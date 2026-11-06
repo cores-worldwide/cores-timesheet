@@ -1,50 +1,34 @@
-// Explicit mappings only: a Sage work-order number is not a purchase order.
-export const JOB_FIELDS = [
-  'plantVessel','city','provinceState','postalZip','purchaseOrder','arrivalDate','arrivalTime','customerContact',
-  'engine1Model','engine1Serial','engine1Hours','engine1Rpm','engine1Hp',
-  'engine2Model','engine2Serial','engine2Hours','engine2Rpm','engine2Hp','serviceReason',
-];
-const text = value => typeof value === 'string' ? value.trim() : '';
-const stringValue = value => value === 0 || (value !== null && value !== undefined && value !== '') ? String(value) : '';
-
+// Report fields are explicit: locations/requesters are not inferred from vessel/contact names.
+const text=value=>typeof value==='string'?value.trim():'';
 export function engineModel(engine) {
-  const model = text(engine?.model);
-  const maker = text(engine?.manufacturer);
-  if (!model) return '';
-  return maker && !model.toLowerCase().includes(maker.toLowerCase()) ? `${maker} ${model}` : model;
+ const model=text(engine?.model),maker=text(engine?.manufacturer);
+ return model&&maker&&!model.toLowerCase().includes(maker.toLowerCase())?`${maker} ${model}`:model;
 }
-
 export function suggestedEngines(detail) {
-  const engines = detail.engines || [];
-  const jobEngineIds = new Set((detail.services || []).map(service => service.engineId));
-  const linked = engines.filter(engine => jobEngineIds.has(engine.id));
-  if (linked.length) return linked.length <= 2 ? linked.map(engine => engine.id) : [];
-  const candidates = detail.job.status === 'closed' ? engines : engines.filter(engine => !engine.retired);
-  return candidates.length <= 2 ? candidates.map(engine => engine.id) : [];
+ const engines=detail.engines||[];
+ const serviceIds=new Set((detail.services||[]).map(service=>service.engineId));
+ const linked=engines.filter(engine=>serviceIds.has(engine.id));
+ if(linked.length)return linked.length===1?[linked[0].id]:[];
+ const candidates=engines.filter(engine=>(!detail.catalogue||!!detail.job.vesselId&&engine.vesselId===detail.job.vesselId)&&(detail.job.status==='closed'||!engine.retired));
+ return candidates.length===1?[candidates[0].id]:[];
 }
-
-export function engineFields(detail, engineIds) {
-  const fields = {};
-  for (let index=0; index<2; index++) {
-    const prefix = `engine${index+1}`;
-    for (const key of ['Model','Serial','Hours','Rpm','Hp']) fields[prefix+key] = '';
-    const engine = (detail.engines || []).find(candidate => candidate.id === engineIds[index]);
-    if (!engine) continue;
-    fields[prefix+'Model'] = engineModel(engine);
-    fields[prefix+'Serial'] = text(engine.serial);
-    const hours = [...new Set((detail.services || []).filter(service => service.engineId === engine.id).map(service => stringValue(service.hours)).filter(Boolean))];
-    if (hours.length === 1) fields[prefix+'Hours'] = hours[0];
-  }
-  return fields;
+export function engineFields(detail,engineIds) {
+ const engine=(detail.engines||[]).find(candidate=>candidate.id===engineIds[0]);
+ return {engineType:text(engine?.model),engineSerial:text(engine?.serial),engineManufacturer:text(engine?.manufacturer),engineRole:['Main','Auxiliary'].includes(engine?.role)?engine.role:''};
 }
-
-export function fillFromJob(cover, detail, engineIds = suggestedEngines(detail)) {
-  const next = {...cover};
-  for (const key of JOB_FIELDS) next[key] = '';
-  next.projectNo = text(detail.job.number);
-  next.plantVessel = text(detail.job.vessel);
-  next.customerContact = text(detail.job.contact);
-  next.serviceReason = text(detail.job.description).slice(0,600);
-  Object.assign(next,engineFields(detail,engineIds));
-  return {cover:next,engineIds,descriptionShortened:text(detail.job.description).length>600};
+export function migrateReportCover(saved,defaults) {
+ const migrated={...saved,visitStart:saved.visitStart??saved.arrivalDate??'',destination:saved.destination??[saved.city,saved.provinceState].filter(Boolean).join(', '),engineType:saved.engineType??saved.engine1Model??'',engineSerial:saved.engineSerial??saved.engine1Serial??''};
+ return Object.fromEntries(Object.entries(defaults).map(([key,fallback])=>[key,typeof migrated[key]==='string'?migrated[key].slice(0,key==='serviceReason'?600:key==='participants'?1200:180):fallback]));
+}
+export function visitDefaults(cover,range,manual={}) {
+ const next={...cover};
+ if(!manual.start)next.visitStart=range.start||'';
+ if(!manual.end)next.visitEnd=range.end||'';
+ return next;
+}
+export function fillFromJob(cover,detail,engineIds=suggestedEngines(detail)) {
+ const next={...cover,projectNo:text(detail.job.number)};
+ for(const [field,value] of Object.entries({customerName:detail.job.customer,plantVessel:detail.job.vessel,serviceReason:text(detail.job.description).slice(0,600)}))if(!next[field])next[field]=text(value);
+ if(engineIds.length&&!next.engineType&&!next.engineSerial)Object.assign(next,engineFields(detail,engineIds));
+ return {cover:next,engineIds,descriptionShortened:text(detail.job.description).length>600};
 }

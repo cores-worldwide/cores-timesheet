@@ -1,5 +1,5 @@
 /* Local report-builder prototype. Job reads use a dev-only local proxy. */
-import {fillFromJob, suggestedEngines, engineFields, engineModel} from './job-fields.mjs';
+import {fillFromJob, engineFields, engineModel, migrateReportCover, visitDefaults} from './job-fields.mjs';
 import {IMAGE_LAYOUTS,imageLayout,imagePages,reportGroups} from './image-layouts.mjs';
 import {createImageEditor,normalizeImageEdit,editedImageMarkup} from './image-editor.mjs';
 import {readDraft,writeDraft,draftStorageMessage} from './draft-store.mjs';
@@ -12,12 +12,8 @@ import {readDraft,writeDraft,draftStorageMessage} from './draft-store.mjs';
   document.body.classList.toggle('embedded',embedded);
   const MAX_FILE_BYTES = 4 * 1024 * 1024;
   const COVER_DEFAULTS = {
-    projectNo: '', writtenBy: '', reportDate: '2026-11-06',
-    plantVessel: '', city: '', provinceState: '', postalZip: '',
-    purchaseOrder: '', arrivalDate: '', arrivalTime: '', customerContact: '',
-    engine1Model: '', engine1Serial: '', engine1Hours: '', engine1Rpm: '', engine1Hp: '',
-    engine2Model: '', engine2Serial: '', engine2Hours: '', engine2Rpm: '', engine2Hp: '',
-    serviceReason: '',
+    projectNo:'',writtenBy:'',authorLocation:'',visitStart:'',visitEnd:'',destination:'',participants:'',serviceReason:'',
+    customerName:'',requestedBy:'',plantVessel:'',engineType:'',engineSerial:'',engineManufacturer:'',engineRole:'',
   };
   const SAMPLE_NOTES = [
     { id: 'sample-1', date: '3 NOVEMBER 2026', text: 'Removed access covers and inspected the cylinder heads. Photographed the assemblies before disassembly.' },
@@ -52,6 +48,7 @@ import {readDraft,writeDraft,draftStorageMessage} from './draft-store.mjs';
   };
   const sampleState = () => ({
     version: 1,
+    visitDateManual:{start:false,end:false},participantsManual:false,
     cover: { ...COVER_DEFAULTS },
     blocks: embedded ? [] : [
       { id: uid(), type: 'text', title: 'Work performed', html: '<ul><li>Removed access covers and inspected the cylinder head assemblies.</li><li>Cleaned and checked the valve components, recording the inspection findings.</li><li>Reassembled the inspected components and completed function checks.</li></ul>', sourceIds: ['sample-1', 'sample-2', 'sample-3'] },
@@ -78,11 +75,8 @@ import {readDraft,writeDraft,draftStorageMessage} from './draft-store.mjs';
   let lastSaveError='';
   let dragging = null;
   let previewURLs = [];
-  let projectJobs = [];
-  let jobsStatus = 'all';
-  let jobsQuery = '';
-  let activeJobIndex = -1;
-  let jobsReady = false;
+  let fixedProjectNumber='';
+  let reportContext={range:{start:'',end:''},participants:[]};
   let jobRequestVersion = 0;
   let currentJobDetail = null;
   let availableNotes = embedded ? [] : SAMPLE_NOTES;
@@ -90,10 +84,10 @@ import {readDraft,writeDraft,draftStorageMessage} from './draft-store.mjs';
   const importedRequests = new Set();
   if (embedded) {
     $('.canvas-footnote').textContent='This job’s draft is saved in this browser. Job and timesheet records are read-only.';
-    $('.job-selection-help').textContent='Choosing another project opens that job’s report. Each job keeps its own draft.';
     $('.sample-note p').innerHTML='Dev database<br><small>Job-specific timesheet notes</small>';
     window.addEventListener('message',event => {
       if (event.source!==window.parent || event.origin!==window.location.origin) return;
+      if(event.data?.type==='cores-report-context'&&event.data.jobId===hostJobId){applyReportContext(event.data);return;}
       if(event.data?.type==='cores-report-import') { importSections(event.data); return; }
       if(event.data?.type!=='cores-report-response') return;
       const pending=parentRequests.get(event.data.requestId);
@@ -124,11 +118,15 @@ import {readDraft,writeDraft,draftStorageMessage} from './draft-store.mjs';
     const saved = await readDraft(STORE_KEY);
     if (saved?.version === 1 && Array.isArray(saved.blocks) && saved.blocks.length <= 100) {
       state = { version: 1, blocks: saved.blocks.filter(block => block && typeof block.id === 'string' && ['text', 'media', 'break'].includes(block.type)).map(block => {
-        if (block.type === 'text') return { id: block.id, type: 'text', title: String(block.title || ''), sourceLabel:String(block.sourceLabel||''), html: cleanHTML(block.html), sourceIds: Array.isArray(block.sourceIds) ? block.sourceIds.filter(id => typeof id==='string' && id.length<=100) : [] };
+        if (block.type === 'text') return { id: block.id, type: 'text', title: String(block.title === 'What Was Done — whole job' ? 'Job Summary' : block.title || ''), sourceLabel:String(block.sourceLabel||''), html: cleanHTML(block.html), sourceIds: Array.isArray(block.sourceIds) ? block.sourceIds.filter(id => typeof id==='string' && id.length<=100) : [] };
         if (block.type === 'media') return { id: block.id, type: 'media', title: String(block.title || ''), sourceLabel:String(block.sourceLabel||''), layout: imageLayout(block.layout), items: (Array.isArray(block.items) ? block.items : []).filter(item => item && safeURL(item.url)).map(item => ({ id: String(item.id || uid()), kind: ['image', 'pdf', 'attachment'].includes(item.kind) ? item.kind : 'attachment', name: String(item.name || 'Attachment'), url: item.url, caption: String(item.caption || ''), edit:normalizeImageEdit(item.edit) })) };
         return { id: block.id, type: 'break' };
       }) };
-      state.cover = Object.fromEntries(Object.entries(COVER_DEFAULTS).map(([key, fallback]) => [key, typeof saved.cover?.[key] === 'string' ? saved.cover[key].slice(0, key === 'serviceReason' ? 600 : 180) : fallback]));
+      state.cover=migrateReportCover(saved.cover||{},COVER_DEFAULTS);
+      if(saved.coverPhoto&&safeURL(saved.coverPhoto.url))state.coverPhoto={id:String(saved.coverPhoto.id||uid()),kind:'image',name:String(saved.coverPhoto.name||'Vessel photograph'),url:saved.coverPhoto.url,caption:String(saved.coverPhoto.caption||'Vessel photograph'),edit:normalizeImageEdit(saved.coverPhoto.edit)};
+      state.coverArchive=saved.coverArchive||saved.cover||{};
+      state.visitDateManual=saved.visitDateManual||{start:!!(saved.cover?.visitStart||saved.cover?.arrivalDate),end:!!saved.cover?.visitEnd};
+      state.participantsManual=saved.participantsManual??!!saved.cover?.participants;
       if (typeof saved.project?.id === 'string' && /^[a-f0-9-]{36}$/i.test(saved.project.id)) state.project = {id:saved.project.id, engineIds:Array.isArray(saved.project.engineIds) ? saved.project.engineIds.slice(0,2).map(id => typeof id === 'string' ? id : '') : []};
       selectedId = state.blocks[0]?.id || null;
       $('#save-state').textContent = 'Saved in this browser';
@@ -147,6 +145,7 @@ import {readDraft,writeDraft,draftStorageMessage} from './draft-store.mjs';
   }
   async function saveDraft(explicit = false) {
     clearTimeout(saveTimer);
+    if(embedded&&fixedProjectNumber)state.cover.projectNo=fixedProjectNumber;
     const version=saveVersion;
     const attempt=++saveAttempt;
     pendingSaves++;
@@ -196,7 +195,7 @@ import {readDraft,writeDraft,draftStorageMessage} from './draft-store.mjs';
   }
   function coverDisplayValue(key) {
     const value = state.cover[key] || '';
-    if ((key === 'reportDate' || key === 'arrivalDate') && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    if ((key === 'visitStart' || key === 'visitEnd') && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
       const [year, month, day] = value.split('-');
       const name = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][Number(month) - 1];
       return name ? `${Number(day)} ${name} ${year}` : value;
@@ -207,43 +206,27 @@ import {readDraft,writeDraft,draftStorageMessage} from './draft-store.mjs';
     $$('[data-cover-output]').forEach(el => { el.textContent = coverDisplayValue(el.dataset.coverOutput) || '-'; });
     $$('[data-cover-inline]').forEach(el => { el.textContent = state.cover[el.dataset.coverInline] || '-'; });
     $('#reason-character-count').textContent = state.cover.serviceReason.length;
-    if (embedded) $('.body-heading p').textContent=[state.cover.plantVessel,coverDisplayValue('reportDate')].filter(Boolean).join(' · ');
+    $('.body-heading p').textContent=[state.cover.plantVessel,[state.cover.visitStart,state.cover.visitEnd].filter(Boolean).join(' – ')].filter(Boolean).join(' · ');
+  }
+  function renderCoverPhoto() {
+    const photo=state.coverPhoto;
+    const preview=$('#vessel-photo-preview');
+    $('.cover-vessel-hero').classList.toggle('has-photo',!!photo);
+    preview.hidden=!photo;
+    preview.innerHTML=photo?(editedImageMarkup(photo,photo.edit)||`<img src="${esc(photo.url)}" alt="${esc(state.cover.plantVessel||'Vessel photograph')}">`):'';
+    $('#choose-vessel-photo').textContent=photo?'Replace vessel photo':'Add vessel photo (optional)';
+    $('#edit-vessel-photo').hidden=!photo;
+    $('#remove-vessel-photo').hidden=!photo;
   }
   function syncCoverInputs() {
     $$('[data-cover]').forEach(el => { el.value = state.cover[el.dataset.cover] || ''; });
     updateCoverOutputs();
-  }
-  function filteredProjects() {
-    const needle = jobsQuery.trim().toLowerCase();
-    return projectJobs.filter(job => (jobsStatus === 'all' || job.status === jobsStatus) && (!needle || [job.number,job.vessel,job.customer,job.description].some(value => value.toLowerCase().includes(needle))));
-  }
-  function renderProjects() {
-    const jobs = filteredProjects();
-    if (activeJobIndex >= jobs.length) activeJobIndex = jobs.length - 1;
-    $('#project-job-list').innerHTML = jobs.length ? jobs.map((job,index) => `<button type="button" role="option" tabindex="-1" class="project-job-option ${index===activeJobIndex?'active':''}" id="project-option-${esc(job.id)}" data-project-id="${esc(job.id)}" aria-selected="${state.project?.id===job.id}"><span class="job-number">${esc(job.number)}</span><span class="job-option-description"><strong>${esc(job.vessel || job.description || job.customer || 'Project')}</strong><small>${esc([job.customer,job.description].filter(Boolean).join(' · '))}</small></span><span class="job-status ${job.status==='open'?'open':'closed'}">${esc(job.status || 'Unknown')}</span></button>`).join('') : '<div class="job-no-results">No matching projects.</div>';
-    if (activeJobIndex >= 0 && jobs[activeJobIndex]) $('#project-job-search').setAttribute('aria-activedescendant',`project-option-${jobs[activeJobIndex].id}`);
-    else $('#project-job-search').removeAttribute('aria-activedescendant');
-    $$('[data-job-status]').forEach(button => button.setAttribute('aria-pressed',String(button.dataset.jobStatus===jobsStatus)));
-  }
-  function openProjects(query = '') {
-    if (!jobsReady || previewing) return;
-    jobsQuery = query;
-    activeJobIndex = -1;
-    $('#project-job-panel').hidden = false;
-    $('#project-job-search').setAttribute('aria-expanded','true');
-    renderProjects();
-  }
-  function closeProjects() {
-    $('#project-job-panel').hidden = true;
-    $('#project-job-search').setAttribute('aria-expanded','false');
-    $('#project-job-search').removeAttribute('aria-activedescendant');
-    $('#project-job-search').value = state.cover.projectNo || '';
+    renderCoverPhoto();
   }
   async function readJSON(path) {
     if (embedded) {
       let result;
-      if (path==='/api/jobs') result=await requestParent('jobs');
-      else {
+      {
         const match=path.match(/^\/api\/jobs\/([a-f0-9-]{36})(\/notes)?$/i);
         if (!match) throw new Error('Unsupported report data request.');
         result=await requestParent(match[2]?'notes':'job',match[1]);
@@ -257,106 +240,56 @@ import {readDraft,writeDraft,draftStorageMessage} from './draft-store.mjs';
     if (value.environment !== 'dev') throw new Error('The project source is not the expected dev database.');
     return value;
   }
+  function applyReportContext(context) {
+    if(!embedded||context.jobId!==hostJobId)return;
+    const before=JSON.stringify({cover:state.cover,manual:state.visitDateManual});
+    fixedProjectNumber=String(context.number||'');
+    reportContext={range:context.range||{start:'',end:''},participants:Array.isArray(context.participants)?context.participants:[]};
+    state.cover.projectNo=fixedProjectNumber;
+    state.cover=visitDefaults(state.cover,reportContext.range,state.visitDateManual);
+    if(!state.participantsManual)state.cover.participants=reportContext.participants.join(', ');
+    $('#job-source-status').textContent=`Job ${fixedProjectNumber||'—'} · fixed for this report`;
+    $('#visit-date-help').textContent=reportContext.range.start||reportContext.range.end?`Report date range: ${reportContext.range.start||'—'} to ${reportContext.range.end||'—'}. Dates can be adjusted for this visit.`:'No report date range is available yet. Enter the visit dates.';
+    syncCoverInputs();
+    if(before!==JSON.stringify({cover:state.cover,manual:state.visitDateManual}))changed();
+  }
   function renderEngineChoices() {
-    const box = $('#engine-source-controls');
-    box.hidden = !currentJobDetail?.engines?.length;
-    if (box.hidden) return;
-    const choices = currentJobDetail.engines;
-    const selected = state.project?.engineIds || [];
-    $('#engine-source-note').textContent = choices.length > 2 ? 'Choose the engines this report covers. Model and serial details come from the vessel records.' : 'Vessel engine records. You can edit the filled details below.';
-    $$('[data-engine-slot]').forEach(select => {
-      const slot = Number(select.dataset.engineSlot);
-      const other = selected[1-slot];
-      select.innerHTML = '<option value="">Enter manually</option>' + choices.map(engine => `<option value="${esc(engine.id)}" ${engine.id===other?'disabled':''}>${esc([engine.side,engineModel(engine),engine.serial && `S/N ${engine.serial}`,engine.retired && 'retired'].filter(Boolean).join(' · ') || 'Engine record')}</option>`).join('');
-      select.value = selected[slot] || '';
-      select.disabled = false;
-    });
+    const choices=currentJobDetail?.engines||[];
+    const select=$('[data-engine-slot="0"]');
+    const related=choices.filter(engine=>engine.vesselId===currentJobDetail?.job.vesselId);
+    const others=choices.filter(engine=>!related.includes(engine));
+    const options=list=>list.map(engine=>`<option value="${esc(engine.id)}">${esc([engine.vessel,engine.side,engineModel(engine),engine.serial&&`S/N ${engine.serial}`,engine.role,engine.retired&&'retired'].filter(Boolean).join(' · ')||'Engine record')}</option>`).join('');
+    select.innerHTML='<option value="">Enter details manually</option>'+(related.length?`<optgroup label="This vessel">${options(related)}</optgroup>`:'')+(others.length?`<optgroup label="Other engines">${options(others)}</optgroup>`:'');
+    select.value=state.project?.engineIds?.[0]||'';
+    select.disabled=!choices.length;
+    $('#engine-source-note').textContent=choices.length?'Choose the engine for this report. Recorded model/type, serial number, manufacturer and Main/Auxiliary duty fill below.':'No engine records are available for selection. Details can be entered manually.';
   }
-  async function chooseProject(id,{restore=false}={}) {
-    closeProjects();
-    if (!projectJobs.some(job => job.id === id)) return;
-    if (embedded && id!==hostJobId && !restore) {
-      if (!await saveDraft()) return;
-      $('#job-fill-note').hidden=false;
-      $('#job-fill-note').textContent='Opening that job’s report…';
-      try { await requestParent('open-job',id); }
-      catch(error) { $('#job-fill-note').textContent=error.message; }
-      return;
-    }
-    const sameProject = state.project?.id === id;
-    if (sameProject && currentJobDetail?.job.id === id && !restore) {
-      jobRequestVersion++;
-      $('#project-job-search').removeAttribute('aria-busy');
-      $('#job-fill-note').textContent='This project is already selected. Your edited details are kept.';
-      renderEngineChoices();
-      toast('This project is already selected. Your edited details are kept.');
-      return;
-    }
-    const request = ++jobRequestVersion;
-    $('#job-fill-note').hidden = false;
-    $('#job-fill-note').textContent = 'Loading project details…';
-    $('#project-job-search').setAttribute('aria-busy','true');
-    $$('[data-engine-slot]').forEach(select => select.disabled=true);
+  async function loadProject() {
+    const id=embedded?hostJobId:state.project?.id;
+    renderEngineChoices();
+    if(!id)return;
+    const request=++jobRequestVersion;
+    $('#retry-project-jobs').hidden=true;
+    $('#job-fill-note').hidden=false;
+    $('#job-fill-note').textContent='Loading job and engine records…';
     try {
-      const detail = await readJSON(`/api/jobs/${encodeURIComponent(id)}`);
-      if (request !== jobRequestVersion) return;
-      if (detail.job?.id !== id) throw new Error('The dev project response did not match the selected project.');
-      currentJobDetail = detail;
-      if (restore || sameProject) {
-        $('#job-fill-note').textContent = 'Saved report details kept. The selected dev project is available.';
-      } else {
-        const previous = state.project?.id;
-        const filled = fillFromJob(state.cover,detail);
-        state.cover = filled.cover;
-        state.project = {id,engineIds:filled.engineIds};
-        const count = ['plantVessel','customerContact','serviceReason','engine1Model','engine1Serial','engine1Hours','engine2Model','engine2Serial','engine2Hours'].filter(key => state.cover[key]).length;
-        const messages = [`Project ${detail.job.number} selected. ${count} available detail${count===1?'':'s'} filled; other fields are ready for entry.`];
-        if (filled.descriptionShortened) messages.push('The job description was shortened to 600 characters for this front page.');
-        if (previous && previous !== id) messages.push('Body text and files were kept; review them for this project.');
-        messages.push(...(detail.warnings || []));
-        $('#job-fill-note').textContent = messages.join(' ');
-        syncCoverInputs();
-        changed();
-      }
-      renderEngineChoices();
-    } catch (error) {
-      if (request !== jobRequestVersion) return;
-      $('#job-fill-note').textContent = `${error.message} The current report details were kept.`;
-      $('#project-job-search').value = state.cover.projectNo || '';
-      renderEngineChoices();
-    } finally {
-      if (request === jobRequestVersion) $('#project-job-search').removeAttribute('aria-busy');
-    }
-  }
-  async function loadProjects() {
-    jobsReady = false;
-    $('#project-job-search').disabled = true;
-    $('#toggle-project-jobs').disabled = true;
-    $('#retry-project-jobs').hidden = true;
-    $('#job-source-status').textContent = 'Loading dev projects…';
-    try {
-      const data = await readJSON('/api/jobs');
-      if (!Array.isArray(data.jobs)) throw new Error('The dev jobs list was not available.');
-      projectJobs = data.jobs.filter(job => typeof job.id==='string' && /^[a-f0-9-]{36}$/i.test(job.id)).map(job => ({...job,number:String(job.number || ''),status:String(job.status || ''),vessel:String(job.vessel || ''),customer:String(job.customer || ''),description:String(job.description || '')})).sort((a,b) => b.number.localeCompare(a.number,undefined,{numeric:true,sensitivity:'base'}));
-      jobsReady = true;
-      $('#project-job-search').disabled = false;
-      $('#toggle-project-jobs').disabled = false;
-      $('#job-source-status').textContent = `${projectJobs.length} dev project${projectJobs.length===1?'':'s'} · open and closed`;
-      if (!state.project && state.cover.projectNo==='0000' && state.cover.plantVessel==='MV Example' && !projectJobs.some(job=>job.number==='0000')) {
-        state.cover.projectNo='';
-        state.cover.plantVessel='';
-        syncCoverInputs();
-        changed();
-      }
-      if (embedded && projectJobs.some(job=>job.id===hostJobId)) {
-        await chooseProject(hostJobId,{restore:state.project?.id===hostJobId});
-      } else if (state.project?.id) {
-        if (projectJobs.some(job => job.id===state.project.id)) await chooseProject(state.project.id,{restore:true});
-        else { $('#job-fill-note').hidden=false; $('#job-fill-note').textContent='The saved project is not available in dev. Saved report details are kept.'; }
-      }
-    } catch (error) {
-      $('#job-source-status').textContent = `${error.message} Run the dev report preview server to load projects.`;
-      $('#retry-project-jobs').hidden = false;
+      const detail=await readJSON(`/api/jobs/${encodeURIComponent(id)}`);
+      if(request!==jobRequestVersion)return;
+      if(detail.job?.id!==id)throw new Error('The job details do not match this report.');
+      currentJobDetail=detail;
+      fixedProjectNumber=String(detail.job.number||fixedProjectNumber);
+      const previous=JSON.stringify({cover:state.cover,project:state.project});
+      const filled=fillFromJob(state.cover,detail,state.project?.id===id?state.project.engineIds:undefined);
+      state.cover=filled.cover;state.project={id,engineIds:filled.engineIds};
+      if(previous!==JSON.stringify({cover:state.cover,project:state.project}))changed();
+      state.cover.projectNo=fixedProjectNumber;
+      if(embedded)applyReportContext({jobId:hostJobId,number:fixedProjectNumber,...reportContext});
+      syncCoverInputs();renderEngineChoices();
+      $('#job-fill-note').textContent=['Job details loaded. Existing report edits are kept.',...(detail.warnings||[])].join(' ');
+    }catch(error){
+      if(request!==jobRequestVersion)return;
+      $('#job-fill-note').textContent=`${error.message} Existing report details are kept.`;
+      $('#retry-project-jobs').hidden=false;
     }
   }
   function makeBlock(type) {
@@ -459,10 +392,9 @@ import {readDraft,writeDraft,draftStorageMessage} from './draft-store.mjs';
     $$('.block-title').forEach(el => el.readOnly = previewing);
     $$('.richtext').forEach(el => el.contentEditable = String(!previewing));
     $$('.media-caption').forEach(el => el.readOnly = previewing);
-    $$('[data-cover]').forEach(el => el.readOnly = previewing);
+    $$('[data-cover]').forEach(el => el.readOnly = el.dataset.cover==='projectNo'||previewing);
   }
   function setPreview(value) {
-    closeProjects();
     previewing = value;
     document.body.classList.toggle('previewing', value);
     $('#toggle-preview').innerHTML = `${icon(value ? 'document' : 'eye')}<span>${value ? 'Back to editing' : 'Preview'}</span>`;
@@ -569,52 +501,25 @@ import {readDraft,writeDraft,draftStorageMessage} from './draft-store.mjs';
   $('#cover-page').addEventListener('input', event => {
     if (event.target.hasAttribute('data-job-lookup')) return;
     const key = event.target.dataset.cover;
-    if (!Object.hasOwn(COVER_DEFAULTS, key)) return;
+    if (!Object.hasOwn(COVER_DEFAULTS, key)||key==='projectNo') return;
+    if(key==='visitStart'||key==='visitEnd')state.visitDateManual={...state.visitDateManual,[key==='visitStart'?'start':'end']:true};
+    if(key==='participants')state.participantsManual=true;
     state.cover[key] = event.target.value;
     updateCoverOutputs();
     changed();
   });
-  $('#project-job-search').addEventListener('focus',() => openProjects());
-  $('#project-job-search').addEventListener('click',() => { if ($('#project-job-panel').hidden) openProjects(); });
-  $('#project-job-search').addEventListener('input',event => openProjects(event.target.value));
-  $('#toggle-project-jobs').addEventListener('click',() => { if ($('#project-job-panel').hidden) { $('#project-job-search').focus(); openProjects(); } else closeProjects(); });
-  $('#retry-project-jobs').addEventListener('click',loadProjects);
-  $('#project-job-panel').addEventListener('mousedown',event => { if (event.target.closest('[data-project-id]')) event.preventDefault(); });
-  $('#project-job-panel').addEventListener('click',event => {
-    const filter = event.target.closest('[data-job-status]');
-    if (filter) { jobsStatus=filter.dataset.jobStatus; activeJobIndex=-1; renderProjects(); return; }
-    const option = event.target.closest('[data-project-id]');
-    if (option) chooseProject(option.dataset.projectId);
+  $('#retry-project-jobs').addEventListener('click',loadProject);
+  $('#engine-source-controls').addEventListener('change',event=>{
+    if(!event.target.matches('[data-engine-slot]')||!currentJobDetail)return;
+    const id=event.target.value;
+    state.project={id:embedded?hostJobId:currentJobDetail.job.id,engineIds:id?[id]:[]};
+    Object.assign(state.cover,engineFields(currentJobDetail,[id]));
+    syncCoverInputs();changed();
   });
-  $('#project-job-search').addEventListener('keydown',event => {
-    if (event.key==='Escape') { event.preventDefault(); closeProjects(); return; }
-    if (event.key==='Tab') { closeProjects(); return; }
-    if (!['ArrowDown','ArrowUp','Enter'].includes(event.key)) return;
-    if (!jobsReady) return;
-    event.preventDefault();
-    if ($('#project-job-panel').hidden) openProjects();
-    const jobs = filteredProjects();
-    if (!jobs.length) return;
-    if (event.key==='Enter') { chooseProject(jobs[Math.max(0,activeJobIndex)].id); return; }
-    activeJobIndex = event.key==='ArrowDown' ? Math.min(activeJobIndex+1,jobs.length-1) : activeJobIndex<0 ? jobs.length-1 : Math.max(0,activeJobIndex-1);
-    renderProjects();
-    $('.project-job-option.active')?.scrollIntoView({block:'nearest'});
-  });
-  document.addEventListener('pointerdown',event => { if (!event.target.closest('#project-lookup')) closeProjects(); });
-  $('#engine-source-controls').addEventListener('change',event => {
-    const slot = Number(event.target.dataset.engineSlot);
-    if (![0,1].includes(slot) || !currentJobDetail || currentJobDetail.job.id!==state.project?.id) return;
-    const ids = [...(state.project.engineIds || [])];
-    ids[slot]=event.target.value;
-    const movedFromOther = !!ids[slot] && ids[slot]===ids[1-slot];
-    if (movedFromOther) ids[1-slot]='';
-    state.project.engineIds=ids;
-    const fields = engineFields(currentJobDetail,ids);
-    const prefix = `engine${slot+1}`;
-    for (const [key,value] of Object.entries(fields)) if ((ids[slot] && key.startsWith(prefix)) || (movedFromOther && key.startsWith(`engine${2-slot}`))) state.cover[key]=value;
-    syncCoverInputs();
-    renderEngineChoices();
-    changed();
+  $('#use-report-visit-dates').addEventListener('click',()=>{
+    state.visitDateManual={start:false,end:false};
+    state.cover=visitDefaults(state.cover,reportContext.range,state.visitDateManual);
+    syncCoverInputs();changed();
   });
   $('#show-body').addEventListener('click', () => { if (previewing) setPreview(false); showPage('body'); });
   $('#toggle-preview').addEventListener('click', () => setPreview(!previewing));
@@ -631,7 +536,7 @@ import {readDraft,writeDraft,draftStorageMessage} from './draft-store.mjs';
     currentJobDetail = null;
     jobRequestVersion++;
     $('#job-fill-note').hidden = true;
-    $('#engine-source-controls').hidden = true;
+    renderEngineChoices();
     selectedId = state.blocks[0]?.id || null;
     if (previewing) setPreview(false);
     showPage('body');
@@ -653,6 +558,37 @@ import {readDraft,writeDraft,draftStorageMessage} from './draft-store.mjs';
   $('#file-picker').addEventListener('change', event => { if (pendingFileBlock) addFiles(pendingFileBlock, event.target.files); });
   $('#report-outline').addEventListener('click', event => { const row = event.target.closest('.outline-row'); if (!row) return; if (previewing) setPreview(false); if (row.dataset.showCover) showPage('cover'); else { showPage('body'); selectBlock(row.dataset.id, true); } });
   const openImageEditor=createImageEditor($('#image-editor-dialog'));
+  $('#choose-vessel-photo').addEventListener('click',()=>{$('#vessel-photo-picker').value='';$('#vessel-photo-picker').click();});
+  $('#vessel-photo-picker').addEventListener('change',async event=>{
+    const file=event.target.files[0];if(!file)return;
+    if(file.size>MAX_FILE_BYTES){toast('The vessel photo exceeds the 4 MB per-file limit.');return;}
+    if(!/^image\/(png|jpeg|webp|gif|avif)$/i.test(file.type)){toast('Choose a PNG, JPG, WebP, GIF or AVIF vessel photo.');return;}
+    const button=$('#choose-vessel-photo');button.disabled=true;
+    const previous=state.coverPhoto;
+    try {
+      const url=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result));reader.onerror=()=>reject(reader.error);reader.readAsDataURL(file);});
+      if(!safeURL(url))throw new Error('The vessel photo could not be read.');
+      await new Promise((resolve,reject)=>{const image=new Image();image.onload=resolve;image.onerror=()=>reject(new Error('This file could not be displayed as an image.'));image.src=url;});
+      state.coverPhoto={id:uid(),kind:'image',name:file.name,url,caption:'Vessel photograph',edit:null};
+      renderCoverPhoto();
+      if(!await saveDraft()){state.coverPhoto=previous;renderCoverPhoto();throw new Error(lastSaveError);}
+      toast('Vessel photo saved with this report.');
+    }catch(error){toast(error.message||'The vessel photo could not be added.');}
+    finally{button.disabled=false;}
+  });
+  $('#remove-vessel-photo').addEventListener('click',async()=>{
+    const previous=state.coverPhoto;state.coverPhoto=null;renderCoverPhoto();
+    if(!await saveDraft()){state.coverPhoto=previous;renderCoverPhoto();}
+  });
+  $('#edit-vessel-photo').addEventListener('click',()=>{
+    const photo=state.coverPhoto;if(!photo)return;
+    openImageEditor(photo,async edit=>{
+      const previous=photo.edit;photo.edit=edit;
+      if(!await saveDraft()){photo.edit=previous;throw new Error(lastSaveError);}
+      renderCoverPhoto();toast('Vessel photo changes saved.');return true;
+    });
+  });
+
   $('#report-blocks').addEventListener('click', event => {
     const el = event.target.closest('.report-block,.report-image-card');
     if (!el) return;
@@ -742,6 +678,6 @@ import {readDraft,writeDraft,draftStorageMessage} from './draft-store.mjs';
   document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden'&&$('#save-state').textContent==='Unsaved changes')saveDraft();});
   render();
   showPage('body');
-  loadProjects();
+  loadProject();
   if(embedded)window.parent.postMessage({type:'cores-report-ready',jobId:hostJobId},window.location.origin);
 })();

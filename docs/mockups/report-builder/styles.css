@@ -279,3 +279,28 @@ dialog{border:0;padding:0;border-radius:12px;box-shadow:0 25px 90px #112d4840;ma
  .quarter-shared-sheet .quarter-card>.block-title,.quarter-continuation-heading{display:block!important;font-size:10pt;line-height:1.3;margin:0 0 3mm;min-height:0;flex:none}
  .quarter-card>.media-figure{flex:1;min-height:0}
 }
+
+/* Opening page: Author, Job, Customer and Engine. */
+.author-name-grid{grid-template-columns:1fr 1fr}.author-dates-grid{grid-template-columns:1fr 1fr 1fr;margin-top:12px}.report-job-grid{grid-template-columns:1fr 1.5fr}.report-customer-grid{grid-template-columns:1fr 1fr 1fr}.report-engine-grid{grid-template-columns:1fr 1fr;row-gap:12px}
+.job-locked-control{display:flex;align-items:center;gap:8px}.job-locked-control input{cursor:default}.job-locked-control .icon{width:14px;height:14px;color:#8ca0af}.author-dates-grid .cover-field>label{display:block;font-size:9px;color:#7d909e;margin-bottom:5px;line-height:1.4}
+.visit-date-help{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:8px;color:#8096a6;margin-top:6px}.visit-date-help .small-text-button{font-size:8px}.report-reason{position:relative;margin-top:12px}.report-reason .reason-length{position:absolute;right:0;top:0;font-size:8px}
+.cover-field select{display:block;width:100%;min-width:0;padding:6px 0;font:inherit;font-size:12px;font-weight:500;color:#29465c;background:transparent;border:0;border-bottom:1px solid #dbe4eb;border-radius:0;line-height:1.5}.cover-field select:focus{outline:none;border-bottom-color:var(--blue);background:#f6fafc}
+.engine-source-controls>label{display:flex;gap:12px;align-items:center}.cover-field textarea{resize:vertical}.previewing .cover-field select,.previewing .job-locked-control{display:none!important}
+.body-heading h2{font-family:inherit;font-size:25px;font-weight:650;letter-spacing:.2px}
+@media(max-width:620px){.author-name-grid,.report-job-grid,.report-customer-grid,.report-engine-grid{grid-template-columns:1fr 1fr}.author-dates-grid{grid-template-columns:1fr 1fr}.author-dates-grid>.cover-field:last-child{grid-column:1/-1}.report-customer-grid>.cover-field:last-child{grid-column:1/-1}.engine-source-controls>label{display:block;white-space:normal}.engine-source-controls>label select{margin-top:7px}.body-heading h2{font-size:20px}}
+@media print{#cover-page .cover-field select,.job-locked-control{display:none!important}#cover-page .author-name-grid{grid-template-columns:1fr 1fr}#cover-page .author-dates-grid{grid-template-columns:1fr 1fr 1fr}#cover-page .report-job-grid{grid-template-columns:1fr 1.5fr}#cover-page .report-customer-grid{grid-template-columns:1fr 1fr 1fr}#cover-page .report-engine-grid{grid-template-columns:1fr 1fr}#cover-page .author-dates-grid>.cover-field:last-child,#cover-page .report-customer-grid>.cover-field:last-child{grid-column:auto}#cover-page .report-reason{margin-top:10px}#cover-page .cover-section{padding:11px 0}#cover-page .cover-field .field-display{font-size:10px;line-height:1.45}.body-heading h2{font-size:17pt}}
+
+/* Vessel first, then Customer, Job and Engine. The cover photo is optional. */
+.cover-vessel-hero{display:grid;grid-template-columns:1fr;gap:20px;align-items:center;margin:20px 0 8px;padding-bottom:16px;border-bottom:1px solid #dce4eb}
+.cover-vessel-hero.has-photo{grid-template-columns:minmax(0,1fr) 235px}
+.cover-vessel-intro h2{font-family:inherit;font-size:12px;font-weight:650;letter-spacing:1px;margin:12px 0 0;color:#557990}
+.vessel-name-field input{font-size:26px;line-height:1.3;font-weight:650;padding:5px 0;border-bottom:0}.vessel-name-field>.field-display{font-size:26px!important;line-height:1.3!important;font-weight:650!important}
+.vessel-photo-preview{height:118px;position:relative;overflow:hidden;background:#eef3f6;border:1px solid #e1e8ec}
+.vessel-photo-preview img{display:block;position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+.vessel-photo-preview .edited-image{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:var(--image-scale,100%);height:var(--image-scale,100%);overflow:hidden}
+.vessel-photo-actions{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;margin-top:7px}.vessel-photo-actions button{font-size:9px}
+.cover-photo-slot:has(.vessel-photo-preview[hidden]){justify-self:start}.report-customer-grid{grid-template-columns:1fr 1fr}.report-job-grid{margin-top:12px}
+@media(max-width:620px){.cover-vessel-hero.has-photo{grid-template-columns:1fr}.vessel-photo-preview{height:135px;max-width:280px}.vessel-photo-actions{justify-content:flex-start}.vessel-name-field input,.vessel-name-field>.field-display{font-size:22px!important}.report-customer-grid>.cover-field:last-child{grid-column:auto}}
+@media print{#cover-page .cover-vessel-hero{margin:12px 0 2px;padding-bottom:10px;gap:18px}#cover-page .cover-vessel-hero.has-photo{grid-template-columns:minmax(0,1fr) 60mm}#cover-page .vessel-photo-preview{height:30mm;max-width:none}#cover-page .cover-vessel-intro h2{font-size:9pt;margin:7px 0 0}#cover-page .vessel-name-field>.field-display{font-size:20px!important}#cover-page .cover-photo-slot:has(.vessel-photo-preview[hidden]){display:none}#cover-page .report-customer-grid{grid-template-columns:1fr 1fr}#cover-page .report-job-grid{margin-top:8px}#cover-page .cover-section{padding:9px 0}#cover-page .report-customer-grid>.cover-field:last-child{grid-column:auto}}
+
+.vessel-photo-actions [hidden],.vessel-photo-preview[hidden]{display:none!important}
