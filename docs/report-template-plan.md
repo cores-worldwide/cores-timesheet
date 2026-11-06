@@ -42,6 +42,16 @@ Jim's supplied Cores letterhead is retained. Labels and fields share compact row
 - Writes snapshot their input and queue. The image dialog shows progress, blocks duplicate clicks/closing during a write, and closes only after commit. Failures preserve the previous saved edit and leave adjustments open for retry. Read failures block overwriting an unread draft. Project context is read-only; no Supabase records/settings are changed.
 - An open draft and pending crop were recovered into its normal key and a backup key ending `-recovery-<timestamp>`. Recovery copies remain in that browser's IndexedDB. No actual report content or crew personal data was copied into repo/vault notes.
 
+## Next session handoff — 2026-11-06
+
+- Current implementation is local branch `dev-report-builder`, commit `e851c7b` (compact inline cover patch), clean after commit. The original checkout is on `report-builder-mockup`; its report notes track this dev branch. No app push/deployment occurred today.
+- Jim reviews the latest cover on dev, including real names/long values, optional vessel photo, engine catalogue scope, visit-date defaults and the finished print appearance. The available engine list currently includes all engines, with this vessel first. This is implemented; final acceptance/release is outstanding.
+- Build server-backed/shared drafts and filing finished reports into the job's Files area; choose the production storage/export design first. Current saves and recovery backups are in this browser's IndexedDB.
+- Complete final PDF export: merge attached PDF pages, proper dynamic page numbering, and remaining pagination/attachment handling. Current browser print handles the tested one-page cover and image pages; PDF files are listed as attachments.
+- Before any release: Jim's dev review/approval, normal branch/PR workflow and his explicit production approval. Pushing `main` publishes GitHub Pages immediately. No migrations, edge functions, production records, schema/RLS/auth settings or dev-data refresh were changed for the report builder.
+- Separate open PR: [#140 — reload banner](https://github.com/cores-worldwide/cores-timesheet/pull/140), confirmed by a read-only open-PR search on 2026-11-06. It was not merged or modified today. No report-builder PR exists because this work has not been pushed.
+- Original checkout WIP was preserved: `scripts/test-sms.mjs`, `supabase/functions/sms-timesheet/index.ts`, untracked cheat sheets/measurement/video/text-flow material and the existing action-rate-limit migration. These are separate work, not part of this report change or its validation.
+
 ## Verification and remaining work
 
 - Seven mapping/dev-guard checks pass for safe job defaults, engine choice, legacy field migration and date overrides.
