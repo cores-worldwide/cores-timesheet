@@ -5,6 +5,7 @@
 // which had this logic three times over.
 import { isStatHoliday } from './statPay'
 import { effectiveDailyThreshold } from './otCalc'
+import { dayOffSubmissionRow, dayOffConflict } from './dayOff'
 
 const cores = (supabase) => supabase.schema('Cores')
 
@@ -265,6 +266,22 @@ export async function logBlockedApproval(supabase, sub, reasons, attemptedBy) {
 // entry for an employee landed live and fully approved with nobody having
 // reviewed it. Used for both a brand-new day (AdminDashboard's Add Entry
 // form) and adding one more job to an existing day.
+// Office-entered day off (with optional per diem) — goes to SMS Review like
+// any other office entry; refused if the person already worked that date or
+// it's already a day off (approved or waiting). Returns { error }.
+export async function submitDayOff(supabase, { employeeId, workDate, perDiem = 0, adminName }) {
+  const { data: approvedEntries, error: e1 } = await cores(supabase).from('timesheet_entries')
+    .select('hours, is_day_off, is_stat_pay').eq('employee_id', employeeId).eq('work_date', workDate)
+  if (e1) return { error: e1 }
+  const { data: pending, error: e2 } = await cores(supabase).from('sms_submissions')
+    .select('id').eq('employee_id', employeeId).eq('work_date', workDate).eq('is_day_off', true)
+    .in('status', ['submitted', 'collecting']).limit(1)
+  if (e2) return { error: e2 }
+  const conflict = dayOffConflict({ approvedEntries: approvedEntries || [], pendingDayOff: (pending || []).length > 0 })
+  if (conflict) return { error: { message: conflict } }
+  return cores(supabase).from('sms_submissions').insert(dayOffSubmissionRow({ employeeId, workDate, perDiem, adminName }))
+}
+
 export async function submitManualEntry(supabase, {
   employeeId, workDate, timeIn, statedTimeOut, lunchMinutes, perDiem = 0,
   entries, supplies = [], adminName,

@@ -4,6 +4,7 @@ import { ensureStatPay } from '../utils/statPay'
 import { fmtHours } from '../utils/format'
 import { approvalBlockers, jobNumberBlockers, jobNumberState, logBlockedApproval } from '../utils/entrySave'
 import { looksLikeSameSupply } from '../utils/supplyMatch'
+import { dayOffConflict, workDayConflict } from '../utils/dayOff'
 import MultiSelectDropdown from './MultiSelectDropdown'
 import PersonPicker from './PersonPicker'
 import { getAdminName } from './PasswordGate'
@@ -259,6 +260,21 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
   // ── Approve ───────────────────────────────────────────────────────────────
   async function approve(sub) {
     const entries = sub.entries || []
+    // A day off and worked hours on the same date would pay per diem twice
+    // (2026-11-17), whichever is approved second is refused.
+    if (!sub.is_stat_grant) {
+      const { data: approvedEntries, error: dayErr } = await supabase.schema('Cores').from('timesheet_entries')
+        .select('hours, is_day_off, is_stat_pay').eq('employee_id', sub.employee_id).eq('work_date', sub.work_date)
+      if (dayErr) { alert(`Couldn't check that day: ${dayErr.message}`); return }
+      const conflict = sub.is_day_off
+        ? dayOffConflict({ approvedEntries: approvedEntries || [] })
+        : workDayConflict({ approvedEntries: approvedEntries || [] })
+      if (conflict) {
+        logBlockedApproval(supabase, sub, [conflict], getAdminName())
+        alert(`Can't approve yet:\n\n• ${conflict}`)
+        return
+      }
+    }
     // Texted supplies that match a line the SMS bot already added from a photo
     // (applied_by 'Auto (photo)'). A photo of one can often means two were used,
     // so on approve the photo line is raised to the texted quantity instead of a
@@ -342,7 +358,7 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
     if (sub.is_day_off) {
       const { error } = await supabase.schema('Cores').from('timesheet_entries').insert({
         employee_id: sub.employee_id, work_date: sub.work_date, job_id: null,
-        hours: 0, ot_hours: 0, description: 'Day off', per_diem: 0,
+        hours: 0, ot_hours: 0, description: 'Day off', per_diem: dayPerDiem(sub),
         is_day_off: true, entry_source: 'sms', source_submission_id: sub.id,
         approved_by_name: getAdminName(), approved_at: new Date().toISOString(),
       })
@@ -527,6 +543,18 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
       setSubmissions(p => p.map(x => x.id === sub.id ? { ...x, entries } : x))
       setStatHoursDrafts(d => { const n = { ...d }; delete n[sub.id]; return n })
     }
+    setActing(null)
+  }
+
+  // ── Per diem on a day off ─────────────────────────────────────────────────
+  // Saved straight away; `acting` disables Approve until the save lands, so
+  // approving right after a change always uses the new value.
+  async function saveDayOffPerDiem(sub, perDiem) {
+    setActing(sub.id)
+    const { error } = await supabase.schema('Cores').from('sms_submissions')
+      .update({ per_diem: perDiem, updated_at: new Date().toISOString() }).eq('id', sub.id)
+    if (error) alert('Error saving per diem: ' + error.message)
+    else setSubmissions(p => p.map(x => x.id === sub.id ? { ...x, per_diem: perDiem } : x))
     setActing(null)
   }
 
@@ -869,7 +897,7 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
                 </span>
                 {sub.is_day_off && (
                   <span style={{ fontSize: '0.75rem', padding: '0.15rem 0.5rem', borderRadius: 10, background: '#fff4d6', color: '#8a6100', fontWeight: 600, border: '1px solid #e6c56b' }}>
-                    🏖️ Day off
+                    🏖️ Day off{dayPerDiem(sub) > 0 ? ` — per diem ×${dayPerDiem(sub)}` : ''}
                   </span>
                 )}
                 {sub.is_stat_grant && (
@@ -931,7 +959,30 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
 
                 {/* Entries table */}
                 {sub.is_day_off ? (
-                  <div style={{ color: '#8a6100', marginBottom: '0.75rem', fontSize: '0.875rem' }}>🏖️ Requesting this day off — no hours, no job.</div>
+                  <div style={{ color: '#8a6100', marginBottom: '0.75rem', fontSize: '0.875rem' }}>
+                    <div>🏖️ Requesting this day off — no hours, no job.</div>
+                    {/* Per diem on a day off (Jim, 2026-11-17): techs on the road
+                        claim it like a work day; Niki checks/adjusts it here. */}
+                    {sub.per_diem_location && !['none', 'office entry'].includes(sub.per_diem_location.trim().toLowerCase()) && (
+                      <div style={{ marginTop: '0.3rem', color: '#555' }}>Tech claimed per diem: <strong>{sub.per_diem_location}</strong></div>
+                    )}
+                    <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', marginTop: '0.4rem' }}>
+                      <label style={{ color: '#555' }}>Per diem:</label>
+                      {(sub.status === 'submitted' || sub.status === 'collecting') ? (
+                        <select value={String(dayPerDiem(sub))} disabled={acting === sub.id}
+                          onChange={e => saveDayOffPerDiem(sub, Number(e.target.value))}
+                          style={{ padding: '0.3rem 0.5rem', border: '1px solid #ccc', borderRadius: 4, fontSize: '0.85rem' }}>
+                          <option value="0">None</option>
+                          <option value="0.25">×0.25 Quarter</option>
+                          <option value="0.5">×0.5 Half</option>
+                          <option value="0.75">×0.75 Three-Quarter</option>
+                          <option value="1">×1 Standard</option>
+                        </select>
+                      ) : (
+                        <span>{dayPerDiem(sub) > 0 ? `×${dayPerDiem(sub)}` : 'None'}</span>
+                      )}
+                    </div>
+                  </div>
                 ) : sub.is_stat_grant ? (() => {
                   const draft = statHoursDrafts[sub.id] ?? String(sub.entries?.[0]?.hours ?? 8)
                   const dirty = draft !== String(sub.entries?.[0]?.hours ?? 8)

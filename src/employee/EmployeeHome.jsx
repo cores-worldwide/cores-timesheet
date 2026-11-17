@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
+import { dayOffResendPatch, perDiemLocationOrNone } from '../utils/dayOff'
 import { payWeekRange } from '../utils/statPay'
 import { computeOTMap } from '../utils/otCalc'
 import { fmtHours } from '../utils/format'
@@ -71,6 +72,9 @@ export default function EmployeeHome({ employee }) {
   const [answeringNote, setAnsweringNote] = useState(null)
   const scrollToDayRef = useRef(null)
   const [markingDayOffFor, setMarkingDayOffFor] = useState(null)
+  // Day Off opens a small per diem box on that day first (2026-11-17).
+  const [dayOffFormFor, setDayOffFormFor] = useState(null)
+  const [dayOffPD, setDayOffPD] = useState('')
   const [noteFor, setNoteFor] = useState(null)
   const [noteDraft, setNoteDraft] = useState('')
   const [editingNote, setEditingNote] = useState(false)
@@ -236,8 +240,11 @@ export default function EmployeeHome({ employee }) {
   // everything else instead of going straight to Timesheets. Reuses an
   // existing day-off row for this date if one's already there (e.g. a prior
   // rejected request) rather than piling up duplicates.
-  async function markDayOff(ymd) {
-    if (!confirm('Send today in as a day off? The office will review it.')) return
+  // perDiemLocation: what the tech typed in the per diem box ("none" or
+  // hotel / city, same as a work day); blank means none. Techs on the road
+  // claim per diem on a day off this way (Jim, 2026-11-17).
+  async function markDayOff(ymd, perDiemLocation = '') {
+    const pdLocation = perDiemLocationOrNone(perDiemLocation)
     setMarkingDayOffFor(ymd)
     setError('')
     const { data: existing } = await supabase.schema('Cores').from('sms_submissions')
@@ -245,14 +252,16 @@ export default function EmployeeHome({ employee }) {
       .order('updated_at', { ascending: false }).limit(1).maybeSingle()
     const { error } = existing
       ? await supabase.schema('Cores').from('sms_submissions')
-          .update({ status: 'submitted', updated_at: new Date().toISOString() }).eq('id', existing.id)
+          .update({ ...dayOffResendPatch(pdLocation), updated_at: new Date().toISOString() }).eq('id', existing.id)
       : await supabase.schema('Cores').from('sms_submissions').insert({
           from_phone: 'mobile-app', employee_id: employee.id, work_date: ymd,
-          entries: [], status: 'submitted', is_day_off: true,
+          entries: [], status: 'submitted', is_day_off: true, per_diem_location: pdLocation,
         })
     if (error) { setError(error.message); setMarkingDayOffFor(null); return }
     await load({ silent: true })
     setMarkingDayOffFor(null)
+    setDayOffFormFor(null)
+    setDayOffPD('')
   }
 
   // A texted-in day keeps a full back-and-forth in raw_messages, rendered as
@@ -388,7 +397,7 @@ export default function EmployeeHome({ employee }) {
       const time_in = ampm.time_in || null
       const stated_time_out = ampm.time_out || null
       const lunch_minutes = shift.lunch_minutes === '' ? null : Number(shift.lunch_minutes)
-      const per_diem_location = shift.per_diem_location.trim() || 'none'
+      const per_diem_location = perDiemLocationOrNone(shift.per_diem_location)
       const { calculated_time_out, delta_minutes } = computeSubmissionTiming(time_in, stated_time_out, lunch_minutes, totalHours)
 
       // Skip only an untouched form; a work note alone is a real pending entry.
@@ -723,7 +732,7 @@ export default function EmployeeHome({ employee }) {
             ) : daySub?.is_day_off && daySub.status !== 'rejected' ? (
               // No fields to reopen for a day-off request — nothing tappable,
               // just a status line until the office approves or declines it.
-              <div className="emp-hint" style={{ marginBottom: '0.6rem' }}>⏳ Day off — sent to the office for approval</div>
+              <div className="emp-hint" style={{ marginBottom: '0.6rem' }}>⏳ Day off — sent to the office for approval{daySub.per_diem_location && !['none', 'Office entry'].includes(daySub.per_diem_location) ? ` · PD: ${daySub.per_diem_location}` : ''}</div>
             ) : dayEntries.length > 0 ? (
               // Already approved, no pending sub (submissions excludes
               // status='approved') — the "+ Add Job Info" button below is
@@ -759,6 +768,18 @@ export default function EmployeeHome({ employee }) {
                     }}>+ Photo</button>
                 )}
               </>
+            ) : dayOffFormFor === ymd ? (
+              <div className="emp-field" style={{ marginBottom: '0.6rem' }}>
+                <label>Day off — per diem?</label>
+                <input type="text" placeholder='"none" or hotel / city' value={dayOffPD}
+                  onChange={e => setDayOffPD(e.target.value)} style={{ marginBottom: '0.5rem' }} />
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <button className="emp-btn emp-btn-small" disabled={markingDayOffFor === ymd}
+                    onClick={() => markDayOff(ymd, dayOffPD)}>{markingDayOffFor === ymd ? 'Sending…' : 'Send day off'}</button>
+                  <button className="emp-btn emp-btn-secondary emp-btn-small" disabled={markingDayOffFor === ymd}
+                    onClick={() => { setDayOffFormFor(null); setDayOffPD('') }}>Cancel</button>
+                </div>
+              </div>
             ) : (
               // A gray "tap to..." hint line reads as informational text, not
               // as something to press — a real button here instead of just a
@@ -766,7 +787,7 @@ export default function EmployeeHome({ employee }) {
               <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.6rem' }}>
                 <button className="emp-btn emp-btn-secondary emp-btn-small" onClick={() => openLog(ymd)}>+ Add Job Info</button>
                 <button className="emp-btn emp-btn-secondary emp-btn-small" disabled={markingDayOffFor === ymd}
-                  onClick={() => markDayOff(ymd)}>{markingDayOffFor === ymd ? 'Marking…' : 'Day Off'}</button>
+                  onClick={() => { setDayOffFormFor(ymd); setDayOffPD('') }}>Day Off</button>
               </div>
             )}
 
