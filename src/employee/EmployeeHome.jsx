@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
-import { dayOffResendPatch } from '../utils/dayOff'
+import { dayOffResendPatch, perDiemLocationOrNone } from '../utils/dayOff'
 import { payWeekRange } from '../utils/statPay'
 import { computeOTMap } from '../utils/otCalc'
 import { fmtHours } from '../utils/format'
@@ -244,7 +244,7 @@ export default function EmployeeHome({ employee }) {
   // hotel / city, same as a work day); blank means none. Techs on the road
   // claim per diem on a day off this way (Jim, 2026-11-17).
   async function markDayOff(ymd, perDiemLocation = '') {
-    const pdLocation = perDiemLocation.trim() || 'none'
+    const pdLocation = perDiemLocationOrNone(perDiemLocation)
     setMarkingDayOffFor(ymd)
     setError('')
     const { data: existing } = await supabase.schema('Cores').from('sms_submissions')
@@ -397,7 +397,7 @@ export default function EmployeeHome({ employee }) {
       const time_in = ampm.time_in || null
       const stated_time_out = ampm.time_out || null
       const lunch_minutes = shift.lunch_minutes === '' ? null : Number(shift.lunch_minutes)
-      const per_diem_location = shift.per_diem_location.trim() || 'none'
+      const per_diem_location = perDiemLocationOrNone(shift.per_diem_location)
       const { calculated_time_out, delta_minutes } = computeSubmissionTiming(time_in, stated_time_out, lunch_minutes, totalHours)
 
       // Skip only an untouched form; a work note alone is a real pending entry.

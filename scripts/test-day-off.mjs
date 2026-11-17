@@ -76,3 +76,16 @@ test('re-sending a day off from the app clears any old per diem', () => {
   assert.deepEqual(dayOffResendPatch('none'), { status: 'submitted', per_diem_location: 'none', per_diem: null })
   assert.deepEqual(dayOffResendPatch('Halifax'), { status: 'submitted', per_diem_location: 'Halifax', per_diem: null })
 })
+
+// ── "no" / "n/a" in the per diem box means no per diem (Jim, 2026-11-17) ──
+import { perDiemLocationOrNone } from '../src/utils/dayOff.js'
+test('per diem box: no, n/a and similar mean none', () => {
+  for (const v of ['', '  ', 'no', 'No', 'n/a', 'N/A', 'na', 'none', 'nope', '-', '0', 'no pd', 'no per diem']) {
+    assert.equal(perDiemLocationOrNone(v), 'none', JSON.stringify(v))
+  }
+})
+test('per diem box: a place is kept as typed', () => {
+  assert.equal(perDiemLocationOrNone(' Halifax '), 'Halifax')
+  assert.equal(perDiemLocationOrNone('Novotel Lisbon'), 'Novotel Lisbon')
+  assert.equal(perDiemLocationOrNone('Nanaimo'), 'Nanaimo')
+})

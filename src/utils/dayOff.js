@@ -51,3 +51,12 @@ export function workDayConflict({ approvedEntries = [] }) {
 export function dayOffResendPatch(perDiemLocation) {
   return { status: 'submitted', per_diem_location: perDiemLocation, per_diem: null }
 }
+
+// What a tech typed in a per diem box → the stored per_diem_location. Blank,
+// "no", "n/a", "none" and the like mean no per diem (Jim, 2026-11-17);
+// anything else is the place, kept as typed.
+const NO_PD = /^(?:no|nope|none|n\/?a|-+|0|no\s+(?:pd|p\.d\.?|per\s*diem))$/i
+export function perDiemLocationOrNone(text) {
+  const t = String(text ?? '').trim()
+  return !t || NO_PD.test(t) ? 'none' : t
+}
