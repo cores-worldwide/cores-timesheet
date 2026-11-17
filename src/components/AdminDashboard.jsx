@@ -8,7 +8,7 @@ import ConfettiBurst, { CELEBRATION_VARIANTS, pickCelebrationVariant } from './C
 import { getAdminName } from './PasswordGate'
 import { generateDailyTimesheetPDF } from '../utils/timesheetPdf'
 import { ensureStatPay, cleanupStatPay } from '../utils/statPay'
-import { replaceSupplies, submitManualEntry, fetchDailyOTContext, computeDailyOTSplit, closedJobAmong, closedJobLockMessage } from '../utils/entrySave'
+import { replaceSupplies, submitManualEntry, submitDayOff, fetchDailyOTContext, computeDailyOTSplit, closedJobAmong, closedJobLockMessage } from '../utils/entrySave'
 import MultiSelectDropdown from './MultiSelectDropdown'
 import MediaThumb from './MediaThumb'
 import PhotoLightbox from './PhotoLightbox'
@@ -147,7 +147,7 @@ export default function AdminDashboard() {
     time_in: '07:00', stated_time_out: '15:30', lunch_minutes: 30,
     entries: [{ job_id: '', hours: '', description: '' }],
     supplies: [{ job_id: '', supply_name: '', quantity: 1 }],
-    per_diem: 0, sort_order: 1
+    per_diem: 0, sort_order: 1, is_day_off: false
   })
   const [savingManual, setSavingManual] = useState(false)
   // Tracks the last { hours, lunch_minutes, stated_time_out } we auto-filled (see
@@ -557,6 +557,31 @@ export default function AdminDashboard() {
       alert('Pick employee and date')
       return
     }
+    // Day off with per diem (Jim, 2026-11-17): no times or jobs — goes to SMS
+    // Review as a day-off request for Niki to approve like any office entry.
+    if (manualFields.is_day_off) {
+      setSavingManual(true)
+      try {
+        const { error } = await submitDayOff(supabase, {
+          employeeId: manualFields.employee_id, workDate: manualFields.work_date,
+          perDiem: Number(manualFields.per_diem) || 0, adminName: getAdminName(),
+        })
+        if (error) { alert(error.message); return }
+        await loadTimesheets()
+        setManualEntry(null)
+        setAutoFilled({ hours: null, lunch_minutes: null, stated_time_out: null, description: null, job_id: null })
+        setManualFields({
+          employee_id: '', work_date: toYMD(new Date()),
+          time_in: '07:00', stated_time_out: '15:30', lunch_minutes: 30,
+          entries: [{ job_id: '', hours: '', description: '' }],
+          supplies: [{ job_id: '', supply_name: '', quantity: 1 }],
+          per_diem: 0, sort_order: 1, is_day_off: false
+        })
+      } finally {
+        setSavingManual(false)
+      }
+      return
+    }
     // Hours may be 0 — that's how a day with no real work still gets logged
     // (so it shows as submitted instead of looking like a missing day).
     const validEntries = manualFields.entries.filter(e => e.job_id && e.hours !== '' && Number(e.hours) >= 0)
@@ -618,7 +643,7 @@ export default function AdminDashboard() {
         time_in: '07:00', stated_time_out: '15:30', lunch_minutes: 30,
         entries: [{ job_id: '', hours: '', description: '' }],
         supplies: [{ job_id: '', supply_name: '', quantity: 1 }],
-        per_diem: 0, sort_order: 1
+        per_diem: 0, sort_order: 1, is_day_off: false
       })
     } finally {
       setSavingManual(false)
@@ -1539,6 +1564,13 @@ export default function AdminDashboard() {
                 <label style={{ display: 'block', fontSize: '0.85rem', color: '#555', marginBottom: '0.3rem', fontWeight: 600 }}>Date</label>
                 <input type="date" style={inputStyle} value={manualFields.work_date} onChange={e => applyManualFieldChange({ work_date: e.target.value })} />
               </div>
+              <div style={{ gridColumn: '1 / -1' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.9rem', color: '#333', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={!!manualFields.is_day_off} onChange={e => setManualFields(f => ({ ...f, is_day_off: e.target.checked }))} />
+                  <span><strong>Day off</strong> (no work — per diem only)</span>
+                </label>
+              </div>
+              {!manualFields.is_day_off && (<>
               <div>
                 <label style={{ display: 'block', fontSize: '0.85rem', color: '#555', marginBottom: '0.3rem' }}>Time In</label>
                 <input type="time" style={inputStyle} value={manualFields.time_in} onChange={e => applyManualTimeChange({ time_in: e.target.value })} />
@@ -1551,6 +1583,7 @@ export default function AdminDashboard() {
                 <label style={{ display: 'block', fontSize: '0.85rem', color: '#555', marginBottom: '0.3rem' }}>Lunch (min)</label>
                 <input type="number" min="0" style={inputStyle} value={manualFields.lunch_minutes} onChange={e => applyManualTimeChange({ lunch_minutes: Number(e.target.value) })} />
               </div>
+              </>)}
               <div>
                 <label style={{ display: 'block', fontSize: '0.85rem', color: '#555', marginBottom: '0.3rem' }}>Per Diem</label>
                 <select style={inputStyle} value={manualFields.per_diem || 0} onChange={e => setManualFields(f => ({ ...f, per_diem: Number(e.target.value) }))}>
@@ -1563,6 +1596,7 @@ export default function AdminDashboard() {
               </div>
             </div>
 
+            {!manualFields.is_day_off && (<>
             <div style={{ marginBottom: '1rem' }}>
               <div style={{ fontSize: '0.9rem', fontWeight: 600, marginBottom: '0.5rem', color: '#555' }}>Jobs</div>
               {manualFields.entries.map((entry, i) => (
@@ -1621,11 +1655,12 @@ export default function AdminDashboard() {
               ))}
               <button onClick={() => setManualFields(f => ({ ...f, supplies: [...f.supplies, { job_id: '', supply_name: '', quantity: 1 }] }))} style={{ padding: '0.4rem 0.8rem', border: '1px solid #ccc', borderRadius: '4px', background: '#f9f9f9', cursor: 'pointer', fontSize: '0.85rem', marginTop: '0.25rem' }}>+ Add supply</button>
             </div>
+            </>)}
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
               <button onClick={() => { setManualEntry(null); setAutoFilled({ hours: null, lunch_minutes: null, stated_time_out: null, description: null, job_id: null }) }} style={{ padding: '0.5rem 1.1rem', border: '1px solid #ccc', borderRadius: '4px', background: '#fff', cursor: 'pointer' }}>Cancel</button>
               <button onClick={saveManualEntry} disabled={savingManual} style={{ padding: '0.5rem 1.1rem', background: '#0066cc', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 600 }}>
-                {savingManual ? 'Saving…' : 'Save Entry'}
+                {savingManual ? 'Saving…' : manualFields.is_day_off ? 'Send Day Off to SMS Review' : 'Save Entry'}
               </button>
             </div>
           </div>
