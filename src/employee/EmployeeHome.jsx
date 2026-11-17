@@ -521,6 +521,9 @@ export default function EmployeeHome({ employee }) {
                   </div>
                 </div>
                 {amPmNote && <div className="emp-ampm-note">{amPmNote}</div>}
+                {!draftShift.time_out && [...(baseEntriesRef.current[ymd] || []), ...draftLines].some(l => Number(l.hours) > 0) && (
+                  <div className="emp-ampm-note">Time out is missing. Fill it in — the office can't approve this day without it.</div>
+                )}
                 <div className="emp-row-2">
                   <div className="emp-field">
                     <label>Lunch (min)</label>
@@ -630,6 +633,9 @@ export default function EmployeeHome({ employee }) {
             ) : daySub?.time_in ? (
               <div className="emp-hint" style={{ marginBottom: '0.6rem', cursor: 'pointer' }} onClick={() => openLog(ymd)}>
                 {`${daySub.status === 'rejected' ? '✗ Sent back' : '⏳ Submitted'}: In ${fmtTimeShort(daySub.time_in)} · Out ${daySub.stated_time_out ? fmtTimeShort(daySub.stated_time_out) : '—'} · Lunch ${daySub.lunch_minutes ?? 0}min · PD: ${daySub.per_diem_location && daySub.per_diem_location !== 'none' ? daySub.per_diem_location : 'none'} (tap to edit)`}
+                {!daySub.stated_time_out && (daySub.entries || []).some(e => Number(e.hours) > 0) && (
+                  <div style={{ color: '#c00', fontWeight: 600, marginTop: '0.25rem' }}>Time out is missing — tap to add it so the office can approve this day.</div>
+                )}
               </div>
             ) : daySub?.is_day_off && daySub.status !== 'rejected' ? (
               // No fields to reopen for a day-off request — nothing tappable,
