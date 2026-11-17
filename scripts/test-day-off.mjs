@@ -36,3 +36,32 @@ test('no conflict: empty day, or stat pay only', () => {
   assert.equal(dayOffConflict({ approvedEntries: [], pendingDayOff: false }), null)
   assert.equal(dayOffConflict({ approvedEntries: [{ hours: 8, is_day_off: false, is_stat_pay: true }], pendingDayOff: false }), null)
 })
+
+// ── Techs texting a day off with per diem ──
+import { parseDayOffText } from '../supabase/functions/sms-timesheet/dayOff.js'
+
+test('text: plain "day off" is unchanged — no per diem', () => {
+  assert.deepEqual(parseDayOffText('day off'), { perDiemLocation: 'none' })
+  assert.deepEqual(parseDayOffText('Day off.'), { perDiemLocation: 'none' })
+})
+test('text: "day off pd" claims per diem', () => {
+  for (const m of ['day off pd', 'day off, per diem', 'day off p.d.', 'Day off - PD']) {
+    assert.deepEqual(parseDayOffText(m), { perDiemLocation: 'PD claimed' }, m)
+  }
+})
+test('text: a place after the claim is kept as written', () => {
+  assert.deepEqual(parseDayOffText('day off pd Lisbon'), { perDiemLocation: 'Lisbon' })
+  assert.deepEqual(parseDayOffText('day off, per diem in Lisbon'), { perDiemLocation: 'Lisbon' })
+  assert.deepEqual(parseDayOffText('day off hotel in Lisbon'), { perDiemLocation: 'hotel in Lisbon' })
+  assert.deepEqual(parseDayOffText('day off staying in Halifax'), { perDiemLocation: 'staying in Halifax' })
+})
+test('text: "day off no pd" means none', () => {
+  for (const m of ['day off no pd', 'day off, no per diem', 'day off no p.d.']) {
+    assert.deepEqual(parseDayOffText(m), { perDiemLocation: 'none' }, m)
+  }
+})
+test('text: anything else after "day off" is not this rule', () => {
+  for (const m of ['day off tomorrow', 'day off friday pd', 'taking a day off', 'day off yesterday with pd', 'day offshore 4760 8hrs']) {
+    assert.equal(parseDayOffText(m), null, m)
+  }
+})

@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { createClient } from "jsr:@supabase/supabase-js@2"
 import { mergeEntries, parsedWorkEntries, unparsedWorkEntry } from "./entries.js"
+import { parseDayOffText } from "./dayOff.js"
 
 // Handles both SMS (via Twilio) and WhatsApp (via Twilio Messaging API)
 // Webhook payload is identical for both; Twilio routes based on channel config
@@ -1645,7 +1646,10 @@ Deno.serve(async (req: Request) => {
   // a photo captioned "day off" still gets saved as a photo below, and on a
   // known employee — an unrecognized number still needs a human to match it,
   // same as any other text from that number.
-  if (msgLower === 'day off' && mediaUrls.length === 0 && employeeId) {
+  // "day off pd" / "day off pd Lisbon" also claims per diem (2026-11-17) —
+  // see dayOff.js; anything else after "day off" falls through as before.
+  const dayOff = mediaUrls.length === 0 && employeeId ? parseDayOffText(msgBody) : null
+  if (dayOff) {
     const { data: existingApproved } = await supabase
       .from('timesheet_entries').select('id')
       .eq('employee_id', employeeId).eq('work_date', today).eq('is_day_off', true)
@@ -1663,11 +1667,13 @@ Deno.serve(async (req: Request) => {
       const { error } = await supabase.from('sms_submissions').insert({
         from_phone: fromPhone, employee_id: employeeId, work_date: today,
         entries: [], status: 'submitted', is_day_off: true,
+        per_diem_location: dayOff.perDiemLocation,
         raw_messages: [{ text: msgBody, direction: 'in', ts: new Date().toISOString() }],
       })
+      const withPD = dayOff.perDiemLocation !== 'none' ? ', with per diem' : ''
       r = error
         ? `Couldn't save that — contact the office if this keeps happening.`
-        : `Got it${employeeName ? ' ' + employeeName.split(' ')[0] : ''} — sent ${friendlyDate(today)} in to the office as a day off.`
+        : `Got it${employeeName ? ' ' + employeeName.split(' ')[0] : ''} — sent ${friendlyDate(today)} in to the office as a day off${withPD}.`
     }
     return isTwilio ? twiML(r) : jsonReply({ reply: r })
   }
