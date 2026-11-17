@@ -7,6 +7,7 @@ import { fmtHours } from '../utils/format'
 import { draftEntries } from '../utils/draftEntries'
 import { fetchDailyOTContext, computeDailyOTSplit, computeSubmissionTiming, fixShiftAmPm, amPmFixNote } from '../utils/entrySave'
 import { addTechPhotos } from '../utils/media'
+import { openOfficeNote, daysWaitingOnTech } from '../utils/officeNotes'
 import JobPicker from './JobPicker'
 import AutoGrowTextarea from './AutoGrowTextarea'
 import PhotoEditSheet, { PhotoThumbs } from './PhotoEditSheet'
@@ -63,6 +64,12 @@ export default function EmployeeHome({ employee }) {
   const insertLocksRef = useRef({})
   const saveQueuesRef = useRef({})
   const baseEntriesRef = useRef({})
+  // Days with an unanswered office note, across ALL weeks — shown as a banner
+  // at the top so a note can't be missed (Jim, 2026-11-17).
+  const [waitingDays, setWaitingDays] = useState([])
+  const [officeReplyDrafts, setOfficeReplyDrafts] = useState({})
+  const [answeringNote, setAnsweringNote] = useState(null)
+  const scrollToDayRef = useRef(null)
   const [markingDayOffFor, setMarkingDayOffFor] = useState(null)
   const [noteFor, setNoteFor] = useState(null)
   const [noteDraft, setNoteDraft] = useState('')
@@ -107,6 +114,11 @@ export default function EmployeeHome({ employee }) {
       .neq('status', 'approved').eq('is_stat_grant', false)
       .order('updated_at', { ascending: false })
     setSubmissions(subs || [])
+    const { data: openSubs } = await supabase.schema('Cores').from('sms_submissions')
+      .select('id, work_date, status, raw_messages')
+      .eq('employee_id', employee.id).eq('is_stat_grant', false)
+      .in('status', ['submitted', 'collecting'])
+    setWaitingDays(daysWaitingOnTech(openSubs))
     const { data: gp } = await supabase.schema('Cores').from('gear_photos')
       .select('*').eq('employee_id', employee.id)
       .gte('work_date', weekStart).lte('work_date', weekEnd)
@@ -130,6 +142,43 @@ export default function EmployeeHome({ employee }) {
     const top = el.getBoundingClientRect().top + window.scrollY - headerH - 12
     window.scrollTo({ top: Math.max(0, top) })
   }, [loading])
+
+  // After a banner tap switches week, scroll to that day once it has loaded.
+  useEffect(() => {
+    if (loading || !scrollToDayRef.current) return
+    const el = document.getElementById(`day-${scrollToDayRef.current}`)
+    if (!el) return
+    scrollToDayRef.current = null
+    const headerH = document.querySelector('.emp-header')?.offsetHeight || 0
+    window.scrollTo({ top: Math.max(0, el.getBoundingClientRect().top + window.scrollY - headerH - 12), behavior: 'smooth' })
+  }, [loading, submissions])
+
+  function goToDay(ymd) {
+    scrollToDayRef.current = ymd
+    const ws = payWeekRange(ymd)[0]
+    if (ws === weekStart) setSubmissions(s => [...s]) // same week: re-run the scroll effect
+    else setWeekStart(ws)
+  }
+
+  // Answers the office's note from the app: adds the tech's reply (or a plain
+  // "fixed it") to the same conversation Niki sees in SMS Review, and puts a
+  // day that was waiting on a reply back in her normal queue.
+  async function answerOfficeNote(sub) {
+    setAnsweringNote(sub.id)
+    setError('')
+    const reply = (officeReplyDrafts[sub.id] || '').trim()
+    const { data: fresh, error: readErr } = await supabase.schema('Cores').from('sms_submissions')
+      .select('raw_messages, status').eq('id', sub.id).single()
+    if (readErr || !fresh) { setError(readErr?.message || 'Could not load this day'); setAnsweringNote(null); return }
+    const text = reply ? `Reply from the app: ${reply}` : '✓ Done — fixed it (from the app)'
+    const update = { raw_messages: [...(fresh.raw_messages || []), { ts: new Date().toISOString(), text, direction: 'in' }], updated_at: new Date().toISOString() }
+    if (fresh.status === 'collecting') { update.status = 'submitted'; update.pending_questions = [] }
+    const { error: err } = await supabase.schema('Cores').from('sms_submissions').update(update).eq('id', sub.id)
+    if (err) setError(err.message)
+    else setOfficeReplyDrafts(d => { const n = { ...d }; delete n[sub.id]; return n })
+    await load({ silent: true })
+    setAnsweringNote(null)
+  }
 
   useEffect(() => {
     supabase.schema('Cores').from('jobs').select('id, job_number, description, vessels(name)').order('job_number').then(({ data }) => setJobs(data || []))
@@ -235,7 +284,11 @@ export default function EmployeeHome({ employee }) {
 
     const text = `Submitted via app: ${parts.join(' · ')}`
     const existing = sub.raw_messages || []
-    if (existing.length > 0 && existing[existing.length - 1].text === text) return // unchanged since last snapshot
+    // Unchanged since the last snapshot — compared with the last app snapshot,
+    // not just the last message, so opening and closing a day without changing
+    // anything after an office note doesn't count as answering it.
+    const lastSnapshot = [...existing].reverse().find(m => m.direction === 'in' && String(m.text || '').startsWith('Submitted via app:'))
+    if (lastSnapshot?.text === text) return
 
     await supabase.schema('Cores').from('sms_submissions')
       .update({ raw_messages: [...existing, { ts: new Date().toISOString(), text, direction: 'in' }] })
@@ -448,6 +501,18 @@ export default function EmployeeHome({ employee }) {
 
   return (
     <div className="emp-main">
+      {waitingDays.length > 0 && (
+        <div className="emp-office-banner" role="alert">
+          <div className="emp-office-banner-title">📣 The office is waiting on you</div>
+          {waitingDays.map(w => (
+            <button key={w.id} className="emp-office-banner-item" onClick={() => goToDay(w.work_date)}>
+              <span className="emp-office-banner-day">{dayName(w.work_date)} {shortDate(w.work_date)}</span>
+              <span className="emp-office-banner-text">{w.text}</span>
+              <span className="emp-office-banner-go">Fix it →</span>
+            </button>
+          ))}
+        </div>
+      )}
       <div className="emp-week-switch">
         <button onClick={() => setWeekStart(addDays(weekStart, -7))} aria-label="Previous week">‹</button>
         <div className="emp-week-label" onClick={() => setWeekStart(payWeekRange(todayYMD())[0])}>
@@ -478,6 +543,7 @@ export default function EmployeeHome({ employee }) {
         // but not yet reviewed, so it's still editable from here.
         const daySub = submissions.find(s => s.work_date === ymd)
         const subTotalHours = (daySub?.entries || []).reduce((s, e) => s + (Number(e.hours) || 0), 0)
+        const officeNote = openOfficeNote(daySub)
         // Quick-glance status beside the date — the fuller "In X · Out Y ·
         // tap to edit" hints below still carry the detail; this is just so
         // a tech can tell a day's state without scrolling into the card.
@@ -488,7 +554,7 @@ export default function EmployeeHome({ employee }) {
           : null
 
         return (
-          <div className="emp-card" id={`day-${ymd}`} key={ymd}>
+          <div className={`emp-card${officeNote ? ' emp-card-office-waiting' : ''}`} id={`day-${ymd}`} key={ymd}>
             <div className="emp-day-header">
               <div>
                 <div className="emp-day-name">
@@ -503,6 +569,23 @@ export default function EmployeeHome({ employee }) {
               </div>
               {totalHours > 0 && <div className="emp-day-total">{fmtHours(totalHours)}h</div>}
             </div>
+
+            {officeNote && (
+              <div className="emp-office-note">
+                <div className="emp-office-note-title">📣 The office needs you to check this day</div>
+                <div className="emp-office-note-text">{officeNote.text}</div>
+                <AutoGrowTextarea
+                  className="emp-office-note-reply"
+                  value={officeReplyDrafts[daySub.id] || ''}
+                  onChange={e => setOfficeReplyDrafts(d => ({ ...d, [daySub.id]: e.target.value }))}
+                  placeholder="Reply to the office (optional)"
+                />
+                <button className="emp-btn" disabled={answeringNote === daySub.id} onClick={() => answerOfficeNote(daySub)}>
+                  {answeringNote === daySub.id ? 'Sending…' : (officeReplyDrafts[daySub.id] || '').trim() ? 'Send reply' : '✓ Done — I fixed it'}
+                </button>
+                <div className="emp-hint">Fix the day below first if something's wrong. Editing it also lets the office know.</div>
+              </div>
+            )}
 
             {logFor === ymd ? (
               <div style={{ marginBottom: '0.75rem', borderBottom: '1px solid #eee', paddingBottom: '0.75rem' }}>
@@ -771,14 +854,14 @@ export default function EmployeeHome({ employee }) {
                     Supplies: {daySub.supplies.map(s => `${s.supply_name} ×${s.quantity}`).join(', ')}
                   </div>
                 )}
-                {daySub.from_phone !== 'mobile-app' && (daySub.raw_messages || []).length > 0 && (
+                {(daySub.raw_messages || []).length > 0 && (daySub.from_phone !== 'mobile-app' || daySub.raw_messages.some(m => m.direction === 'out')) && (
                   // Everything a guy texts in should stay visible to him, even when it
                   // didn't turn into a job entry or note (skipped/garbled parses, a
                   // "no job entries" save, etc.) — same conversation Niki sees in SMS
                   // Review, so nothing he sent looks like it just vanished.
                   <details style={{ marginTop: '0.4rem' }}>
                     <summary style={{ cursor: 'pointer', color: '#888', fontSize: '0.82rem' }}>
-                      What I texted ({daySub.raw_messages.length})
+                      {daySub.from_phone === 'mobile-app' ? 'Messages with the office' : 'What I texted'} ({daySub.raw_messages.length})
                     </summary>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', marginTop: '0.4rem' }}>
                       {daySub.raw_messages.map((m, i) => (

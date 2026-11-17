@@ -305,3 +305,37 @@
   cursor: pointer;
   text-decoration: underline;
 }
+
+/* Office waiting on the tech — a note from SMS Review or a sent-back day.
+   Deliberately loud: these used to be missed and chased by personal text. */
+.emp-office-banner {
+  background: #c62828;
+  color: #fff;
+  border-radius: 10px;
+  padding: 0.85rem 0.9rem;
+  margin-bottom: 0.9rem;
+  box-shadow: 0 2px 6px rgba(198, 40, 40, 0.35);
+}
+.emp-office-banner-title { font-weight: 800; font-size: 1.05rem; margin-bottom: 0.5rem; }
+.emp-office-banner-item {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 0.15rem;
+  width: 100%; text-align: left; cursor: pointer;
+  background: #fff; color: #222; border: none; border-radius: 8px;
+  padding: 0.6rem 0.7rem; margin-top: 0.45rem; font: inherit;
+}
+.emp-office-banner-day { font-weight: 700; color: #c62828; font-size: 0.9rem; }
+.emp-office-banner-text { font-size: 0.9rem; white-space: pre-line; }
+.emp-office-banner-go { font-weight: 700; color: #0066cc; font-size: 0.85rem; margin-top: 0.15rem; }
+
+.emp-card-office-waiting { border: 2px solid #c62828; }
+.emp-office-note {
+  background: #fdecea;
+  border: 1px solid #f3b3ab;
+  border-radius: 8px;
+  padding: 0.7rem 0.8rem;
+  margin-bottom: 0.8rem;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 0.5rem;
+}
+.emp-office-note-title { font-weight: 800; color: #c62828; }
+.emp-office-note-text { font-size: 0.95rem; color: #222; white-space: pre-line; }
+.emp-office-note-reply { width: 100%; }
