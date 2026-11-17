@@ -521,7 +521,7 @@ export default function EmployeeHome({ employee }) {
                   </div>
                 </div>
                 {amPmNote && <div className="emp-ampm-note">{amPmNote}</div>}
-                {!draftShift.time_out && draftLines.some(l => Number(l.hours) > 0) && (
+                {!draftShift.time_out && [...(baseEntriesRef.current[ymd] || []), ...draftLines].some(l => Number(l.hours) > 0) && (
                   <div className="emp-ampm-note">Time out is missing. Fill it in — the office can't approve this day without it.</div>
                 )}
                 <div className="emp-row-2">
