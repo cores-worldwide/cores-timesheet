@@ -13,7 +13,8 @@
     "clock-out": "node scripts/timelog.mjs out",
     "test:sms": "node scripts/test-sms.mjs",
     "test:cores-schema": "node scripts/test-cores-schema.mjs",
-    "test:scan-report": "node scripts/test-xlsx-fill.mjs"
+    "test:scan-report": "node scripts/test-xlsx-fill.mjs",
+    "test:day-off": "node --test scripts/test-day-off.mjs"
   },
   "keywords": [
     "timesheet",
