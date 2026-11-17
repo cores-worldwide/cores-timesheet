@@ -1658,8 +1658,16 @@ Deno.serve(async (req: Request) => {
       .from('sms_submissions').select('id')
       .eq('employee_id', employeeId).eq('work_date', today).eq('is_day_off', true)
       .in('status', ['submitted', 'collecting']).limit(1)
+    // Worked hours already approved today: a day off would pay per diem twice.
+    const { data: workedRows } = await supabase
+      .from('timesheet_entries').select('hours, is_day_off, is_stat_pay')
+      .eq('employee_id', employeeId).eq('work_date', today)
+    const workedHours = (workedRows || []).filter((e: any) => !e.is_day_off && !e.is_stat_pay)
+      .reduce((t: number, e: any) => t + (Number(e.hours) || 0), 0)
     let r: string
-    if (existingApproved && existingApproved.length > 0) {
+    if (workedHours > 0) {
+      r = `You already have ${workedHours} hours approved for ${friendlyDate(today)}, so it can't be a day off. Contact the office if that's wrong.`
+    } else if (existingApproved && existingApproved.length > 0) {
       r = `Already marked ${friendlyDate(today)} as a day off${employeeName ? ', ' + employeeName.split(' ')[0] : ''}.`
     } else if (existingPending && existingPending.length > 0) {
       r = `Already sent that in — the office still needs to approve ${friendlyDate(today)} as a day off.`

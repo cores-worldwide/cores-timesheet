@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
+import { dayOffResendPatch } from '../utils/dayOff'
 import { payWeekRange } from '../utils/statPay'
 import { computeOTMap } from '../utils/otCalc'
 import { fmtHours } from '../utils/format'
@@ -251,7 +252,7 @@ export default function EmployeeHome({ employee }) {
       .order('updated_at', { ascending: false }).limit(1).maybeSingle()
     const { error } = existing
       ? await supabase.schema('Cores').from('sms_submissions')
-          .update({ status: 'submitted', per_diem_location: pdLocation, updated_at: new Date().toISOString() }).eq('id', existing.id)
+          .update({ ...dayOffResendPatch(pdLocation), updated_at: new Date().toISOString() }).eq('id', existing.id)
       : await supabase.schema('Cores').from('sms_submissions').insert({
           from_phone: 'mobile-app', employee_id: employee.id, work_date: ymd,
           entries: [], status: 'submitted', is_day_off: true, per_diem_location: pdLocation,
@@ -731,7 +732,7 @@ export default function EmployeeHome({ employee }) {
             ) : daySub?.is_day_off && daySub.status !== 'rejected' ? (
               // No fields to reopen for a day-off request — nothing tappable,
               // just a status line until the office approves or declines it.
-              <div className="emp-hint" style={{ marginBottom: '0.6rem' }}>⏳ Day off — sent to the office for approval{daySub.per_diem_location && daySub.per_diem_location !== 'none' ? ` · PD: ${daySub.per_diem_location}` : ''}</div>
+              <div className="emp-hint" style={{ marginBottom: '0.6rem' }}>⏳ Day off — sent to the office for approval{daySub.per_diem_location && !['none', 'Office entry'].includes(daySub.per_diem_location) ? ` · PD: ${daySub.per_diem_location}` : ''}</div>
             ) : dayEntries.length > 0 ? (
               // Already approved, no pending sub (submissions excludes
               // status='approved') — the "+ Add Job Info" button below is

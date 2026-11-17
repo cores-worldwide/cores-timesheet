@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { dayOffSubmissionRow, dayOffConflict } from '../src/utils/dayOff.js'
+import { dayOffSubmissionRow, dayOffConflict, workDayConflict, dayOffResendPatch } from '../src/utils/dayOff.js'
 
 test('office day off: row goes to SMS Review with the chosen per diem', () => {
   assert.deepEqual(
@@ -64,4 +64,15 @@ test('text: anything else after "day off" is not this rule', () => {
   for (const m of ['day off tomorrow', 'day off friday pd', 'taking a day off', 'day off yesterday with pd', 'day offshore 4760 8hrs']) {
     assert.equal(parseDayOffText(m), null, m)
   }
+})
+
+// ── Review fixes: never pay per diem twice on one day ──
+test('work approval is blocked by an approved day off on that date', () => {
+  assert.match(workDayConflict({ approvedEntries: [{ hours: '0', is_day_off: true }] }), /already approved as a day off/)
+  assert.equal(workDayConflict({ approvedEntries: [{ hours: '8', is_day_off: false }] }), null)
+  assert.equal(workDayConflict({ approvedEntries: [] }), null)
+})
+test('re-sending a day off from the app clears any old per diem', () => {
+  assert.deepEqual(dayOffResendPatch('none'), { status: 'submitted', per_diem_location: 'none', per_diem: null })
+  assert.deepEqual(dayOffResendPatch('Halifax'), { status: 'submitted', per_diem_location: 'Halifax', per_diem: null })
 })

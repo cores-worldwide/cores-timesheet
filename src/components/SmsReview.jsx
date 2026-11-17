@@ -4,6 +4,7 @@ import { ensureStatPay } from '../utils/statPay'
 import { fmtHours } from '../utils/format'
 import { approvalBlockers, jobNumberBlockers, jobNumberState, logBlockedApproval } from '../utils/entrySave'
 import { looksLikeSameSupply } from '../utils/supplyMatch'
+import { dayOffConflict, workDayConflict } from '../utils/dayOff'
 import MultiSelectDropdown from './MultiSelectDropdown'
 import PersonPicker from './PersonPicker'
 import { getAdminName } from './PasswordGate'
@@ -259,6 +260,21 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
   // ── Approve ───────────────────────────────────────────────────────────────
   async function approve(sub) {
     const entries = sub.entries || []
+    // A day off and worked hours on the same date would pay per diem twice
+    // (2026-11-17), whichever is approved second is refused.
+    if (!sub.is_stat_grant) {
+      const { data: approvedEntries, error: dayErr } = await supabase.schema('Cores').from('timesheet_entries')
+        .select('hours, is_day_off, is_stat_pay').eq('employee_id', sub.employee_id).eq('work_date', sub.work_date)
+      if (dayErr) { alert(`Couldn't check that day: ${dayErr.message}`); return }
+      const conflict = sub.is_day_off
+        ? dayOffConflict({ approvedEntries: approvedEntries || [] })
+        : workDayConflict({ approvedEntries: approvedEntries || [] })
+      if (conflict) {
+        logBlockedApproval(supabase, sub, [conflict], getAdminName())
+        alert(`Can't approve yet:\n\n• ${conflict}`)
+        return
+      }
+    }
     // Texted supplies that match a line the SMS bot already added from a photo
     // (applied_by 'Auto (photo)'). A photo of one can often means two were used,
     // so on approve the photo line is raised to the texted quantity instead of a

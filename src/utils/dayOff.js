@@ -34,3 +34,20 @@ export function dayOffConflict({ approvedEntries = [], pendingDayOff = false }) 
   if (pendingDayOff) return 'A day off for that date is already waiting in SMS Review.'
   return null
 }
+
+// Why work hours can't be approved for this date, or null if they can: an
+// approved day off already carries that day's per diem, so approving work on
+// top would pay it twice (review finding, 2026-11-17).
+export function workDayConflict({ approvedEntries = [] }) {
+  if (approvedEntries.some(e => e.is_day_off)) {
+    return "That date is already approved as a day off. Send the day off back from the Timesheets tab first if they actually worked."
+  }
+  return null
+}
+
+// Update for a tech re-sending a day off on a reused (e.g. rejected) row.
+// per_diem is cleared so an amount the office set on the old request isn't
+// silently carried over; the tech's new claim decides it again.
+export function dayOffResendPatch(perDiemLocation) {
+  return { status: 'submitted', per_diem_location: perDiemLocation, per_diem: null }
+}

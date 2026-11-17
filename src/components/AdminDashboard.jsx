@@ -1567,7 +1567,7 @@ export default function AdminDashboard() {
               <div style={{ gridColumn: '1 / -1' }}>
                 <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.9rem', color: '#333', cursor: 'pointer' }}>
                   <input type="checkbox" checked={!!manualFields.is_day_off} onChange={e => setManualFields(f => ({ ...f, is_day_off: e.target.checked }))} />
-                  <span><strong>Day off</strong> (no work — per diem only)</span>
+                  <span><strong>Day off</strong> (no work — per diem?)</span>
                 </label>
               </div>
               {!manualFields.is_day_off && (<>
