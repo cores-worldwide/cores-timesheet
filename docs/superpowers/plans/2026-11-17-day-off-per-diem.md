@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Let Niki mark a day off for a tech (with per diem) from the Timesheets tab, set per diem on any day-off request in SMS Review, and have Approve Day Off save that per diem.
+**Goal:** Let techs (app and text) and Niki (Timesheets tab) mark a day off with per diem, let Niki set/adjust per diem on any day-off card in SMS Review, and have Approve Day Off save it.
 
 **Architecture:** Office day offs are `sms_submissions` rows (`is_day_off = true`, no entries) created by a new helper beside `submitManualEntry`, so they go through SMS Review like every office entry. The day-off card gets a per diem dropdown that writes `sms_submissions.per_diem`; approval reads it through the existing `dayPerDiem(sub)` resolver.
 
@@ -13,7 +13,8 @@
 ## Global Constraints
 
 - Per diem choices exactly: None (0), ×0.25 Quarter, ×0.5 Half, ×0.75 Three-Quarter, ×1 Standard. The database CHECK allows only these.
-- No migration, no edge-function/bot change.
+- No migration. One bot change (Task 5), tested on the dev bot; production deploy only from merged main after checking the live bot matches main (CLI deploy, never via MCP).
+- A tech's claim is always ×1 (no fractions parsed from techs).
 - Day off only via an explicit "Day off" choice; a blank day never gets per diem.
 - Office day offs land in SMS Review as `submitted`; nothing writes `timesheet_entries` except Approve.
 - All testing on the dev database (`.env.development.local`, green DEV banner) using Jim's dev record `de935e6c-8d7f-435c-8620-ee09e5e4acae`; remove test rows after.
@@ -80,7 +81,25 @@
 - [ ] **Step 5: Verify the existing edit box:** open the approved day-off row in Timesheets → change PD to ×0.5 → save succeeds and shows ×0.5. If it fails, fix in `saveEdit` and note it in the commit.
 - [ ] **Step 6: Commit** `src/components/AdminDashboard.jsx` — "Timesheets: office can add a day off with per diem".
 
-### Task 4: Clean up and hand over
+### Task 5: Techs claim per diem on their own day off (app + text)
+
+**Files:**
+- Create: `supabase/functions/sms-timesheet/dayOff.js` (pure, importable by the bot and by `node:test`, like `entries.js`)
+- Modify: `supabase/functions/sms-timesheet/index.ts` (day-off branch ~line 1648)
+- Modify: `src/employee/EmployeeHome.jsx` (`markDayOff` ~line 239, day-off hint ~line 726, Day Off button ~line 768)
+- Test: `scripts/test-day-off.mjs`
+
+**Interfaces:**
+- Produces: `parseDayOffText(msgLower: string) -> null | { perDiemLocation: string }` — `null` = not this rule (fall through to today's handling); `perDiemLocation` is `'none'` or the claimed place / `'PD claimed'`.
+
+- [ ] **Step 1: Failing tests** for `parseDayOffText`: `'day off'` → `{perDiemLocation:'none'}`; `'day off pd'`, `'day off, per diem'`, `'day off p.d.'` → `'PD claimed'`; `'day off pd lisbon'` → `'lisbon'` (bot keeps original casing — see Step 3); `'day off hotel in lisbon'` → `'hotel in lisbon'`; `'day off no pd'`, `'day off no per diem'` → `'none'`; `'day off tomorrow'`, `'day off friday pd'`, `'taking a day off'` → `null`. Rule: after `day off` + optional punctuation, the rest must be empty, a no-PD phrase, or start with `pd`/`p.d.`/`per diem`/`hotel`/`staying`; a date word (today/tomorrow/yesterday/weekday names) anywhere → `null`.
+- [ ] **Step 2: Run** `node --test scripts/test-day-off.mjs` — FAIL.
+- [ ] **Step 3: Implement** `parseDayOffText`; bot calls it on `msgLower` but takes the place text from `msgBody` at the same offset so "Lisbon" keeps its capital. Replace the exact `msgLower === 'day off'` test with `parseDayOffText(msgLower)` (same media/employee guards); insert `per_diem_location`; reply appends ", with per diem" when not `'none'`. Run tests — PASS.
+- [ ] **Step 4: App.** Day Off button opens an inline box on that day card (no `confirm()`): "Per diem?" text input (placeholder `"none" or hotel / city`) + **Send day off** + Cancel. `markDayOff(ymd, perDiemLocation)` writes `per_diem_location` (`trim() || 'none'`) on insert and on the existing-row update. Pending day-off hint shows `· PD: <place>` when not none.
+- [ ] **Step 5: Verify on dev:** deploy bot to dev (`supabase functions deploy sms-timesheet --project-ref giwexoouqxioxkjhoxoe --no-verify-jwt`); POST `{from_phone, body}` for Jim's dev phone: `day off pd Lisbon` → reply mentions per diem, row has `per_diem_location='Lisbon'`, SMS Review card shows ×1; `day off` → none; `day off tomorrow` → not a day off row. App: Day Off with "Halifax" → card shows ×1 + Halifax; approve → PD 1. `npm run build` passes.
+- [ ] **Step 6: Commit** — "Techs can claim per diem on their day off".
+
+### Task 4 (last): Clean up and hand over
 
 - [ ] **Step 1:** Delete every dev test row (submissions and timesheet_entries for Jim's dev record on the test dates); confirm 0 left with a psql count.
 - [ ] **Step 2:** Leave the dev app running for Jim's check; give him the URL and what to try.
