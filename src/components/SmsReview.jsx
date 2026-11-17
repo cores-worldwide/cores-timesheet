@@ -912,7 +912,12 @@ export default function SmsReview({ onApproved, initialFilter = 'submitted' } = 
                 {!sub.is_day_off && !sub.is_stat_grant && (
                   <div style={{ display: 'flex', gap: '1.5rem', marginBottom: '0.75rem', fontSize: '0.9rem', flexWrap: 'wrap' }}>
                     <span><strong>In:</strong> {fmt12(sub.time_in)}</span>
-                    <span><strong>Out:</strong> {fmt12(sub.stated_time_out || sub.calculated_time_out)}</span>
+                    {/* Never show the worked-out finish time as if the tech gave it —
+                        approval needs a real stop time, and a filled-in "Out" made a
+                        blank one look present (Brett, Nov 12–16 2026). */}
+                    {sub.stated_time_out
+                      ? <span><strong>Out:</strong> {fmt12(sub.stated_time_out)}</span>
+                      : <span style={{ color: '#c00', fontWeight: 600 }}><strong>Out:</strong> — not entered{sub.calculated_time_out ? ` (hours work out to ${fmt12(sub.calculated_time_out)})` : ''}</span>}
                     <span><strong>Lunch:</strong> {sub.lunch_minutes != null ? (sub.lunch_minutes === 0 ? 'None' : `${sub.lunch_minutes}min`) : '?'}</span>
                     {sub.delta_minutes != null && Math.abs(sub.delta_minutes) > 0 && (
                       <span style={{ color: Math.abs(sub.delta_minutes) > 15 ? '#c00' : '#888' }}>
