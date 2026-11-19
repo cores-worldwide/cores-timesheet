@@ -153,7 +153,7 @@ export default function PendingEntryEdit({ employee }) {
       pending_questions: [],
       // Editing it yourself answers whatever the bot was waiting on, and if the
       // office had declined it, fixing it up puts it back in front of them.
-      status: sub.status === 'approved' ? sub.status : 'submitted',
+      status: 'submitted',
       updated_at: new Date().toISOString(),
     }
 
@@ -171,18 +171,24 @@ export default function PendingEntryEdit({ employee }) {
       }
     }
 
-    const { error: err } = await supabase.schema('Cores').from('sms_submissions')
-      .update(updates).eq('id', sub.id).eq('employee_id', employee.id)
+    // Refused if the office approved it while this screen was open (see
+    // persistLog in EmployeeHome) — show the locked notice instead.
+    const { data: saved, error: err } = await supabase.schema('Cores').from('sms_submissions')
+      .update(updates).eq('id', sub.id).eq('employee_id', employee.id).neq('status', 'approved')
+      .select('id')
     if (err) { setError(err.message); setSaving(false); return }
+    if (!saved || saved.length === 0) { setError('locked'); setSaving(false); return }
     setSaving(false)
     navigate('..')
   }
 
   async function discard() {
     setSaving(true)
-    const { error: err } = await supabase.schema('Cores').from('sms_submissions')
-      .delete().eq('id', sub.id).eq('employee_id', employee.id)
+    const { data: deleted, error: err } = await supabase.schema('Cores').from('sms_submissions')
+      .delete().eq('id', sub.id).eq('employee_id', employee.id).neq('status', 'approved')
+      .select('id')
     if (err) { setError(err.message); setSaving(false); return }
+    if (!deleted || deleted.length === 0) { setError('locked'); setSaving(false); return }
     navigate('..')
   }
 
