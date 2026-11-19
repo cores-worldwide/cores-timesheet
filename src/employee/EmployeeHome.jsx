@@ -252,7 +252,7 @@ export default function EmployeeHome({ employee }) {
       .order('updated_at', { ascending: false }).limit(1).maybeSingle()
     const { error } = existing
       ? await supabase.schema('Cores').from('sms_submissions')
-          .update({ ...dayOffResendPatch(pdLocation), updated_at: new Date().toISOString() }).eq('id', existing.id)
+          .update({ ...dayOffResendPatch(pdLocation), updated_at: new Date().toISOString() }).eq('id', existing.id).neq('status', 'approved')
       : await supabase.schema('Cores').from('sms_submissions').insert({
           from_phone: 'mobile-app', employee_id: employee.id, work_date: ymd,
           entries: [], status: 'submitted', is_day_off: true, per_diem_location: pdLocation,
@@ -280,7 +280,7 @@ export default function EmployeeHome({ employee }) {
     const { data: sub } = await supabase.schema('Cores').from('sms_submissions')
       .select('time_in, stated_time_out, lunch_minutes, per_diem_location, entries, supplies, raw_messages, status')
       .eq('id', id).single()
-    if (!sub) return
+    if (!sub || sub.status === 'approved') return
 
     const parts = []
     if (sub.time_in) parts.push(`In ${fmtTimeShort(sub.time_in)}`)
@@ -304,11 +304,26 @@ export default function EmployeeHome({ employee }) {
       .eq('id', id)
   }
 
+  // The office approved this day while the editor was open, so the save
+  // above was refused. Close the editor and say so. The day's id stays
+  // cached, so nothing later inserts a second copy of the day.
+  function lockedDayClosed(ymd) {
+    if (logFor === ymd) {
+      setLogFor(null)
+      setDraftLines([blankDraftLine()])
+      setSupplyLines([blankSupplyLine()])
+      setPhotoFor(null)
+      setPhotoJobId('')
+    }
+    setError(`The office already approved ${shortDate(ymd)}, so that change wasn't saved. Ask the office if something needs fixing.`)
+  }
+
   async function closeLog() {
     setClosingLog(true)
     if (logFor) {
-      if (!await autosaveLog(logFor)) { setClosingLog(false); return }
-      await logActivitySnapshot(logFor)
+      const ymd = logFor
+      if (!await autosaveLog(ymd)) { setClosingLog(false); return }
+      await logActivitySnapshot(ymd)
     }
     setLogFor(null)
     setDraftLines([blankDraftLine()])
@@ -410,10 +425,22 @@ export default function EmployeeHome({ employee }) {
       // or "Submit day" step any more (Niki was confused by days techs had to
       // submit as an extra step, 2026-09-29). Each save updates the same
       // pending row in SMS Review; reopening a rejected day to fix it resends it.
-      const { error: err } = await supabase.schema('Cores').from('sms_submissions')
+      // Never touches a day the office has already approved. If the editor
+      // was still open when Niki approved it, an unguarded save here flipped
+      // the approved day back to 'submitted': she saw it again in SMS Review
+      // next to the hours already in Timesheets, rejected it as a duplicate,
+      // and it vanished from SMS Review's Approved list while still being paid
+      // (Nicolae, Nov 17, found 2026-11-19).
+      const { data: saved, error: err } = await supabase.schema('Cores').from('sms_submissions')
         .update({ time_in, stated_time_out, lunch_minutes, per_diem_location, entries, supplies: cleanedSupplies, calculated_time_out, delta_minutes, status: 'submitted', updated_at: new Date().toISOString() })
-        .eq('id', id)
+        .eq('id', id).neq('status', 'approved')
+        .select('id')
       if (err) { setError(err.message); return false }
+      if (!saved || saved.length === 0) {
+        lockedDayClosed(ymd)
+        await load({ silent: true })
+        return true
+      }
       await load({ silent: true })
       return true
     } catch (e) {
@@ -461,7 +488,7 @@ export default function EmployeeHome({ employee }) {
       const emptyAfter = !text && daySub.from_phone === 'mobile-app' && !(daySub.entries || []).length
         && !(daySub.supplies || []).length && !(daySub.raw_messages || []).length
       const { error: err } = emptyAfter
-        ? await supabase.schema('Cores').from('sms_submissions').delete().eq('id', daySub.id).eq('employee_id', employee.id)
+        ? await supabase.schema('Cores').from('sms_submissions').delete().eq('id', daySub.id).eq('employee_id', employee.id).neq('status', 'approved')
         : await supabase.schema('Cores').from('sms_submissions')
           .update({ admin_note: text || null, updated_at: new Date().toISOString() }).eq('id', daySub.id)
       if (err) { setError(err.message); setSavingNote(false); return }
