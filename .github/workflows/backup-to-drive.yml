@@ -9,6 +9,9 @@ name: Backup to Google Drive
 #                              for humans with a photo-index.csv — copy/move
 #                              only, never deleted here even if deleted in
 #                              the app (see scripts/backup-gear-photos.mjs)
+#   Cores Backups/job-files/   every file in the private job-files bucket, by
+#                              job, with a file-index.csv — copy only, never
+#                              deleted here (see scripts/backup-job-files.mjs)
 #
 # Google Drive access is an rclone OAuth token with the drive.file scope, so it
 # can only see files it created itself. Made once with `rclone authorize
@@ -134,6 +137,23 @@ jobs:
           # copy, never sync — sync would mirror deletions into the backup.
           rclone copy out/gear-photos "$DRIVE_ROOT/gear-photos" --no-traverse
 
+      # ── Job Files ───────────────────────────────────────────────────────
+      # Runs even if the photo step failed, and copies what it fetched before
+      # reporting any failure, so one bad file can't hold back the others.
+      - name: Copy new job-files files (laid out by job)
+        if: ${{ !cancelled() }}
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        run: |
+          rclone lsf -R --files-only "$DRIVE_ROOT/job-files" > job-files-listing.txt 2>/dev/null || true
+          rclone cat "$DRIVE_ROOT/job-files/file-index.csv" > job-files-prev-index.csv 2>/dev/null || true
+          status=0
+          node scripts/backup-job-files.mjs job-files-listing.txt job-files-prev-index.csv out/job-files || status=$?
+          # copy, never sync — sync would mirror deletions into the backup.
+          if [ -d out/job-files ]; then rclone copy out/job-files "$DRIVE_ROOT/job-files" --no-traverse; fi
+          exit "$status"
+
       - name: Record outcome (measured from Drive)
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
@@ -142,10 +162,12 @@ jobs:
           daily=$(rclone size --json "$DRIVE_ROOT/db/daily")
           monthly=$(rclone size --json "$DRIVE_ROOT/db/monthly" 2>/dev/null || echo '{"count":0,"bytes":0}')
           photos=$(rclone size --json "$DRIVE_ROOT/gear-photos")
+          jobfiles=$(rclone size --json "$DRIVE_ROOT/job-files")
           today=$(rclone lsf "$DRIVE_ROOT/db/daily" | grep -c "supabase_$(date -u +%Y%m%d).sql.gz" || true)
-          details=$(jq -cn --argjson d "$daily" --argjson m "$monthly" --argjson p "$photos" --argjson t "$today" \
+          details=$(jq -cn --argjson d "$daily" --argjson m "$monthly" --argjson p "$photos" --argjson f "$jobfiles" --argjson t "$today" \
             '{db_daily_count: $d.count, db_daily_bytes: $d.bytes, db_monthly_count: $m.count,
-              gear_photos_count: $p.count, gear_photos_bytes: $p.bytes, todays_dump_present: ($t > 0)}')
+              gear_photos_count: $p.count, gear_photos_bytes: $p.bytes,
+              job_files_count: $f.count, job_files_bytes: $f.bytes, todays_dump_present: ($t > 0)}')
           echo "$details" | jq .
           scripts/log-backup.sh drive-backup true "$details"
           { echo "## Google Drive backup"; echo '```'; echo "$details" | jq .; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
